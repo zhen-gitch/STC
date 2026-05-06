@@ -1,0 +1,4 @@
+# PATH SET
+Image_path : "~/dataset/depression/avec/2014/face_images"
+Label_path : "~/dataset/depression/avec/2014/depression_labels"
+Dataset_split_file : ~/dataset/depression/avec/2014/dataset_split.json
