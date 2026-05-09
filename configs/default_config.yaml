@@ -1,9 +1,36 @@
-# PATH SETTING
-IMAGE_PATH : ~/dataset/depression/avec/2014/face_images
-LABEL_PATH : ~/dataset/depression/avec/2014/depression_labels
-DATASET_SPLIT_FILE : ~/dataset/depression/avec/2014/dataset_split.json
+# ==========================================
+# PATH SETTINGS (路径统一配置，使用引号包裹特殊字符)
+# ==========================================
+IMAGE_DIR: "~/dataset/depression/avec/2014/face_images"
+LABEL_DIR: "~/dataset/depression/avec/2014/depression_labels"
+DATASET_SPLIT_FILE: "~/dataset/depression/avec/2014/dataset_split.json"
+# 统一为一个特征目录，提取和加载都用它
+FEATURES_DIR: "~/dataset/depression/avec/2014/features"
 
-# MODEL SETTING
+# ==========================================
+# HARDWARE & SYSTEM SETTINGS (硬件与系统配置)
+# ==========================================
+NUM_WORKERS: 1
+ACCELERATOR: "gpu"
+DEVICES: [0]           # 如果有多卡，可以写为 [0, 1]
+PRECISION: "16-mixed"
 
-# TRAIN SETTING
-STAGE: feature_extraction # feature_extraction, prediction
+# ==========================================
+# STAGE 1: FEATURES EXTRACTION (特征提取配置)
+# ==========================================
+MODEL_NAME: "resnet18"
+CHUNK_SIZE: 32         # 防 OOM 的微批次大小
+TARGET_EMBED_DIM: 512  # 输出特征维度
+
+# ==========================================
+# STAGE 2: TRAIN SETTINGS (训练与模型超参数)
+# ==========================================
+MAX_SEQ_LEN: 2000      # 截断/填充的最大帧数
+BATCH_SIZE: 8          # 时序网络训练时的批次大小
+
+# ==========================================
+# BASE SETTINGS (硬件与系统配置)
+# ==========================================
+LEARNING_RATE: 0.0001
+MAX_EPOCHS: 50
+WEIGHT_DECAY: 0.00001

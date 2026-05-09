@@ -7,6 +7,9 @@ import torchvision.models as models
 from tqdm import tqdm  # 进度条神器
 from src.datasets.dataset import AVECDataset
 
+device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+
+
 def extract_and_save_features(configs, dataset_name, mode):
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
@@ -25,7 +28,7 @@ def extract_and_save_features(configs, dataset_name, mode):
     os.makedirs(save_dir, exist_ok=True)
 
     # 防 OOM 的微批次大小 (如果显存大可以设为 128，显存小设为 32)
-    chunk_size = 64
+    chunk_size = 32
 
     print("🚀 开始提取特征...")
     with torch.no_grad():  # ⚠️ 极其重要：不计算梯度，省下 70% 显存
@@ -64,6 +67,12 @@ def extract_and_save_features(configs, dataset_name, mode):
             torch.save(final_video_feature, save_path)
 
     print("✅ 所有视频特征提取完毕！")
+
+
+
+    """
+    记得检查是不是所有样本的所有特征都在
+    """
 
 
 if __name__ == "__main__":
