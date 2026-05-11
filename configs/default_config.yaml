@@ -6,6 +6,7 @@ LABEL_DIR: "~/dataset/depression/avec/2014/depression_labels"
 DATASET_SPLIT_FILE: "~/dataset/depression/avec/2014/dataset_split.json"
 # 统一为一个特征目录，提取和加载都用它
 FEATURES_DIR: "~/dataset/depression/avec/2014/features"
+LOG_DIR: "/mnt/d/project/paperwork/stc/logs"
 
 # ==========================================
 # HARDWARE & SYSTEM SETTINGS (硬件与系统配置)

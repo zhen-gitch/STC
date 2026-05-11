@@ -6,7 +6,7 @@
 import torch
 torch.set_float32_matmul_precision('medium')
 
-from src.models.stage1 import run_features_extractor
+from src.models.extract_features import run_features_extractor
 from src.paths import *
 from omegaconf import OmegaConf
 

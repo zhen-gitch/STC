@@ -15,6 +15,7 @@ import timm
 import torch
 from src.datasets.dataset import AVECDataModule
 from pytorch_lightning.callbacks import RichProgressBar
+from pytorch_lightning.loggers import CSVLogger, TensorBoardLogger
 
 
 def feature_extractor_model(model_name:str):
@@ -78,6 +79,8 @@ class FeatureExtractor(pl.LightningModule):
         if batch_idx == 0:
             print(f"\n✨ [INFO CHANGE] GETTING【{current_dataset_name.upper()}】DATASET FEATURES，PLEASE WAIT...")
 
+        print(f"\n[处理中] 正在提取 {current_dataset_name.upper()} - {video_id} (长度: {video_tensor.size(0)} 帧)")
+
         seq_len = video_tensor.size(0)
         feature_list = []
 
@@ -92,6 +95,10 @@ class FeatureExtractor(pl.LightningModule):
             # 放回 CPU，防止 GPU 显存占用
             feature_list.append(features.cpu())
 
+            # 主动释放资源
+            del chunk
+            del features
+
         # 将所有属于一个样本的特征进行拼接
         sample_feature = torch.cat(feature_list, dim=0)
 
@@ -101,6 +108,9 @@ class FeatureExtractor(pl.LightningModule):
         save_path = save_path.joinpath(f"{video_id}.pt")
 
         torch.save(sample_feature, save_path)
+
+        # 主动释放资源
+        del video_tensor
 
         # 返回地址，用于日志打印
         return save_path
@@ -114,7 +124,8 @@ def run_features_extractor(configs):
         accelerator=configs.ACCELERATOR,
         devices=configs.DEVICES,
         precision=configs.PRECISION,
-        callbacks=[RichProgressBar()]
+        callbacks=[RichProgressBar()],
+        logger=[CSVLogger(configs.LOG_DIR), TensorBoardLogger(configs.LOG_DIR)],
     )
 
     trainer.predict(feature_extractor, datamodule=data_module)
