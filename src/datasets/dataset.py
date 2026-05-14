@@ -59,8 +59,8 @@ class AVECDataset(Dataset):
             v2.Resize((224, 224), antialias=True),
             v2.ToImage(),
             v2.ToDtype(torch.float32, scale=True),
-            v2.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]
-                         )
+            # v2.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]),  # ImageNet 归一化
+            v2.Normalize(mean=[0.5, 0.5, 0.5], std=[0.5, 0.5, 0.5]),    # InsightFace 归一化
         ])
 
 
@@ -125,11 +125,17 @@ class FeatureDataset(Dataset):
     def __init__(self, configs, dataset):
         super(FeatureDataset, self).__init__()
         self.cfgs = configs
-        self.MAX_SEQ_LEN = self.cfgs.MAX_SEQ_LEN
-        self.FEATURES_DIR = self.cfgs.FEATURES_DIR
-        self.LABELS_DIR = self.cfgs.LABEL_DIR
-        self.FEATURES_FOLDER_PATH = Path(self.FEATURES_DIR).joinpath(dataset).expanduser().resolve()
+        self.MAX_SEQ_LEN = configs.MAX_SEQ_LEN
+        self.FEATURES_DIR = configs.FEATURES_DIR
+        self.step = configs.CLASS_STEP
+        model_name = configs.MODEL_NAME
+
+        self.LABELS_DIR = configs.LABEL_DIR
+        self.FEATURES_FOLDER_PATH = Path(self.FEATURES_DIR).joinpath(model_name, dataset).expanduser().resolve()
+        if not self.FEATURES_FOLDER_PATH.exists():
+            raise FileNotFoundError(f"Features folder not found: {self.FEATURES_FOLDER_PATH}")
         self.data_list = os.listdir(self.FEATURES_FOLDER_PATH)
+        self.data_list = [f for f in self.data_list if f.endswith('.pt')]
 
     def __len__(self):
         length = len(self.data_list)
@@ -141,7 +147,7 @@ class FeatureDataset(Dataset):
         match_id = video_id[0:5]    # 通过编号查找匹配样本编号
 
         # 提取 bdi-ii 分数
-        with open(Path(self.LABELS_PATH + '/' + match_id + '_Depression.csv').expanduser().resolve(), 'r') as f:
+        with open(Path(self.LABELS_DIR + '/' + match_id + '_Depression.csv').expanduser().resolve(), 'r') as f:
             label = f.read()
             label = int(label)
 
@@ -152,6 +158,10 @@ class FeatureDataset(Dataset):
         embed_dim = feature.shape[1]
 
         # 序列长度对齐与掩码生成 (Padding & Masking)
+        # 序列长度对齐策略：
+        # 截断模式，直接截断多余的帧数
+        # 降采样模式，间隔一定帧数采样构建新序列再输入
+        # 使用降采样模式时，如果进行时序处理应注意降采样前后的序列时序粒度并不统一，可能会对时需处理产生影响
         if actual_len > self.MAX_SEQ_LEN:
             # 序列过长，截取最大长度
             padded_features = feature[:self.MAX_SEQ_LEN, :]
@@ -173,7 +183,7 @@ class FeatureDataset(Dataset):
         # 分类标签生成
         # 定义每个区间的右边界（不包含该值本身）
         # 对应: 14以下->0, 20以下->1, 29以下->2, 64以下->3, 64及以上->4
-        breakpoints = [14, 20, 29, 64]
+        breakpoints = [score for score in range(self.step, 64, self.step)]
 
         # 实现分类映射
         classes_label = bisect.bisect_right(breakpoints, label)

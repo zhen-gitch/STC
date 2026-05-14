@@ -1,5 +1,5 @@
 """
-# name: src/models/stage1.py
+# file: src/models/stage1.py
 # author:
 # date:
 # description:
@@ -13,12 +13,14 @@ from pathlib import Path
 import pytorch_lightning as pl
 import timm
 import torch
+import torch.nn.functional as F
 from src.datasets.dataset import AVECDataModule
+from src.models.base_models.iresnet import iresnet50
 from pytorch_lightning.callbacks import RichProgressBar
 from pytorch_lightning.loggers import CSVLogger, TensorBoardLogger
 
 
-def feature_extractor_model(model_name:str):
+def feature_extractor_model(model_name:str, model_path):
     """
     基于 timm 的特征提取器工厂
     :param model_name:
@@ -26,11 +28,34 @@ def feature_extractor_model(model_name:str):
     """
     try:
         # num_classes=0 ！会自动剥离所有的分类头（fc层），直接返回特征池化层的结果
-        model = timm.create_model(
-            model_name=model_name,
-            pretrained=True,
-            num_classes=0) # 自动剥离所有的分类头（fc层），直接返回特征池化层的结果
+        # model = timm.create_model(
+        #     model_name=model_name,
+        #     pretrained=True,
+        #     num_classes=0) # 自动剥离所有的分类头（fc层），直接返回特征池化层的结果
+        model = iresnet50()   # IngishtFace 模型
+        weight_path = model_path
+        if weight_path and os.path.exists(weight_path):
+            # 1. 读入字典
+            state_dict = torch.load(weight_path, map_location='cpu')
+
+            # 2. 如果作者保存了整个检查点，提取其中的 state_dict
+            if 'state_dict' in state_dict:
+                state_dict = state_dict['state_dict']
+
+            # 3. ⭐️ 核心魔法：强行剥离可能存在的多卡前缀 'module.'
+            new_state_dict = {}
+            for k, v in state_dict.items():
+                new_key = k.replace('module.', '')
+                new_state_dict[new_key] = v
+
+            # 4. 灌入权重，strict=False 防止细微的结构差异导致崩溃
+            model.load_state_dict(new_state_dict, strict=False)
+            print("✅ 成功加载 InsightFace (ArcFace) 预训练权重！")
+        else:
+            print(f"❌ [WARNING] 找不到 InsightFace 权重文件: {weight_path}")
+
         return model
+
     except RuntimeError as e:
         # 网络或者底层的报错直接抛出
         raise e
@@ -44,12 +69,14 @@ class FeatureExtractor(pl.LightningModule):
         super().__init__()
         self.cfgs = configs
         self.model_name = configs.MODEL_NAME
-        self.target_embed_dim = configs.TARGET_EMBED_DIM
+        self.target_embed_dim = configs.TARGET_DIM
         self.chunk_size = configs.CHUNK_SIZE
         self.save_dir = Path(configs.FEATURES_DIR).expanduser().resolve()
         os.makedirs(self.save_dir, exist_ok=True)
         # 实例化模型
-        self.model = feature_extractor_model(self.model_name)
+        model_path = "/mnt/d/project/paperwork/stc/weights/ArcFace_iResNet50_CASIA_FaceV5.pth"
+        self.model = feature_extractor_model(self.model_name, model_path)
+        self.model.eval()
         # 不论模型原生特征维度是多少都保存，在特征加载时进行映射处理操作
 
 
@@ -88,6 +115,8 @@ class FeatureExtractor(pl.LightningModule):
         for start_idx in range(0, seq_len, self.chunk_size):
             end_idx = min(start_idx + self.chunk_size, seq_len)
             chunk = video_tensor[start_idx:end_idx] # [self.chunk_size, 3, 224, 224]
+
+            chunk = F.interpolate(chunk, size=(112, 112), mode='bilinear', align_corners=False)
 
             # 特征提取
             features = self(chunk)

@@ -11,27 +11,37 @@ LOG_DIR: "/mnt/d/project/paperwork/stc/logs"
 # ==========================================
 # HARDWARE & SYSTEM SETTINGS (硬件与系统配置)
 # ==========================================
-NUM_WORKERS: 1
+NUM_WORKERS: 8
 ACCELERATOR: "gpu"
 DEVICES: [0]           # 如果有多卡，可以写为 [0, 1]
-PRECISION: "16-mixed"
+PRECISION: "bf16-mixed" # 计算精度设置
 
 # ==========================================
 # STAGE 1: FEATURES EXTRACTION (特征提取配置)
 # ==========================================
-MODEL_NAME: "resnet18"
-CHUNK_SIZE: 32         # 防 OOM 的微批次大小
-TARGET_EMBED_DIM: 512  # 输出特征维度
+MODEL_NAME: "iresnet50" # 特征提取模型
+CHUNK_SIZE: 16         # 防 OOM 的微批次大小
+TARGET_DIM: 512        # 输出特征维度
 
 # ==========================================
-# STAGE 2: TRAIN SETTINGS (训练与模型超参数)
+# STAGE 2: TEMPORAL SETTINGS (训练与模型超参数)
 # ==========================================
+HIDDEN_DIM: 256         # 时序模型隐藏层维度
+EXPERT_DIM: 256         # 多任务学习专家模型输出维度
+CONTRASTIVE_DIM: 256    # 对比学习嵌入特征维度
 MAX_SEQ_LEN: 2000      # 截断/填充的最大帧数
-BATCH_SIZE: 8          # 时序网络训练时的批次大小
+BATCH_SIZE: 100         # 时序网络训练时的批次大小
+#NUM_CLASSES: 13        # 分类任务类别数
+CLASS_STEP: 5           # 分类任务类别区间长度
+SAMPLE_STEP: 3          # 特征采样步长（即每多少帧取一帧）
+TEMPORAL_MODEL: "transformer" # 时序网络模型
+REG_WEIGHT: 1          # 回归任务损失权重
+CLS_WEIGHT: 1          # 分类任务损失权重
+CON_WEIGHT: 0.1        # 对比学习任务损失权重
 
 # ==========================================
 # BASE SETTINGS (硬件与系统配置)
 # ==========================================
-LEARNING_RATE: 0.0001
-MAX_EPOCHS: 50
+LEARNING_RATE: 0.001
+MAX_EPOCHS: 100
 WEIGHT_DECAY: 0.00001
