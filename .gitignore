@@ -1,0 +1,41 @@
+# Python
+__pycache__/
+*.pyc
+.pytest_cache/
+.ruff_cache/
+
+# Environments
+.venv/
+venv/
+.env
+.env.*
+
+# Local configs
+configs/local_paths.yaml
+configs/*local*.yaml
+
+# Data
+data/
+dataset/
+datasets/
+face_images/
+raw_videos/
+
+# Training artifacts
+logs/
+lightning_logs/
+checkpoints/
+outputs/
+runs/
+wandb/
+mlruns/
+artifacts/
+*.ckpt
+*.pth
+*.pt
+*.onnx
+
+# OS / IDE
+.DS_Store
+.idea/
+.vscode/settings.json
