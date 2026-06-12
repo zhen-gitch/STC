@@ -23,7 +23,7 @@ from src.models.task_heads import get_coral_levels, coral_loss
 from src.utils.adaptive_mask import FineGrainedChannelAdaptiveMask
 from src.utils.decomposition import DeepDecompositionEncoder, TemporalGaussianFilter
 from src.models.mtl_blocks import CGC
-from src.utils.PCGrad import pcgrad_backward
+from src.utils.pcgrad import pcgrad_backward
 from src.utils.label_distribution import compute_bdi_loss_weights
 from src.losses.losses import CrossSubjectContinuousContrastiveLoss
 from src.metrics.metrics import ConcordanceCorrCoefMetric, concordance_ccc_loss
@@ -57,6 +57,7 @@ class EndToEndDepressionModel(pl.LightningModule):
         self.ef_weight_decay = configs.EXTRACT_FEATURE.WEIGHT_DECAY
         self.ef_model_name = configs.EXTRACT_FEATURE.MODEL_NAME
         self.ef_weight_path = configs.EXTRACT_FEATURE.MODEL_WEIGHT_PATH
+        self.timm_pretrained = bool(getattr(configs.EXTRACT_FEATURE, "TIMM_PRETRAINED", True))
 
         self.backbone_base_lr = self.ef_lr
 
@@ -80,7 +81,11 @@ class EndToEndDepressionModel(pl.LightningModule):
         # =================================================
         #  Backbone 特征提取阶段
         # =================================================
-        self.backbone = build_feature_backbone(self.ef_model_name, self.ef_weight_path)
+        self.backbone = build_feature_backbone(
+            model_name=self.ef_model_name,
+            weight_path=self.ef_weight_path,
+            timm_pretrained=self.timm_pretrained,
+        )
 
         # =================================================
         # 时序与多任务头

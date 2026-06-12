@@ -1,0 +1,7 @@
+# Copy this file to configs/local_paths.yaml on each machine.
+# Do not commit configs/local_paths.yaml.
+
+IMAGE_DIR: "/path/to/AVEC2014/face_images"
+LABEL_DIR: "/path/to/AVEC2014/depression_labels"
+DATASET_SPLIT_FILE: "/path/to/AVEC2014/dataset_split.json"
+LOG_DIR: "/path/to/experiment/logs"

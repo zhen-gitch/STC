@@ -1,56 +1,115 @@
-"""
-# Author:
-# Date:
-# File:     train.py
-"""
-import torch
+import argparse
 import sys
 import traceback
+from pathlib import Path
 
-# 提示：配置 Tensor Core 加速
-torch.set_float32_matmul_precision('high')
+PROJECT_ROOT = Path(__file__).resolve().parents[1]
+if str(PROJECT_ROOT) not in sys.path:
+    sys.path.insert(0, str(PROJECT_ROOT))
 
-from src.trainers.end_to_end_runner import run_end2end
-from src.paths import *
-from omegaconf import OmegaConf
 import pytorch_lightning as pl
+import torch
+
+from src.config import (
+    DEFAULT_BASE_CONFIG,
+    DEFAULT_LOCAL_PATHS_CONFIG,
+    LEGACY_DEFAULT_CONFIG,
+    load_experiment_config,
+    load_yaml_config,
+)
 
 
-def load_config(config_path):
-    if not config_path.exists():
-        raise FileNotFoundError(f"配置文件不存在，请检查路径: {config_path}")
-    with open(config_path, 'r') as f:
-        return OmegaConf.load(f)
+def parse_args():
+    parser = argparse.ArgumentParser(description="Run end-to-end BDI training.")
+    parser.add_argument(
+        "--base-config",
+        default=str(DEFAULT_BASE_CONFIG),
+        help="Shared base YAML config.",
+    )
+    parser.add_argument(
+        "--local-paths",
+        default=str(DEFAULT_LOCAL_PATHS_CONFIG),
+        help="Machine-local YAML config with dataset and log paths.",
+    )
+    parser.add_argument(
+        "--override",
+        action="append",
+        default=[],
+        help="Optional override YAML config. Can be provided multiple times.",
+    )
+    parser.add_argument(
+        "--config",
+        default=None,
+        help=(
+            "Load one complete config directly. This bypasses base/local/override "
+            "merging and is intended for legacy configs."
+        ),
+    )
+    parser.add_argument(
+        "--allow-missing-local-paths",
+        action="store_true",
+        help="Allow config loading without configs/local_paths.yaml.",
+    )
+    return parser.parse_args()
+
+
+def load_config_from_args(args):
+    if args.config:
+        return load_yaml_config(args.config)
+
+    return load_experiment_config(
+        base_config=args.base_config,
+        local_paths_config=args.local_paths,
+        overrides=args.override,
+        require_local_paths=not args.allow_missing_local_paths,
+    )
 
 
 def run_from_config(cfgs):
     mode = str(cfgs.MODE)
     if mode != "full":
-        raise ValueError(f"当前重构版本只保留端到端训练入口，MODE 必须为 'full'，当前为: {mode}")
+        raise ValueError(f"MODE must be 'full' for end-to-end training, got: {mode}")
+
+    from src.trainers.end_to_end_runner import run_end2end
 
     print("[INFO] START RUNNING END-TO-END STREAM LINE...")
     run_end2end(cfgs)
 
 
 if __name__ == "__main__":
+    torch.set_float32_matmul_precision("high")
     pl.seed_everything(42, workers=True)
+    args = parse_args()
     try:
-        print("[INFO] LOADING CONFIG FILE default_config.yaml...")
-        config_path = CONFIG_DIR / 'default_config.yaml'
-        cfgs = load_config(config_path)
+        if args.config:
+            print(f"[INFO] LOADING COMPLETE CONFIG FILE: {args.config}")
+        else:
+            print(f"[INFO] LOADING BASE CONFIG FILE: {args.base_config}")
+            print(f"[INFO] LOADING LOCAL PATHS FILE: {args.local_paths}")
+            if args.override:
+                print(f"[INFO] LOADING OVERRIDE CONFIG FILES: {args.override}")
+            if args.allow_missing_local_paths:
+                print("[WARNING] configs/local_paths.yaml is optional for this run.")
+
+        cfgs = load_config_from_args(args)
         run_from_config(cfgs)
 
-    except torch.cuda.OutOfMemoryError as e:
-        print("\n❌ [FATAL ERROR] 显卡内存爆表 (OOM)！")
-        print("💡 建议：请去 default_config.yaml 中调小 BATCH_SIZE 或 MAX_SEQ_LEN。")
+    except FileNotFoundError as e:
+        print(f"\n[CONFIG ERROR] {e}")
+        print(f"[HINT] For legacy behavior, try: --config {LEGACY_DEFAULT_CONFIG}")
+        sys.exit(1)
+
+    except torch.cuda.OutOfMemoryError:
+        print("\n[FATAL ERROR] CUDA out of memory.")
+        print("[HINT] Reduce EXTRACT_FEATURE.BATCH_SIZE or PROCESS_TEMPORAL.MAX_SEQ_LEN.")
         sys.exit(1)
 
     except ValueError as e:
-        print(f"\n❌ [VALUE ERROR] 参数或配置错误: {e}")
+        print(f"\n[VALUE ERROR] {e}")
         sys.exit(1)
 
     except Exception as e:
-        print(f"\n❌ [UNKNOWN ERROR] 发生未捕获的致命错误，程序被迫中断！")
-        print(f"👉 详细错误信息: {e}")
+        print("\n[UNKNOWN ERROR] Training was interrupted by an unexpected error.")
+        print(f"[DETAIL] {e}")
         traceback.print_exc()
         sys.exit(1)

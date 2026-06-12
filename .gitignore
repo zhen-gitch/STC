@@ -13,18 +13,20 @@ venv/
 # Local configs
 configs/local_paths.yaml
 configs/*local*.yaml
+!configs/local_paths.example.yaml
 
 # Data
-data/
-dataset/
-datasets/
-face_images/
-raw_videos/
+/data/
+/dataset/
+/datasets/
+/face_images/
+/raw_videos/
 
 # Training artifacts
 logs/
 lightning_logs/
 checkpoints/
+weights/
 outputs/
 runs/
 wandb/
