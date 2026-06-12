@@ -36,7 +36,9 @@
 - 项目已经在服务器环境通过 debug smoke，可以完整运行旧模型训练流程。
 - 当前正在从旧大模型转向 MTL-Lite 新主线。
 - 旧大模型相关代码应整体进入 `src/legacy/full_model/`，但不再作为主要维护对象。
-- `scripts/train.py` 使用标准配置栈：
+- `scripts/train.py` 是旧端到端训练入口。
+- `scripts/train_mtl_lite.py` 是 MTL-Lite 新主线训练入口。
+- 新旧训练入口均使用标准配置栈：
   `configs/avec2014_base.yaml` + 被 git 忽略的 `configs/local_paths.yaml` + 可选 override。
 - `scripts/diagnose.py` 的 import 与 `--help` 检查已经通过。
 - `configs/local_paths.yaml` 是私有路径文件，不允许修改或提交。
@@ -172,12 +174,13 @@ src/diagnostics/
 4. 新增 `src/models/temporal/pooling.py`。
 5. 新增 `src/models/mtl_lite.py`。
 6. 新增 MTL-Lite forward/backward/config 测试。
-7. 设计新主线训练入口或调整现有 runner，使其面向 MTL-Lite。
+7. 新增 `scripts/train_mtl_lite.py` 和 `src/trainers/mtl_lite_runner.py`，使新训练入口面向 MTL-Lite。
 8. 新增 regression-only 与 MTL-Lite baseline override。
-9. 新增 `src/diagnostics/` 并逐步迁移可视化能力。
-10. 在服务器运行 MTL-Lite debug smoke。
-11. 对比 regression-only 与 MTL-Lite。
-12. baseline 稳定后逐项加入 CCC、LDS、`loss_dist` 消融。
+9. 新增 MTL-Lite debug smoke override。
+10. 新增 `src/diagnostics/` 并逐步迁移可视化能力。
+11. 在服务器运行 MTL-Lite debug smoke。
+12. 对比 regression-only 与 MTL-Lite。
+13. baseline 稳定后逐项加入 CCC、LDS、`loss_dist` 消融。
 
 ## 安全重构规则
 
@@ -217,4 +220,5 @@ python -c "from src.metrics.metrics import ConcordanceCorrCoefMetric, concordanc
 ```bash
 python -c "from src.models.mtl_lite import MTLLiteDepressionModel; print('mtl lite import ok')"
 python -m pytest tests/test_mtl_lite_forward.py tests/test_mtl_lite_loss_backward.py
+python scripts/train_mtl_lite.py --override configs/mtl_lite_debug_smoke.yaml
 ```

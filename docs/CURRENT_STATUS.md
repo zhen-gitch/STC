@@ -80,14 +80,17 @@ src/diagnostics/        # 独立诊断与可视化系统
 - 已新增 MTL-Lite mask-aware pooling 工具。
 - 已新增 `MTLLiteDepressionModel` 骨架。
 - 已新增 MTL-Lite forward、backward、config 测试。
+- 已新增 MTL-Lite 新训练入口 `scripts/train_mtl_lite.py`。
+- 已新增 MTL-Lite runner `src/trainers/mtl_lite_runner.py`。
+- 已新增 regression-only、MTL-Lite baseline 和 MTL-Lite debug smoke 配置。
 - 本地 Codex Python 缺少 `torch`、`pytorch_lightning` 和 `pytest`，MTL-Lite import/pytest 需在服务器训练环境验证。
 
 ## 当前优先级
 
 1. 确保 legacy 中的 `local_paths.yaml`、日志、权重、checkpoint 不进入提交。
 2. 在服务器训练环境运行 MTL-Lite import 和 pytest 验证。
-3. 新增 regression-only 与 MTL-Lite baseline 配置。
-4. 设计新主线训练入口或调整现有 runner，使其面向 MTL-Lite。
+3. 在服务器训练环境运行 MTL-Lite debug smoke。
+4. 对比 regression-only baseline 与 MTL-Lite baseline。
 5. 规划 `src/diagnostics/`，逐步迁移可视化与诊断能力。
 
 ## 当前风险
@@ -134,6 +137,24 @@ MTL-Lite 测试：
 
 ```bash
 python -m pytest tests/test_mtl_lite_forward.py tests/test_mtl_lite_loss_backward.py tests/test_mtl_lite_config.py
+```
+
+MTL-Lite debug smoke：
+
+```bash
+python scripts/train_mtl_lite.py --override configs/mtl_lite_debug_smoke.yaml
+```
+
+MTL-Lite baseline：
+
+```bash
+python scripts/train_mtl_lite.py --override configs/mtl_lite_baseline.yaml
+```
+
+Regression-only baseline：
+
+```bash
+python scripts/train_mtl_lite.py --override configs/regression_only_baseline.yaml
 ```
 
 旧主线回归测试仅在需要复现 legacy 行为时运行：

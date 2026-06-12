@@ -25,6 +25,16 @@ def _get_config_value(configs, section_name, key, default):
     return getattr(section, key, default)
 
 
+def _get_nested_config_value(configs, section_name, nested_section_name, key, default):
+    section = getattr(configs, section_name, None)
+    if section is None:
+        return default
+    nested_section = getattr(section, nested_section_name, None)
+    if nested_section is None:
+        return default
+    return getattr(nested_section, key, default)
+
+
 class MTLLiteDepressionModel(pl.LightningModule):
     """Lightweight multi-task BDI prediction model.
 
@@ -58,6 +68,15 @@ class MTLLiteDepressionModel(pl.LightningModule):
                 _get_config_value(configs, "PROCESS_TEMPORAL", "CCC_LOSS_WEIGHT", 0.0),
             )
         )
+        self.use_ordinal_task = bool(
+            _get_nested_config_value(
+                configs,
+                "MODEL",
+                "AUXILIARY_TASKS",
+                "ORDINAL_CLASSIFICATION",
+                self.ordinal_weight > 0.0,
+            )
+        )
 
         self.input_dim = int(configs.BACKBONE_OUT_DIMS.get(self.model_name))
         self.backbone = build_feature_backbone(
@@ -78,7 +97,9 @@ class MTLLiteDepressionModel(pl.LightningModule):
         )
         self.dropout_layer = nn.Dropout(self.dropout)
         self.reg_task_head = build_regression_task_head(self.hidden_dim, self.hidden_dim, 1)
-        self.ordinal_task_head = build_classification_task_head(self.hidden_dim, self.hidden_dim, self.num_classes)
+        self.ordinal_task_head = None
+        if self.use_ordinal_task:
+            self.ordinal_task_head = build_classification_task_head(self.hidden_dim, self.hidden_dim, self.num_classes)
 
         self.train_rmse = torchmetrics.MeanSquaredError(squared=False)
         self.train_mae = torchmetrics.MeanAbsoluteError()
@@ -134,7 +155,9 @@ class MTLLiteDepressionModel(pl.LightningModule):
         temporal_features = self.encode_temporal_features(frame_features, mask)
         shared_features = self.pool_video_features(temporal_features, mask)
         bdi_pred = self.reg_task_head(shared_features).squeeze(-1)
-        ordinal_logits = self.ordinal_task_head(shared_features)
+        ordinal_logits = None
+        if self.ordinal_task_head is not None:
+            ordinal_logits = self.ordinal_task_head(shared_features)
         return MTLLiteOutput(
             bdi_pred=bdi_pred,
             ordinal_logits=ordinal_logits,
@@ -151,8 +174,13 @@ class MTLLiteDepressionModel(pl.LightningModule):
         _, true_bdi_norm, ordinal_levels = self.prepare_labels(labels)
         loss_reg = F.mse_loss(outputs.bdi_pred.float(), true_bdi_norm.float())
         loss_ccc = concordance_ccc_loss(outputs.bdi_pred, true_bdi_norm)
-        loss_ord = coral_loss(outputs.ordinal_logits, ordinal_levels)
-        total = loss_reg + self.ccc_loss_weight * loss_ccc + self.ordinal_weight * loss_ord
+        loss_ord = None
+        if outputs.ordinal_logits is not None and self.ordinal_weight > 0.0:
+            loss_ord = coral_loss(outputs.ordinal_logits, ordinal_levels)
+
+        total = loss_reg + self.ccc_loss_weight * loss_ccc
+        if loss_ord is not None:
+            total = total + self.ordinal_weight * loss_ord
         return MTLLiteLosses(
             total=total,
             regression=loss_reg,

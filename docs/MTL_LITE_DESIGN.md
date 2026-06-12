@@ -339,11 +339,13 @@ src/diagnostics/
 
 任务：
 
-1. 设计新主线训练入口或调整现有 runner，使其面向 MTL-Lite。
-2. 新增 regression-only override。
-3. 新增 MTL-Lite override。
-4. 新增 MTL-Lite debug smoke override。
-5. 在服务器运行 MTL-Lite smoke。
+1. 新增 `scripts/train_mtl_lite.py`，作为 MTL-Lite 新主线训练入口。
+2. 新增 `src/trainers/mtl_lite_runner.py`，封装 MTL-Lite Lightning trainer、logger、checkpoint 和 test 流程。
+3. 新增 `configs/regression_only_baseline.yaml`，用于 BDI 回归单任务 baseline。
+4. 新增 `configs/mtl_lite_baseline.yaml`，用于 BDI 回归 + 有序严重程度分类 baseline。
+5. 新增 `configs/mtl_lite_debug_smoke.yaml`，用于服务器快速 smoke。
+6. `AVECDataset` 通过 `DATASET.RETURN_MULTI_VIEW_TRAIN` 控制训练集是否返回旧多视图结构；MTL-Lite 配置应设置为 `False`。
+7. 在服务器运行 MTL-Lite smoke。
 
 ### 阶段 5：MTL-Lite 测试
 
@@ -401,4 +403,5 @@ python -c "from src.models.task_heads import build_regression_task_head; print('
 ```bash
 python -c "from src.models.mtl_lite import MTLLiteDepressionModel; print('mtl lite import ok')"
 python -m pytest tests/test_mtl_lite_forward.py tests/test_mtl_lite_loss_backward.py
+python scripts/train_mtl_lite.py --override configs/mtl_lite_debug_smoke.yaml
 ```

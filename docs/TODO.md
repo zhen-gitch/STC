@@ -59,10 +59,10 @@ src/diagnostics/        # 独立诊断与可视化系统
 
 ## 阶段 5：配置与 baseline
 
-- [ ] 新增 `LOSSES` 配置约定
-- [ ] 新增 regression-only baseline override
-- [ ] 新增 MTL-Lite baseline override
-- [ ] 新增 MTL-Lite debug smoke override
+- [x] 新增 `LOSSES` 配置约定
+- [x] 新增 regression-only baseline override
+- [x] 新增 MTL-Lite baseline override
+- [x] 新增 MTL-Lite debug smoke override
 - [ ] 保持 `configs/local_paths.yaml` 私有且不提交
 - [ ] 服务器运行 MTL-Lite debug smoke
 
@@ -127,3 +127,7 @@ src/diagnostics/        # 独立诊断与可视化系统
 ### Task 4
 
 新增 MTL-Lite forward/backward/config 测试。
+
+### Task 5
+
+新增 MTL-Lite baseline 配置和新训练入口。

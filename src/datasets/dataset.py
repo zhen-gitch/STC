@@ -19,6 +19,13 @@ from torchvision.io import read_image, ImageReadMode
 from torchvision.transforms import v2  # 视频级的图像增强
 
 
+def _get_config_value(configs, section_name, key, default):
+    section = getattr(configs, section_name, None)
+    if section is None:
+        return default
+    return getattr(section, key, default)
+
+
 def load_data_list(dataset_split_file_path:str, images_folder_path:str, dataset):
     """Return absolute video-folder paths for the requested split."""
     data = []
@@ -82,6 +89,9 @@ class AVECDataset(Dataset):
         self.sample_step = configs.PROCESS_TEMPORAL.SAMPLE_STEP
         self.max_len = int(configs.PROCESS_TEMPORAL.MAX_SEQ_LEN // self.sample_step)
         self.dataset_name = dataset
+        self.return_multi_view_train = bool(
+            _get_config_value(configs, "DATASET", "RETURN_MULTI_VIEW_TRAIN", True)
+        )
 
         # Base transform must stay deterministic; random augmentations are applied
         # only in _apply_video_augmentation for the training views.
@@ -139,7 +149,7 @@ class AVECDataset(Dataset):
         return torch.cat((video_tensor, padding_frames), dim=0)
 
     def _build_video_output(self, raw_video_tensor):
-        if self.dataset_name == "train":
+        if self.dataset_name == "train" and self.return_multi_view_train:
             return {
                 "orig": self._pad_video(self.transform(raw_video_tensor.clone())),
                 "v1": self._pad_video(self._apply_video_augmentation(raw_video_tensor.clone())),
