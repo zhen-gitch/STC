@@ -1,104 +1,149 @@
 # CURRENT_STATUS.md
 
-## Status Date
+## 状态日期
 
 2026-06-12
 
-## Active Goal
+## 当前项目状态
 
-Build a reproducible Codex-assisted workflow for paper experiments and code
-maintenance, with a near-term focus on making training importable, smoke-testable,
-and safe to use for paper experiments.
+项目已经通过服务器 debug smoke，可以完整运行旧版端到端训练流程。当前工作重点已经从“修复可运行性”转向“重构架构边界”，为 MTL-Lite 轻量级多任务抑郁预测模型建立干净主线。
 
-## Active Checkout
+## 当前架构方向
 
-- Project path: `C:\CodeXWorkSpace\PaperWork\STC`
-- Current branch: `dev`
-- Upstream: `origin/dev`
-- Current short commit: `97efceb`
-- Working tree at last check: clean
+项目采用以下新架构：
 
-## Project Summary
+```text
+src/legacy/full_model/  # 旧大模型整体归档
+src/models/             # MTL-Lite 新模型与通用模型模块
+src/diagnostics/        # 独立诊断与可视化系统
+```
 
-This is a PyTorch / PyTorch Lightning research codebase for AVEC2014-style
-depression assessment. The current intended mode is end-to-end visual training
-with BDI score regression, auxiliary task heads, temporal/multi-task blocks,
-diagnostic visualization, CSV logging, and TensorBoard logging.
+关键决策：
 
-## Current Structure Snapshot
+- 旧大模型整体进入 legacy；
+- 旧模型只作为历史快照保留，暂时不再投入额外修复或重构；
+- 新模型不继承旧模型；
+- 通用模块保留在主线位置；
+- 新主线训练入口后续直接围绕 MTL-Lite 设计；
+- 诊断与可视化系统从模型训练逻辑中解耦。
 
-- `scripts/train.py`: main training entry, currently loads
-  `configs/default_config.yaml`.
-- `scripts/diagnose.py`: attribution/diagnostic entry.
-- `src/trainers/end_to_end_runner.py`: Lightning train/test runner.
-- `src/models/end_to_end.py`: main model.
-- `src/models/backbone_factory.py`: backbone construction.
-- `src/models/mtl_blocks.py`: temporal and multi-task blocks.
-- `src/models/task_heads.py`: task heads.
-- `src/losses/losses.py`: losses.
-- `src/metrics/metrics.py`: metrics.
-- `src/utils/`: PCGrad, visualization, adaptive mask, label distribution, and
-  decomposition utilities.
-- `configs/default_config.yaml`: current direct training config.
-- `configs/avec2014_base.yaml`: cleaner base-style config.
-- `configs/debug_smoke.yaml`: smoke-test override config.
+## 当前研究主线
 
-## Current Priority
+论文主线是 **MTL-Lite BDI 预测模型**：
 
-1. Restore importability of the training pipeline.
-2. Confirm or rebuild dataset/path modules without changing split semantics.
-3. Add a minimal import and config-loading check.
-4. Wire a one-batch smoke test using `configs/debug_smoke.yaml`.
-5. Add focused forward/backward tests for the model and regression head.
-6. Standardize experiment logging, including merged config snapshots.
-7. Export metrics for paper tables.
+```text
+人脸视频帧 -> 视觉 backbone -> 时序编码器 -> 共享视频表征 -> BDI 回归头 + 有序严重程度分类头
+```
 
-## Last Read-Only Audit
+主任务：
 
-Read-only checks performed:
+- BDI 连续回归。
 
-- Read `AGENTS.md`, `README.md`, `docs/CODEX_CONTEXT.md`,
-  `docs/CURRENT_STATUS.md`, and `docs/BUG_LOG.md`.
-- Checked git status and branch.
-- Listed tracked project files.
-- Searched for missing-module imports and config-loading paths.
+辅助任务：
 
-Observed state:
+- 有序抑郁严重程度分类。
 
-- Branch is `dev`.
-- `dev` tracks `origin/dev`.
-- Working tree was clean before these documentation edits.
-- `src/paths.py` is not present.
-- `src/datasets/dataset.py` is not present.
-- `scripts/train.py` directly loads `configs/default_config.yaml`.
-- No checked-in entry point currently merges `avec2014_base.yaml`,
-  `local_paths.yaml`, and `debug_smoke.yaml`.
+非主线模块：
 
-## Last Verified Runtime Command
+- contrastive learning
+- adaptive mask
+- PCGrad
+- CGC / complex expert routing
+- LDS
+- `loss_dist`
 
-No training, import, test, or smoke command has been verified yet in the current
-checkout.
+这些模块后续只作为 legacy 能力、消融项或扩展项。
 
-## Immediate Risks
+## 重要文件
 
-- Main training entry is likely blocked by missing `src.paths`.
-- Training, diagnostics, and model import are likely blocked by missing
-  `src.datasets.dataset`.
-- `configs/default_config.yaml` contains machine-specific absolute paths.
-- `configs/debug_smoke.yaml` exists but is not currently wired into a reproducible
-  smoke-test command.
-- `docs/TODO.md` still lists `Add configs/debug_smoke.yaml` even though the file
-  now exists.
-- Datasets, checkpoints, logs, and local credentials must remain uncommitted.
+- `docs/MTL_LITE_DESIGN.md`：新架构、模块边界、接口定义和实施路线。
+- `docs/CODEX_CONTEXT.md`：Codex 长期上下文。
+- `docs/TODO.md`：分阶段任务计划。
+- `docs/BUG_LOG.md`：问题与风险记录。
+- `docs/EXPERIMENT_LOG.md`：已完成验证记录。
+- `scripts/train.py`：当前训练入口。
+- `src/config.py`：配置加载与合并。
+- `src/datasets/dataset.py`：数据集与 datamodule。
+- `src/models/backbone_factory.py`：通用 backbone factory。
+- `src/models/task_heads.py`：通用任务头。
+- `src/metrics/metrics.py`：通用指标。
 
-## Next Recommended Command Sequence
+## 已完成验证
 
-After the missing modules are restored or implemented, validate in this order:
+- debug smoke 已在服务器环境完整通过。
+- `scripts.diagnose` import 和 `--help` 检查已通过。
+- 已新增 forward smoke 测试。
+- 已新增 regression head backward 非零梯度测试。
+- 已新增 loss/metric 一致性测试。
+- 已新增 legacy full model README，说明旧模型快照边界。
+- 已新增 MTL-Lite 输出 dataclass。
+- 已新增 MTL-Lite mask-aware pooling 工具。
+- 已新增 `MTLLiteDepressionModel` 骨架。
+- 已新增 MTL-Lite forward、backward、config 测试。
+- 本地 Codex Python 缺少 `torch`、`pytorch_lightning` 和 `pytest`，MTL-Lite import/pytest 需在服务器训练环境验证。
 
-1. `python -m compileall scripts src`
-2. Import/config loading check for the selected config path.
-3. One-batch smoke training with a merged debug config.
-4. Focused model forward test.
-5. Backward test confirming non-zero regression-head gradients.
+## 当前优先级
 
-Do not run full training until importability and smoke checks pass.
+1. 确保 legacy 中的 `local_paths.yaml`、日志、权重、checkpoint 不进入提交。
+2. 在服务器训练环境运行 MTL-Lite import 和 pytest 验证。
+3. 新增 regression-only 与 MTL-Lite baseline 配置。
+4. 设计新主线训练入口或调整现有 runner，使其面向 MTL-Lite。
+5. 规划 `src/diagnostics/`，逐步迁移可视化与诊断能力。
+
+## 当前风险
+
+- legacy 不再作为主要维护对象，除非明确要求复现旧模型结果，否则不修复其内部 import。
+- 当前工作区可能包含 legacy 迁移中的文件移动或复制，需要避免误删。
+- 根目录和 legacy 中的 `local_paths.yaml` 都不应进入 git。
+- 旧模型 debug smoke 通过不代表 MTL-Lite 已可运行。
+- 诊断逻辑必须避免污染 validation/test。
+- 多 GPU DDP metric logging 和 best checkpoint 行为仍需专门验证。
+- bf16/mixed precision 稳定性仍需专门验证。
+
+## 推荐验证命令
+
+基础语法检查：
+
+```bash
+python -m compileall src scripts tests
+```
+
+MTL-Lite import 检查：
+
+```bash
+python -c "from src.models.outputs import MTLLiteOutput, MTLLiteLosses; print('outputs import ok')"
+python -c "from src.models.temporal.pooling import masked_mean_pool; print('pooling import ok')"
+python -c "from src.models.mtl_lite import MTLLiteDepressionModel; print('mtl lite import ok')"
+```
+
+legacy 归档检查：
+
+```bash
+git diff -- src/legacy/full_model/README.md
+```
+
+通用模块检查：
+
+```bash
+python -c "from src.models.backbone_factory import build_feature_backbone; print('backbone import ok')"
+python -c "from src.models.task_heads import build_regression_task_head; print('task heads import ok')"
+python -c "from src.metrics.metrics import ConcordanceCorrCoefMetric, concordance_ccc_loss; print('metrics import ok')"
+```
+
+MTL-Lite 测试：
+
+```bash
+python -m pytest tests/test_mtl_lite_forward.py tests/test_mtl_lite_loss_backward.py tests/test_mtl_lite_config.py
+```
+
+旧主线回归测试仅在需要复现 legacy 行为时运行：
+
+```bash
+python -m pytest tests/test_model_forward.py tests/test_loss_backward.py tests/test_loss_metric_consistency.py
+```
+
+debug smoke：
+
+```bash
+python scripts/train.py --override configs/debug_smoke.yaml
+```

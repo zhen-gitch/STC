@@ -7,6 +7,8 @@ from pathlib import Path
 import timm
 import torch
 
+from src.models.iresnet import iresnet50
+
 
 TRANSFORMER_BACKBONE_PREFIXES = (
     "beit",
@@ -98,8 +100,6 @@ def build_feature_backbone(model_name, weight_path=None, timm_pretrained=True, i
     """
     try:
         if model_name == "iresnet50":
-            from src.models.iresnet import iresnet50
-
             model = iresnet50()
         else:
             model = _create_timm_backbone(

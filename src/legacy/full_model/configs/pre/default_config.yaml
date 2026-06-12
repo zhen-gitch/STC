@@ -1,0 +1,106 @@
+# ==========================================
+# PATH SETTINGS (路径统一配置，使用引号包裹特殊字符)
+# ==========================================
+IMAGE_DIR: "/usr/local/conda/zhen/dataset/AVEC2014/face_images"
+LABEL_DIR: "/usr/local/conda/zhen/dataset/AVEC2014/depression_labels"
+DATASET_SPLIT_FILE: "/usr/local/conda/zhen/dataset/AVEC2014/dataset_split.json"
+LOG_DIR: "/usr/local/conda/zhen/test05/logs"
+
+# ==========================================
+# HARDWARE & SYSTEM SETTINGS (硬件与系统配置)
+# ==========================================
+ACCELERATOR: "gpu"
+DEVICES: [3]           # 如果有多卡，可以写为 [0, 1]
+PRECISION: "bf16-mixed"  # 计算精度设置
+MODE: "full"           # 当前版本只保留端到端训练
+
+# ==========================================
+# VISUAL BACKBONE SETTINGS (端到端视觉骨干配置)
+# ==========================================
+BACKBONE_OUT_DIMS:
+    iresnet50: 512 # iresnet 50 输出特征维度
+    resnet50: 2048
+    vit_base_patch16_224: 768
+
+
+#feature_extraction:
+EXTRACT_FEATURE:
+  MAX_SCORE: 63           # 最大抑郁分数，BDI评分标准最大是63
+  NUM_WORKERS: 16
+  BATCH_SIZE: 16           # 端到端训练的 batch_size
+#  MODEL_NAME: "iresnet50" # 视觉骨干模型
+  MODEL_NAME: "vit_base_patch16_224"
+#  MODEL_NAME: "vit_small_patch16_224"
+#  MODEL_WEIGHT_PATH: "/usr/local/conda/zhen/stc/weights/ArcFace_iResNet50_CASIA_FaceV5.pth"  # 模型权重地址
+  MODEL_WEIGHT_PATH: None
+  CHUNK_SIZE: 200          # 防 OOM 的微批次大小
+
+  LEARNING_RATE: 1e-3
+  WEIGHT_DECAY: 1e-4
+
+# ==========================================
+# END-TO-END TEMPORAL AND MULTI-TASK SETTINGS
+# ==========================================
+PROCESS_TEMPORAL:
+  HIDDEN_DIM: 512         # 时序模型隐藏层维度
+  EXPERT_DIM: 512         # 多任务学习专家模型输出维度
+  CONTRASTIVE_DIM: 512    # 对比学习嵌入特征维度
+  MAX_SEQ_LEN: 6000       # 截断/填充的最大帧数
+  CLASS_STEP: 2           # 分类任务类别区间长度
+  SAMPLE_STEP: 10          # 特征采样步长（即每多少帧取一帧）
+
+  # 多任务参数设置
+  NUM_SHARED_GEN: 2       # 通用共享专家的数量
+  NUM_SHARED_CON: 2       # 对比共享专家的数量
+  NUM_SPECIFIC: 2         # 任务特定专家的数量
+
+  # 对比学习参数设置
+  TEMPERATURE: 0.05        # 对比学习的模糊程度，值越小越将相近样本推离
+  BDI_SIGMA: 3.0
+  CCC_LOSS_WEIGHT: 0.1
+  LDS_SIGMA: 2.0
+  LDS_SEVERITY_ALPHA: 0.3  # 过大时会把预测均值推向中高分段
+  PRED_MEAN_LOSS_WEIGHT: 0.05
+  PRED_STD_LOSS_WEIGHT: 0.20
+
+  # 采用 PCGrad 和 UW（不确定性加权）的优化设置
+  USE_PCGRAD: True        # 是否使用 PCGrad
+  USE_UNCERTAINTY_WEIGHT: True  # 是否使用不确定性加权
+
+  # 正则化参数设置
+  DROPOUT: 0.3            # CGC 模型的 dropout 值
+  MASK_UPDATE_INTERVAL: 2 # 每几个 epoch 进行一次预传播计算对抗性掩码
+  BASE_MASK_PROB: 0.1     # 基础丢弃率
+  MAX_MASK_PROB: 0.4      # 最大丢弃率
+
+  # 滤波器参数设置
+  KERNEL_SIZE: 9 # 为 0 时表示不进行滤波操作
+  SIGMA: 1.5
+
+  # 时序模型参数设置
+#  MOVING_AVG_KERNELS: [7, 15, 31, 61]
+  MOVING_AVG_KERNELS: [3, 7, 15, 31]
+  GATE_TEMPERATURE: 4.0
+  GATE_ENTROPY_WEIGHT: 0.05
+  GATE_BALANCE_WEIGHT: 0.02
+
+
+  MAX_EPOCHS: 100
+  FREEZE_EPOCHS: 0
+  WARMUP_EPOCHS: 10
+  ADVERSARIAL_MASK: 10  # 对抗性降噪
+  LEARNING_RATE: 1e-3
+  WEIGHT_DECAY: 1e-4
+
+# ==========================================
+# VISUALIZATION SETTINGS (评估可视化配置)
+# ==========================================
+VISUALIZATION:
+  ENABLE: True
+  REGRESSION_INTERVAL: 5   # 每 N 个 epoch 输出一次预测/残差诊断
+  EMBEDDING_INTERVAL: 5    # 每 N 个 epoch 输出一次 PCA/t-SNE/UMAP 表征诊断
+  GATING_INTERVAL: 5       # 每 N 个 epoch 输出一次时序门控诊断
+
+# ==========================================
+# BASE SETTINGS (硬件与系统配置)
+# ==========================================

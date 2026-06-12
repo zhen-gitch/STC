@@ -1,200 +1,220 @@
 # CODEX_CONTEXT.md
 
-This file is the durable working context for Codex-assisted maintenance of this
-repository. Read it before making changes, then update `CURRENT_STATUS.md` and
-`BUG_LOG.md` when the project state changes.
+本文档是 Codex 参与本项目时必须优先阅读的长期上下文。后续所有项目文档默认使用中文撰写，除非文件名、命令、类名、函数名、配置键或论文术语需要保留英文。
 
-## Project Purpose
+## 当前架构决策
 
-This repository supports a research paper on depression assessment using
-AVEC2014-style visual data.
+项目采用 **legacy full model 与 MTL-Lite 新主线硬边界隔离** 的架构。
 
-The intended experiment target is BDI/depression score prediction, primarily as
-a regression task, with auxiliary classification, contrastive, and visualization
-components in the current model code.
+核心原则：
 
-The main engineering goal is reproducibility: future experiments should be
-traceable from a git commit, branch, config, seed, split file, command line,
-device, precision setting, log directory, and metric output.
+```text
+旧大模型：整体迁入 src/legacy/full_model/，只作为可运行历史快照
+新主线模型：独立放在 src/models/mtl_lite.py，不继承旧模型
+通用模块：保留在 src/models、src/metrics、src/datasets 等主线位置
+诊断系统：独立规划为 src/diagnostics/，尽量离线运行
+```
 
-## Repository Location
+不要继续把 MTL-Lite 新逻辑加入旧的 `EndToEndDepressionModel`。旧模型复制到新路径后可按旧方式运行，因此暂时放弃对旧模型的额外修复、重构和 import 清理。legacy 只需要 README 说明边界、运行方式和维护策略。
 
-The active project checkout is:
+## 当前研究主线
 
-`C:\CodeXWorkSpace\PaperWork\STC`
+当前论文方向是 **MTL-Lite 轻量级多任务 BDI 预测模型**，面向 AVEC2014 风格的人脸视频抑郁程度预测。
 
-The Codex default shell may open in another directory, so always confirm the
-working directory before running commands.
+目标流程：
 
-## Current Project Shape
+```text
+人脸视频帧 -> 视觉 backbone -> 时序编码器 -> 共享视频表征 -> BDI 回归头 + 有序严重程度分类头
+```
 
-- `AGENTS.md`: project rules for Codex and future agents.
-- `README.md`: currently minimal; not a reliable source of setup instructions.
-- `configs/`: YAML experiment configs.
-- `scripts/`: executable entry scripts.
-- `src/models/`: backbone factory, end-to-end model, temporal/multi-task blocks,
-  task heads, and iResNet implementation.
-- `src/trainers/`: PyTorch Lightning runner for end-to-end training.
-- `src/losses/`: loss functions.
-- `src/metrics/`: metrics.
-- `src/utils/`: visualization, PCGrad, label distribution, decomposition, and
-  adaptive mask helpers.
-- `docs/`: project status, Codex context, bug log, experiment log, and TODO list.
+论文主张：
 
-## Main Pipeline
+有序严重程度预测为连续 BDI 回归提供结构化辅助监督；轻量、可解释、可消融的多任务结构比继续堆叠复杂模块更适合作为当前论文主线。
 
-- Input: face image sequences.
-- Output: BDI/depression score prediction.
-- Framework: PyTorch and PyTorch Lightning.
-- Configuration: OmegaConf YAML files under `configs/`.
-- Expected metrics: MAE, RMSE, CCC, and task-specific diagnostics.
-- Logging target: CSVLogger and TensorBoardLogger under `LOG_DIR`.Another file is console output log.
+## 当前项目状态
 
-## Data Flow
-face image sequences -> backbone -> project -> time series net -> cgc ->depression regression tower/ depression classification tower/ contrastive learning tower
+- 项目已经在服务器环境通过 debug smoke，可以完整运行旧模型训练流程。
+- 当前正在从旧大模型转向 MTL-Lite 新主线。
+- 旧大模型相关代码应整体进入 `src/legacy/full_model/`，但不再作为主要维护对象。
+- `scripts/train.py` 使用标准配置栈：
+  `configs/avec2014_base.yaml` + 被 git 忽略的 `configs/local_paths.yaml` + 可选 override。
+- `scripts/diagnose.py` 的 import 与 `--help` 检查已经通过。
+- `configs/local_paths.yaml` 是私有路径文件，不允许修改或提交。
+- `configs/pre/default_config.yaml` 仅作为历史兼容配置。
 
-## Main Entry Points
+## 仓库位置
 
-### Training
+```text
+C:\CodeXWorkSpace\PaperWork\STC
+```
 
-`scripts/train.py`
+Codex 的默认 shell 可能打开在其他目录。运行命令前必须确认工作目录。
 
-Current behavior:
+## 目标目录边界
 
-- Imports `CONFIG_DIR` from `src.paths`.
-- Loads `configs/default_config.yaml`.
-- Seeds PyTorch Lightning with `42`.
-- Requires `MODE: "full"`.
-- Calls `src.trainers.end_to_end_runner.run_end2end(cfgs)`.
+### 新主线与通用模块
 
-Important: the currently checked-in tree does not contain `src/paths.py`, so this
-entry point cannot be assumed runnable until that module is restored or replaced.
+```text
+src/
+  config.py
+  datasets/
+  metrics/
+  models/
+    backbone_factory.py
+    task_heads.py
+    outputs.py
+    mtl_lite.py
+    temporal/
+      encoders.py
+      pooling.py
+  diagnostics/
+```
 
-### End-To-End Runner
+### 旧模型归档区
 
-`src/trainers/end_to_end_runner.py`
+```text
+src/legacy/full_model/
+  README.md
+  src/
+    models/
+      end_to_end.py
+      mtl_blocks.py
+      iresnet.py
+    utils/
+    losses/
+    trainers/
+  scripts/
+  configs/
+  tests/
+```
 
-Current behavior:
+## 模块边界
 
-- Imports `AVECDataModule` from `src.datasets.dataset`.
-- Builds `EndToEndDepressionModel`.
-- Builds a Lightning `Trainer` with accelerator, devices, precision, max epochs,
-  CSVLogger, TensorBoardLogger, RichProgressBar, and LearningRateMonitor.
-- Mirrors stdout/stderr into the CSVLogger version directory.
-- Runs `trainer.fit(...)`.
-- Loads segmented best weights from the run's `weights` directory when possible.
-- Runs `trainer.test(...)`.
-- Plots training curves from CSV logs.
+### 保留为通用模块
 
-Important: the currently checked-in tree does not contain `src/datasets/`, so the
-runner cannot be assumed importable until the dataset module is restored.
+- `src/config.py`
+- `src/datasets/dataset.py`
+- `src/metrics/metrics.py`
+- `src/models/backbone_factory.py`
+- `src/models/task_heads.py`
 
-### Diagnostics / Attribution
+### 放入 legacy 的旧模型专属能力
 
-`scripts/diagnose.py`
+- `EndToEndDepressionModel`
+- CGC / expert routing
+- contrastive learning
+- adaptive mask
+- PCGrad
+- uncertainty weighting
+- LDS label weighting
+- `loss_dist` 训练路径
+- segmented weight save/load
+- 旧版可视化 hooks
+- 旧版 runner、脚本、配置和测试快照
 
-Current behavior:
+legacy 只保留说明和历史快照。除非用户明确要求复现旧模型结果，否则不要继续修复 legacy 内部代码。
 
-- Accepts GPU, project path, logger version, sample count, prediction CSV, and
-  sample selection strategy.
-- Loads `configs/default_config.yaml` from the provided project path.
-- Forces batch size to 1 and `MODE: "full"`.
-- Loads validation data and a trained model checkpoint.
-- Generates GradCAM or ViT attention heatmaps plus occlusion sensitivity maps.
+## MTL-Lite 主模型边界
 
-Important: this script also depends on `src.datasets.dataset`, so it shares the
-same missing-module risk as training.
+MTL-Lite 只包含：
 
-## Configuration Organization
+- 视觉 backbone
+- 特征投影
+- 时序编码器
+- mask-aware 视频级池化
+- BDI 回归头
+- 有序严重程度分类头
+- compact loss
+- MAE/RMSE/CCC metrics
 
-### Existing Files
+MTL-Lite 不包含：
 
-- `configs/default_config.yaml`
-  - The only config currently loaded by `scripts/train.py`.
-  - Contains absolute dataset and log paths.
-  - Contains hardware settings, precision, model choice, feature extraction,
-    temporal/multi-task settings, and visualization intervals.
+- contrastive learning
+- adaptive mask
+- PCGrad
+- CGC
+- uncertainty weighting
+- 旧版 segmented checkpoint 逻辑
+- 训练过程内嵌复杂诊断绘图
 
-- `configs/avec2014_base.yaml`
-  - A cleaner base-style experiment config.
-  - Contains hardware, model, training, loss, mask, and visualization settings.
-  - Does not currently include dataset or log paths.
+## 诊断与可视化边界
 
-- `configs/debug_smoke.yaml`
-  - A small override-style config for smoke testing.
-  - Reduces batch size, chunk size, sequence length, epochs, and visualization.
-  - It exists, but no checked-in entry point currently merges it with a base
-    config.
+主模型保持轻量，但论文项目需要丰富诊断工具。
 
-### Desired Direction
+诊断系统应进入：
 
-Keep machine-specific values out of committed experiment logic. Prefer:
+```text
+src/diagnostics/
+```
 
-1. A shared base config, such as `configs/avec2014_base.yaml`.
-2. An ignored local path config, such as `configs/local_paths.yaml`.
-3. Optional overrides, such as `configs/debug_smoke.yaml`.
-4. A clearly logged merged config for every experiment run.
+推荐方向：
 
-Until this is implemented, avoid changing dataset paths, split files, or label
-formats unless the user explicitly asks.
+- 训练过程诊断：loss 曲线、metric 曲线、learning rate、prediction mean/std、梯度范数；
+- 预测结果诊断：prediction-target scatter、residual histogram、BDI 区间误差、severity group 误差；
+- 表征与归因诊断：embedding、t-SNE/UMAP、temporal weights、Grad-CAM、attention CAM、occlusion sensitivity；
+- 论文报告导出：case study 图组、metrics 表格、LaTeX 表格。
 
-## Reproducibility Requirements
+诊断逻辑不得改变训练、验证或测试结果。
 
-Every completed experiment should record:
+## Loss 与 Metric 约定
 
-- git branch and commit hash
-- exact config file or merged config snapshot
-- random seed
-- dataset split file
-- command line
-- GPU/device selection
-- precision setting
-- log directory
-- metrics output path
-- checkpoint or weight path used for evaluation
+- 回归 loss 使用 normalized BDI：`BDI / max_score`。
+- 报告 MAE/RMSE/CCC 时使用真实 BDI 尺度。
+- CCC loss 与 CCC metric 在同一尺度输入时应满足：
+  `ccc_loss = 1 - ccc_metric`。
+- LDS 和 `loss_dist` 不属于 MTL-Lite 主贡献，只能作为消融项。
 
-## Codex Working Rules
+## 实施路线
 
-- Make minimal, localized changes.
-- Do not rename public files, classes, functions, or config keys unless asked.
-- Do not modify dataset split logic unless explicitly requested.
-- Do not change label normalization unless explicitly requested.
-- Do not hard-code new absolute dataset paths in Python code.
-- Do not commit datasets, checkpoints, logs, private credentials, or machine-only
-  configs.
-- Before editing training code, inspect tensor shapes, loss/metric alignment,
-  gradients, detach points, sigmoid/softmax dimensions, DDP behavior, precision,
-  and validation/test separation.
-- Before claiming a code task is complete, provide changed files, diff summary,
-  validation commands, and remaining risks.
+1. 添加 `src/legacy/full_model/README.md`，说明旧模型是历史快照，不再主动修复。
+2. 确保 legacy 下不提交 `local_paths.yaml`、日志、权重或 checkpoint。
+3. 新增 `src/models/outputs.py`。
+4. 新增 `src/models/temporal/pooling.py`。
+5. 新增 `src/models/mtl_lite.py`。
+6. 新增 MTL-Lite forward/backward/config 测试。
+7. 设计新主线训练入口或调整现有 runner，使其面向 MTL-Lite。
+8. 新增 regression-only 与 MTL-Lite baseline override。
+9. 新增 `src/diagnostics/` 并逐步迁移可视化能力。
+10. 在服务器运行 MTL-Lite debug smoke。
+11. 对比 regression-only 与 MTL-Lite。
+12. baseline 稳定后逐项加入 CCC、LDS、`loss_dist` 消融。
 
-## Known Recurring Model Risks
+## 安全重构规则
 
-- `bdi_pred` may collapse to a constant value.
-- regression head gradients may become zero.
-- softmax may be called without an explicit `dim`.
-- DDP may report unused parameters.
-- mixed precision may cause instability.
-- validation/test contamination can invalidate reported results.
-- loss terms and reported metrics may optimize different targets.
-- visualization or diagnostic code may accidentally run on the wrong checkpoint.
+- 修改前先阅读相关文件。
+- 每次只处理一个重构目标。
+- 不改变模型算法逻辑，除非用户明确确认。
+- 不改变训练超参数，除非用户明确确认。
+- 不修改 `configs/local_paths.yaml`。
+- 不删除数据集、日志、checkpoint、权重或实验结果。
+- legacy 只作为历史快照，不再主动修复 import 和 smoke，除非用户明确要求。
+- 新模型不要继承旧模型。
 
-## Current Blocking Risks
+## 验证命令
 
-See `docs/BUG_LOG.md` for the actionable list. The most important current risks
-are:
+基础检查：
 
-- `scripts/train.py` imports missing `src.paths`.
-- training, diagnostics, and the model import missing `src.datasets.dataset`.
-- `debug_smoke.yaml` exists but is not wired into an executable smoke-test path.
-- committed default config contains absolute local dataset/log paths.
+```bash
+python -m compileall src scripts tests
+```
 
-## Recommended Next Work Order
+legacy 归档检查：
 
-1. Restore or implement the missing path and dataset modules with minimal changes.
-2. Add an import/config loading check.
-3. Wire a one-batch smoke test using `configs/debug_smoke.yaml`.
-4. Add model forward and backward tests, including a non-zero regression-head
-   gradient check.
-5. Standardize experiment logging and merged-config snapshots.
-6. Add metrics export for paper tables.
+```bash
+git diff -- src/legacy/full_model/README.md
+```
+
+通用模块检查：
+
+```bash
+python -c "from src.models.backbone_factory import build_feature_backbone; print('backbone import ok')"
+python -c "from src.models.task_heads import build_regression_task_head; print('task heads import ok')"
+python -c "from src.metrics.metrics import ConcordanceCorrCoefMetric, concordance_ccc_loss; print('metrics import ok')"
+```
+
+新增 MTL-Lite 后：
+
+```bash
+python -c "from src.models.mtl_lite import MTLLiteDepressionModel; print('mtl lite import ok')"
+python -m pytest tests/test_mtl_lite_forward.py tests/test_mtl_lite_loss_backward.py
+```
