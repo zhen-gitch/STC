@@ -5,109 +5,104 @@ or experiment results. Keep entries concise, reproducible, and tied to files.
 
 ## Open Issues
 
-### BUG-001: Training entry imports missing `src.paths`
-
-- Status: open
-- Severity: blocking
-- Files:
-  - `scripts/train.py`
-- Evidence:
-  - `scripts/train.py` imports `from src.paths import *`.
-  - The current `src/` tree does not contain `paths.py`.
-- Impact:
-  - `scripts/train.py` cannot be assumed importable or runnable.
-  - `CONFIG_DIR` is undefined unless provided by an untracked/local file.
-- Recommended fix:
-  - Restore or implement `src/paths.py` with minimal project-root/config-root
-    helpers.
-  - Preserve backward compatibility for `CONFIG_DIR`.
-  - Avoid hard-coding machine-specific dataset paths in Python.
-
-### BUG-002: Dataset module is missing from the checked-in tree
-
-- Status: open
-- Severity: blocking
-- Files:
-  - `scripts/diagnose.py`
-  - `src/trainers/end_to_end_runner.py`
-  - `src/models/end_to_end.py`
-- Evidence:
-  - These files import `src.datasets.dataset`.
-  - The current `src/` tree does not contain a `datasets/` package.
-- Impact:
-  - Training, diagnostics, and parts of the model are likely not importable.
-  - Smoke tests cannot run until `AVECDataModule` and
-    `generate_soft_spatial_mask` are available.
-- Recommended fix:
-  - Restore the dataset package or implement the minimal missing interfaces.
-  - Do not change split logic, label normalization, label formats, or dataset
-    path semantics unless explicitly requested.
-  - Add an import test before attempting training.
-
-### BUG-003: Smoke-test config exists but is not wired into an entry point
-
-- Status: open
-- Severity: high
-- Files:
-  - `configs/debug_smoke.yaml`
-  - `scripts/train.py`
-  - `configs/avec2014_base.yaml`
-  - `configs/default_config.yaml`
-- Evidence:
-  - `configs/debug_smoke.yaml` exists.
-  - `scripts/train.py` directly loads `configs/default_config.yaml`.
-  - No checked-in script currently merges base, local paths, and debug override
-    configs.
-- Impact:
-  - The project cannot yet provide a reproducible one-batch smoke command.
-  - Future changes are harder to validate safely.
-- Recommended fix:
-  - Add a config loading path that supports explicit config selection or ordered
-    OmegaConf merges.
-  - Keep `default_config.yaml` behavior backward compatible.
-  - Record the resolved config in each run directory.
-
-### BUG-004: Committed default config contains absolute local paths
-
-- Status: open
-- Severity: medium
-- Files:
-  - `configs/default_config.yaml`
-- Evidence:
-  - `IMAGE_DIR`, `LABEL_DIR`, `DATASET_SPLIT_FILE`, and `LOG_DIR` are absolute
-    local Linux-style paths.
-- Impact:
-  - Experiments may fail across machines.
-  - Machine-specific paths are harder to keep reproducible and private.
-- Recommended fix:
-  - Prefer ignored `configs/local_paths.yaml` or environment-variable expansion
-    for local paths.
-  - Do not change dataset paths silently; migrate with a compatibility path.
-
-### BUG-005: TODO list is stale for `debug_smoke.yaml`
+### BUG-004: Legacy default config contains absolute local paths
 
 - Status: open
 - Severity: low
 - Files:
+  - `configs/pre/default_config.yaml`
+- Evidence:
+  - The historical complete config under `configs/pre/default_config.yaml`
+    contains machine-specific absolute paths.
+  - The canonical workflow now uses `configs/avec2014_base.yaml`,
+    ignored `configs/local_paths.yaml`, and optional overrides.
+- Impact:
+  - Low risk for normal runs if users follow the canonical config stack.
+  - Legacy `--config configs/pre/default_config.yaml` runs may still be
+    machine-specific.
+- Recommended fix:
+  - Keep `configs/pre/default_config.yaml` documented as legacy-only, or
+    migrate it into the base/local/override config organization.
+  - Do not silently change dataset paths without an explicit migration step.
+
+### BUG-006: Debug smoke device selection is machine-specific
+
+- Status: open
+- Severity: low
+- Files:
+  - `configs/debug_smoke.yaml`
+- Evidence:
+  - `configs/debug_smoke.yaml` sets `DEVICES: [4]`.
+- Impact:
+  - Debug smoke works on the current server setup but may fail on machines
+    without GPU index 4.
+- Recommended fix:
+  - Keep server-specific device overrides local, or add separate
+    machine-neutral smoke configs such as `debug_smoke_gpu0.yaml` or
+    `debug_smoke_cpu.yaml`.
+
+## Resolved Issues
+
+### BUG-001: Training entry imports missing `src.paths`
+
+- Status: resolved
+- Severity: blocking
+- Resolved on: 2026-06-12
+- Files:
+  - `scripts/train.py`
+- Evidence:
+  - `scripts/train.py` now imports from `src.config` and no longer depends on
+    `src.paths`.
+  - Config loading supports base, local paths, and override YAML files.
+
+### BUG-002: Dataset module is missing from the checked-in tree
+
+- Status: resolved
+- Severity: blocking
+- Resolved on: 2026-06-12
+- Files:
+  - `src/datasets/dataset.py`
+  - `scripts/diagnose.py`
+  - `src/trainers/end_to_end_runner.py`
+  - `src/models/end_to_end.py`
+- Evidence:
+  - `src/datasets/dataset.py` has been restored.
+  - Debug smoke training can run end to end in the server environment.
+
+### BUG-003: Smoke-test config exists but is not wired into an entry point
+
+- Status: resolved
+- Severity: high
+- Resolved on: 2026-06-12
+- Files:
+  - `configs/debug_smoke.yaml`
+  - `scripts/train.py`
+  - `src/config.py`
+- Evidence:
+  - Training can be launched with `scripts/train.py --override
+    configs/debug_smoke.yaml`.
+  - The server environment has completed debug smoke training.
+
+### BUG-005: TODO list is stale for `debug_smoke.yaml`
+
+- Status: resolved
+- Severity: low
+- Resolved on: 2026-06-12
+- Files:
   - `docs/TODO.md`
   - `configs/debug_smoke.yaml`
 - Evidence:
-  - `docs/TODO.md` still lists `Add configs/debug_smoke.yaml`.
-  - `configs/debug_smoke.yaml` already exists.
-- Impact:
-  - Task tracking may mislead future work.
-- Recommended fix:
-  - Update `docs/TODO.md` after the user allows edits outside the currently
-    requested documentation files.
+  - Completed smoke-config tasks have been removed from `docs/TODO.md` and
+    recorded in `docs/EXPERIMENT_LOG.md`.
 
 ## Verification Needed After Fixes
 
-After BUG-001 and BUG-002 are fixed, run checks in this order:
+Use this order after future code or config refactors:
 
 1. `python -m compileall scripts src`
-2. Import check for `scripts.train`, `src.trainers.end_to_end_runner`, and
-   `src.models.end_to_end`.
-3. Config loading check for the default and debug configurations.
-4. One-batch smoke training using the debug config.
+2. Import checks for `scripts.train`, `scripts.diagnose`,
+   `src.trainers.end_to_end_runner`, and `src.models.end_to_end`.
+3. Config loading check for base, local paths, and debug override configs.
+4. One-batch smoke training using the debug config on the target machine.
 5. Model forward and backward tests, including non-zero regression-head
    gradients.

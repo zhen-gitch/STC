@@ -149,6 +149,8 @@ class EndToEndDepressionModel(pl.LightningModule):
         self._spatial_gate_cache = {}
 
         # 初始化任务头
+        # Task heads use PyTorch default random initialization.
+        # Do not initialize prediction parameters from training-label statistics.
         self.max_score = configs.EXTRACT_FEATURE.MAX_SCORE
         self.class_step = configs.PROCESS_TEMPORAL.CLASS_STEP
         self.num_classes = math.ceil(self.max_score / self.class_step)
@@ -206,6 +208,8 @@ class EndToEndDepressionModel(pl.LightningModule):
         # 初始 LDS 权重为全 1；on_train_start 中会根据训练集 BDI 分布更新为 LDS 权重
         # 确保全网在任何开局和推理阶段（如 diagnose.py）都不会报属性缺失错误
         # ====================================================
+        # LDS weights only reweight regression loss; they never initialize
+        # or overwrite prediction head parameters.
         self.register_buffer("bdi_loss_weights", torch.ones(self.max_score + 1).float())
 
     def _get_spatial_gate(self, height, width, device, dtype):
@@ -641,6 +645,7 @@ class EndToEndDepressionModel(pl.LightningModule):
         target_std = true_bdi_norm.float().std(unbiased=False).detach()
         loss_pred_mean = (pred_mean - target_mean).pow(2)
         loss_pred_std = F.relu(target_std - pred_std).pow(2)
+        # Batch distribution regularizer only; not prediction initialization.
         loss_dist = (
             self.pred_mean_loss_weight * loss_pred_mean
             + self.pred_std_loss_weight * loss_pred_std
