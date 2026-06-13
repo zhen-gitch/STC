@@ -259,6 +259,21 @@ LOSSES:
 
 为了避免破坏现有配置，新模型实现应对缺失字段提供默认值。
 
+backbone 可训练范围由以下配置控制：
+
+```yaml
+EXTRACT_FEATURE:
+  FREEZE_BACKBONE: true
+  FINETUNE_LAST_N_BLOCKS: 1
+```
+
+约定：
+
+- `FREEZE_BACKBONE: false`：保持 backbone 全量可训练；
+- `FREEZE_BACKBONE: true` 且 `FINETUNE_LAST_N_BLOCKS: 0`：全冻结 backbone；
+- `FREEZE_BACKBONE: true` 且 `FINETUNE_LAST_N_BLOCKS > 0`：冻结 backbone 大部分参数，只解冻最后若干 transformer blocks 和 norm；
+- 对没有 `.blocks` 的 backbone，`FINETUNE_LAST_N_BLOCKS` 不强行猜测 CNN 层级，保持全冻结并打印提示。
+
 ## 10. 诊断与可视化系统
 
 模型主线需要轻量，但论文项目需要丰富的诊断与表征能力。

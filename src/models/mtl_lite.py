@@ -51,6 +51,10 @@ class MTLLiteDepressionModel(pl.LightningModule):
         self.weight_path = _get_config_value(configs, "EXTRACT_FEATURE", "MODEL_WEIGHT_PATH", None)
         self.timm_pretrained = bool(_get_config_value(configs, "EXTRACT_FEATURE", "TIMM_PRETRAINED", False))
         self.chunk_size = int(_get_config_value(configs, "EXTRACT_FEATURE", "CHUNK_SIZE", 64))
+        self.freeze_backbone = bool(_get_config_value(configs, "EXTRACT_FEATURE", "FREEZE_BACKBONE", False))
+        self.finetune_last_n_blocks = int(
+            _get_config_value(configs, "EXTRACT_FEATURE", "FINETUNE_LAST_N_BLOCKS", 0)
+        )
 
         self.hidden_dim = int(_get_config_value(configs, "PROCESS_TEMPORAL", "HIDDEN_DIM", 192))
         self.class_step = int(_get_config_value(configs, "PROCESS_TEMPORAL", "CLASS_STEP", 2))
@@ -84,6 +88,7 @@ class MTLLiteDepressionModel(pl.LightningModule):
             weight_path=self.weight_path,
             timm_pretrained=self.timm_pretrained,
         )
+        self.configure_backbone_trainability()
 
         self.proj = nn.Sequential(
             nn.Linear(self.input_dim, self.hidden_dim),
@@ -110,6 +115,48 @@ class MTLLiteDepressionModel(pl.LightningModule):
         self.test_rmse = torchmetrics.MeanSquaredError(squared=False)
         self.test_mae = torchmetrics.MeanAbsoluteError()
         self.test_ccc = ConcordanceCorrCoefMetric()
+
+    @staticmethod
+    def _set_module_trainable(module, trainable):
+        for param in module.parameters():
+            param.requires_grad = trainable
+
+    def _count_backbone_parameters(self):
+        total = sum(param.numel() for param in self.backbone.parameters())
+        trainable = sum(param.numel() for param in self.backbone.parameters() if param.requires_grad)
+        return total, trainable
+
+    def configure_backbone_trainability(self):
+        """Apply backbone freeze / high-layer finetuning config."""
+        if not self.freeze_backbone:
+            total, trainable = self._count_backbone_parameters()
+            print(f"[BACKBONE] Full backbone trainable: {trainable}/{total} parameters.")
+            return
+
+        self._set_module_trainable(self.backbone, False)
+        unfrozen_blocks = 0
+
+        if self.finetune_last_n_blocks > 0 and hasattr(self.backbone, "blocks"):
+            blocks = list(self.backbone.blocks)
+            unfrozen_blocks = min(self.finetune_last_n_blocks, len(blocks))
+            for block in blocks[-unfrozen_blocks:]:
+                self._set_module_trainable(block, True)
+
+            for norm_name in ("norm", "fc_norm"):
+                norm_layer = getattr(self.backbone, norm_name, None)
+                if norm_layer is not None:
+                    self._set_module_trainable(norm_layer, True)
+        elif self.finetune_last_n_blocks > 0:
+            print(
+                "[BACKBONE] FINETUNE_LAST_N_BLOCKS was set, but this backbone "
+                "does not expose transformer-style `.blocks`; keeping backbone frozen."
+            )
+
+        total, trainable = self._count_backbone_parameters()
+        print(
+            "[BACKBONE] Frozen backbone with "
+            f"{unfrozen_blocks} high-level blocks trainable: {trainable}/{total} parameters."
+        )
 
     def extract_frame_features(self, video_tensor, mask):
         """Extract per-frame visual features while preserving padded positions."""

@@ -108,6 +108,7 @@ src/diagnostics/        # 独立诊断与可视化系统
 - [ ] 验证 `validation_step` 可以在 `no_grad` 下 forward，且不改变 metrics
 - [ ] 确认 LDS label weighting 只使用训练集标签，不接触 val/test 标签
 - [ ] 验证 `MODEL_WEIGHT_PATH` 能加载 raw `state_dict` 和 `{"state_dict": ...}` checkpoint
+- [x] 让 `FREEZE_BACKBONE` / `FINETUNE_LAST_N_BLOCKS` 配置在 MTL-Lite 中真正控制 backbone 可训练范围
 - [ ] 验证多 GPU 下 DDP metric logging 和 best-weight 保存行为
 - [ ] 添加 bf16-mixed precision 下预测和 loss finite 测试
 

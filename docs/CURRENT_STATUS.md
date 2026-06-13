@@ -85,15 +85,17 @@ src/diagnostics/        # 独立诊断与可视化系统
 - 已新增 regression-only、MTL-Lite baseline 和 MTL-Lite debug smoke 配置。
 - 已新增 MTL-Lite 离线诊断入口 `scripts/diagnose_mtl_lite.py`。
 - 已新增 `src/diagnostics/`，支持训练曲线、回归诊断、embedding、相关热力图、遮掩影响热力图、关键帧重要性热力图和模型关注区域热力图。
+- MTL-Lite 已支持 `EXTRACT_FEATURE.FREEZE_BACKBONE` 和 `EXTRACT_FEATURE.FINETUNE_LAST_N_BLOCKS`，可通过配置冻结 backbone 或只微调最后若干 transformer blocks。
 - 本地 Codex Python 缺少 `torch`、`pytorch_lightning` 和 `pytest`，MTL-Lite import/pytest 需在服务器训练环境验证。
 
 ## 当前优先级
 
 1. 确保 legacy 中的 `local_paths.yaml`、日志、权重、checkpoint 不进入提交。
 2. 在服务器训练环境运行 MTL-Lite import 和 pytest 验证。
-3. 在服务器训练环境运行 MTL-Lite debug smoke。
-4. 对比 regression-only baseline 与 MTL-Lite baseline。
-5. 在服务器训练环境运行 MTL-Lite 离线诊断脚本，确认图表可生成。
+3. 在服务器训练环境验证 backbone 冻结/高层微调配置。
+4. 在服务器训练环境运行 MTL-Lite debug smoke。
+5. 对比 regression-only baseline 与 MTL-Lite baseline。
+6. 在服务器训练环境运行 MTL-Lite 离线诊断脚本，确认图表可生成。
 
 ## 当前风险
 
