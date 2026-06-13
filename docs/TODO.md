@@ -68,21 +68,28 @@ src/diagnostics/        # 独立诊断与可视化系统
 
 ## 阶段 6：诊断系统独立化
 
-- [ ] 梳理当前 `src/utils/visualize.py`
-- [ ] 新增 `src/diagnostics/`
-- [ ] 新增 `src/diagnostics/regression.py`
-- [ ] 新增 `src/diagnostics/embeddings.py`
+- [x] 梳理当前 `src/utils/visualize.py`
+- [x] 新增 `src/diagnostics/`
+- [x] 新增 `src/diagnostics/regression.py`
+- [x] 新增 `src/diagnostics/embeddings.py`
 - [ ] 新增 `src/diagnostics/temporal.py`
-- [ ] 新增 `src/diagnostics/attribution.py`
-- [ ] 新增 `src/diagnostics/reports.py`
-- [ ] 支持 `predictions.csv` 导出
-- [ ] 支持 prediction-target scatter
-- [ ] 支持 residual histogram
-- [ ] 支持 BDI 区间误差分析
-- [ ] 支持 severity group 误差分析
-- [ ] 支持 high-error / low-error subject ranking
-- [ ] 支持 t-SNE / UMAP
-- [ ] 支持 Grad-CAM / attention CAM / occlusion sensitivity
+- [x] 新增 `src/diagnostics/model_attention.py`
+- [x] 新增 `src/diagnostics/reports.py`
+- [x] 新增 `src/diagnostics/correlation.py`
+- [x] 新增 `src/diagnostics/occlusion.py`
+- [x] 新增 `src/diagnostics/keyframes.py`
+- [x] 支持 `predictions.csv` 导出
+- [x] 支持 prediction-target scatter
+- [x] 支持 residual histogram
+- [x] 支持 BDI 区间误差分析
+- [x] 支持 severity group 误差分析
+- [x] 支持 high-error / low-error subject ranking
+- [x] 支持 t-SNE / UMAP
+- [x] 支持 metrics / predictions 相关系数热力图
+- [x] 支持 occlusion sensitivity 遮掩影响热力图
+- [x] 支持 temporal occlusion 关键帧重要性热力图
+- [x] 支持模型自身关注区域热力图（Grad-CAM 可用时优先，否则回退到 input-gradient）
+- [ ] 服务器运行 MTL-Lite 离线诊断脚本
 - [ ] 保留旧诊断入口的向后兼容
 
 ## 阶段 7：实验路线
@@ -131,3 +138,7 @@ src/diagnostics/        # 独立诊断与可视化系统
 ### Task 5
 
 新增 MTL-Lite baseline 配置和新训练入口。
+
+### Task 6
+
+新增 MTL-Lite 离线诊断与模型表征绘图系统。

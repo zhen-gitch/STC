@@ -38,6 +38,7 @@
 - 旧大模型相关代码应整体进入 `src/legacy/full_model/`，但不再作为主要维护对象。
 - `scripts/train.py` 是旧端到端训练入口。
 - `scripts/train_mtl_lite.py` 是 MTL-Lite 新主线训练入口。
+- `scripts/diagnose_mtl_lite.py` 是 MTL-Lite 离线诊断与模型表征绘图入口。
 - 新旧训练入口均使用标准配置栈：
   `configs/avec2014_base.yaml` + 被 git 忽略的 `configs/local_paths.yaml` + 可选 override。
 - `scripts/diagnose.py` 的 import 与 `--help` 检查已经通过。
@@ -153,7 +154,7 @@ src/diagnostics/
 
 - 训练过程诊断：loss 曲线、metric 曲线、learning rate、prediction mean/std、梯度范数；
 - 预测结果诊断：prediction-target scatter、residual histogram、BDI 区间误差、severity group 误差；
-- 表征与归因诊断：embedding、t-SNE/UMAP、temporal weights、Grad-CAM、attention CAM、occlusion sensitivity；
+- 表征与归因诊断：embedding、t-SNE/UMAP、相关系数热力图、遮掩影响热力图、关键帧重要性热力图、模型自身关注区域热力图；
 - 论文报告导出：case study 图组、metrics 表格、LaTeX 表格。
 
 诊断逻辑不得改变训练、验证或测试结果。
@@ -177,10 +178,11 @@ src/diagnostics/
 7. 新增 `scripts/train_mtl_lite.py` 和 `src/trainers/mtl_lite_runner.py`，使新训练入口面向 MTL-Lite。
 8. 新增 regression-only 与 MTL-Lite baseline override。
 9. 新增 MTL-Lite debug smoke override。
-10. 新增 `src/diagnostics/` 并逐步迁移可视化能力。
+10. 新增 `src/diagnostics/` 与 `scripts/diagnose_mtl_lite.py`，以离线方式生成训练曲线、回归诊断、embedding、相关热力图、遮掩影响热力图、关键帧重要性热力图和模型关注区域热力图。
 11. 在服务器运行 MTL-Lite debug smoke。
-12. 对比 regression-only 与 MTL-Lite。
-13. baseline 稳定后逐项加入 CCC、LDS、`loss_dist` 消融。
+12. 在服务器运行 MTL-Lite 离线诊断脚本。
+13. 对比 regression-only 与 MTL-Lite。
+14. baseline 稳定后逐项加入 CCC、LDS、`loss_dist` 消融。
 
 ## 安全重构规则
 
@@ -221,4 +223,5 @@ python -c "from src.metrics.metrics import ConcordanceCorrCoefMetric, concordanc
 python -c "from src.models.mtl_lite import MTLLiteDepressionModel; print('mtl lite import ok')"
 python -m pytest tests/test_mtl_lite_forward.py tests/test_mtl_lite_loss_backward.py
 python scripts/train_mtl_lite.py --override configs/mtl_lite_debug_smoke.yaml
+python scripts/diagnose_mtl_lite.py --run-dir /path/to/LOG_DIR/mtl_lite_csv/version_0 --ckpt best
 ```

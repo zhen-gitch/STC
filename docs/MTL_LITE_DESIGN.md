@@ -272,10 +272,14 @@ LOSSES:
 
 ```text
 src/diagnostics/
+  io.py
+  training_curves.py
   regression.py
   embeddings.py
-  temporal.py
-  attribution.py
+  correlation.py
+  occlusion.py
+  keyframes.py
+  model_attention.py
   reports.py
 ```
 
@@ -288,6 +292,10 @@ src/diagnostics/
 - severity group 误差；
 - high-error / low-error subject ranking；
 - embedding、t-SNE、UMAP；
+- metrics / predictions 相关系数热力图；
+- 遮掩影响热力图；
+- 关键帧重要性热力图；
+- 模型自身关注区域热力图；
 - temporal weights / gating；
 - Grad-CAM、attention CAM、occlusion sensitivity；
 - subject-level case study 图组。
@@ -368,7 +376,12 @@ src/diagnostics/
 1. 梳理 `src/utils/visualize.py`。
 2. 新增 `src/diagnostics/`。
 3. 支持离线读取 `metrics.csv`、`predictions.csv`、features 和 temporal weights。
-4. 保留旧入口兼容。
+4. 支持训练曲线、prediction-target scatter、residual histogram、BDI 区间误差、severity group 误差、high/low error ranking。
+5. 支持 embedding PCA/t-SNE/UMAP。
+6. 支持 metrics / predictions 相关系数热力图。
+7. 支持遮掩影响热力图和关键帧重要性热力图。
+8. 支持模型关注区域热力图：Grad-CAM 可用时优先，否则回退到 input-gradient attention。
+9. 保留旧入口兼容。
 
 ### 阶段 7：消融实验
 
@@ -404,4 +417,5 @@ python -c "from src.models.task_heads import build_regression_task_head; print('
 python -c "from src.models.mtl_lite import MTLLiteDepressionModel; print('mtl lite import ok')"
 python -m pytest tests/test_mtl_lite_forward.py tests/test_mtl_lite_loss_backward.py
 python scripts/train_mtl_lite.py --override configs/mtl_lite_debug_smoke.yaml
+python scripts/diagnose_mtl_lite.py --run-dir /path/to/LOG_DIR/mtl_lite_csv/version_0 --ckpt best
 ```

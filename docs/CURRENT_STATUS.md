@@ -83,6 +83,8 @@ src/diagnostics/        # 独立诊断与可视化系统
 - 已新增 MTL-Lite 新训练入口 `scripts/train_mtl_lite.py`。
 - 已新增 MTL-Lite runner `src/trainers/mtl_lite_runner.py`。
 - 已新增 regression-only、MTL-Lite baseline 和 MTL-Lite debug smoke 配置。
+- 已新增 MTL-Lite 离线诊断入口 `scripts/diagnose_mtl_lite.py`。
+- 已新增 `src/diagnostics/`，支持训练曲线、回归诊断、embedding、相关热力图、遮掩影响热力图、关键帧重要性热力图和模型关注区域热力图。
 - 本地 Codex Python 缺少 `torch`、`pytorch_lightning` 和 `pytest`，MTL-Lite import/pytest 需在服务器训练环境验证。
 
 ## 当前优先级
@@ -91,7 +93,7 @@ src/diagnostics/        # 独立诊断与可视化系统
 2. 在服务器训练环境运行 MTL-Lite import 和 pytest 验证。
 3. 在服务器训练环境运行 MTL-Lite debug smoke。
 4. 对比 regression-only baseline 与 MTL-Lite baseline。
-5. 规划 `src/diagnostics/`，逐步迁移可视化与诊断能力。
+5. 在服务器训练环境运行 MTL-Lite 离线诊断脚本，确认图表可生成。
 
 ## 当前风险
 
@@ -149,6 +151,20 @@ MTL-Lite baseline：
 
 ```bash
 python scripts/train_mtl_lite.py --override configs/mtl_lite_baseline.yaml
+```
+
+MTL-Lite 离线诊断：
+
+```bash
+python scripts/diagnose_mtl_lite.py \
+  --run-dir /path/to/LOG_DIR/mtl_lite_csv/version_0 \
+  --ckpt best
+```
+
+诊断输出目录：
+
+```text
+/path/to/LOG_DIR/mtl_lite_csv/version_0/diagnostics/
 ```
 
 Regression-only baseline：
