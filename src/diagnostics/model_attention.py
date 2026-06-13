@@ -28,19 +28,26 @@ def _normalize_heatmap(heatmap):
 
 def input_gradient_attention_map(model, video_tensor, mask, frame_idx):
     """General model-dependent attention proxy based on input gradients."""
+    import torch
+
+    was_training = model.training
     model.eval()
     device = next(model.parameters()).device
     video_tensor = video_tensor.to(device).detach().clone().requires_grad_(True)
     mask = mask.to(device)
     frame_idx = min(int(frame_idx), video_tensor.size(1) - 1)
 
-    model.zero_grad(set_to_none=True)
-    outputs = model(video_tensor, mask)
-    target = outputs.bdi_pred.reshape(-1)[0]
-    target.backward()
+    try:
+        model.zero_grad(set_to_none=True)
+        with torch.backends.cudnn.flags(enabled=False):
+            outputs = model(video_tensor, mask)
+            target = outputs.bdi_pred.reshape(-1)[0]
+            target.backward()
 
-    grad = video_tensor.grad[0, frame_idx].detach().abs().mean(dim=0).cpu().numpy()
-    return _normalize_heatmap(grad)
+        grad = video_tensor.grad[0, frame_idx].detach().abs().mean(dim=0).cpu().numpy()
+        return _normalize_heatmap(grad)
+    finally:
+        model.train(was_training)
 
 
 def gradcam_attention_map(model, video_tensor, mask, frame_idx, target_layer):
@@ -48,6 +55,7 @@ def gradcam_attention_map(model, video_tensor, mask, frame_idx, target_layer):
     import torch
     import torch.nn.functional as F
 
+    was_training = model.training
     model.eval()
     device = next(model.parameters()).device
     video_tensor = video_tensor.to(device)
@@ -67,8 +75,9 @@ def gradcam_attention_map(model, video_tensor, mask, frame_idx, target_layer):
     handle_bwd = target_layer.register_full_backward_hook(backward_hook)
     try:
         model.zero_grad(set_to_none=True)
-        outputs = model(video_tensor, mask)
-        outputs.bdi_pred.reshape(-1)[0].backward()
+        with torch.backends.cudnn.flags(enabled=False):
+            outputs = model(video_tensor, mask)
+            outputs.bdi_pred.reshape(-1)[0].backward()
 
         if "value" not in activations or "value" not in gradients:
             return None
@@ -96,6 +105,7 @@ def gradcam_attention_map(model, video_tensor, mask, frame_idx, target_layer):
     finally:
         handle_fwd.remove()
         handle_bwd.remove()
+        model.train(was_training)
 
 
 def model_attention_map(model, video_tensor, mask, frame_idx, method="auto"):
