@@ -148,7 +148,7 @@ def write_error_rankings(records, save_dir, top_k=20):
     save_dir = ensure_dir(save_dir)
     high_rows = sorted(records, key=lambda row: row["abs_error"], reverse=True)[:top_k]
     low_rows = sorted(records, key=lambda row: row["abs_error"])[:top_k]
-    fields = ["subject_id", "true_bdi", "pred_bdi", "residual", "abs_error", "severity_group"]
+    fields = ["video_id", "subject_id", "true_bdi", "pred_bdi", "residual", "abs_error", "severity_group"]
     high_path = save_dir / "high_error_subjects.csv"
     low_path = save_dir / "low_error_subjects.csv"
     write_csv_rows(high_path, high_rows, fields)
