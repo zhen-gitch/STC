@@ -23,3 +23,23 @@ Run the new mainline with:
 ```bash
 python scripts/train_mtl_lite.py --override configs/mtl_lite_debug_smoke.yaml
 ```
+
+Backbone weights should be prepared as local `.pth` files and referenced by
+`MODEL_WEIGHT_PATH`:
+
+```bash
+python scripts/prepare_backbone_weights.py \
+  --model-name deit_tiny_patch16_224 \
+  --timm-model-name deit_tiny_patch16_224.fb_in1k \
+  --output weights/deit_tiny_patch16_224/model.pth \
+  --verify
+```
+
+Then set:
+
+```yaml
+EXTRACT_FEATURE:
+  MODEL_NAME: "deit_tiny_patch16_224"
+  TIMM_PRETRAINED: False
+  MODEL_WEIGHT_PATH: "weights/deit_tiny_patch16_224/model.pth"
+```
