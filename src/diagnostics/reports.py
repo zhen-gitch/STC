@@ -30,15 +30,17 @@ def write_diagnostic_report(report_path, run_dir, checkpoint_path, records, gene
 
     lines.extend(["", "## High Error Subjects", ""])
     for row in high_error:
+        video_id = row.get("video_id", row["subject_id"])
         lines.append(
-            f"- {row['subject_id']}: true={row['true_bdi']:.2f}, "
+            f"- {video_id}: true={row['true_bdi']:.2f}, "
             f"pred={row['pred_bdi']:.2f}, abs_error={row['abs_error']:.2f}"
         )
 
     lines.extend(["", "## Low Error Subjects", ""])
     for row in low_error:
+        video_id = row.get("video_id", row["subject_id"])
         lines.append(
-            f"- {row['subject_id']}: true={row['true_bdi']:.2f}, "
+            f"- {video_id}: true={row['true_bdi']:.2f}, "
             f"pred={row['pred_bdi']:.2f}, abs_error={row['abs_error']:.2f}"
         )
 

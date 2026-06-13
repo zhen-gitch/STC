@@ -52,16 +52,59 @@ def _numeric_feature_names(rows, excluded=()):
     return names
 
 
+def _normalize_video_id(video_id):
+    video_id = str(video_id or "")
+    if video_id.endswith(".csv"):
+        video_id = Path(video_id).stem
+    return video_id
+
+
+def _compatible_video_ids(left, right):
+    left = _normalize_video_id(left)
+    right = _normalize_video_id(right)
+    if not left or not right:
+        return False
+    return left == right or f"{left}_video" == right or left == f"{right}_video"
+
+
 def merge_predictions_with_quality(prediction_records, quality_rows):
-    quality_by_subject = {str(row.get("subject_id", "")): row for row in quality_rows}
+    quality_by_video = {}
+    quality_by_subject = {}
+    for row in quality_rows:
+        video_id = _normalize_video_id(row.get("video_id"))
+        subject_id = str(row.get("subject_id", ""))
+        if video_id:
+            quality_by_video[video_id] = row
+        if subject_id:
+            quality_by_subject.setdefault(subject_id, []).append(row)
+
     merged = []
     for record in prediction_records:
+        video_id = _normalize_video_id(record.get("video_id", record["subject_id"]))
         subject_id = str(record["subject_id"])
-        quality = quality_by_subject.get(subject_id)
+        quality = quality_by_video.get(video_id)
+        matched_on = "video_id"
+
+        if quality is None:
+            for quality_video_id, quality_row in quality_by_video.items():
+                if _compatible_video_ids(video_id, quality_video_id):
+                    quality = quality_row
+                    break
+
+        if quality is None:
+            subject_matches = quality_by_subject.get(subject_id, [])
+            if len(subject_matches) == 1:
+                quality = subject_matches[0]
+                matched_on = "subject_id"
+            elif len(subject_matches) > 1:
+                continue
+
         if quality is None:
             continue
         row = {
+            "video_id": video_id,
             "subject_id": subject_id,
+            "matched_on": matched_on,
             "true_bdi": record["true_bdi"],
             "pred_bdi": record["pred_bdi"],
             "residual": record["residual"],
@@ -95,7 +138,7 @@ def write_merged_shortcut_table(rows, csv_path):
 def compute_shortcut_correlations(rows, target_columns=TARGET_COLUMNS):
     feature_names = _numeric_feature_names(
         rows,
-        excluded=set(target_columns) | {"subject_id", "severity_group", "source_file"},
+        excluded=set(target_columns) | {"video_id", "subject_id", "matched_on", "severity_group", "source_file"},
     )
     correlations = []
     for feature in feature_names:
@@ -129,7 +172,7 @@ def write_shortcut_correlations(correlations, csv_path):
 
 def _correlation_matrix_rows(correlations, max_features=40):
     if not correlations:
-        return []
+        return [], []
     features = []
     for row in correlations:
         feature = row["feature"]
@@ -255,7 +298,7 @@ def _predictor_metrics(targets, preds):
 def evaluate_shortcut_predictors(rows):
     feature_names = _numeric_feature_names(
         rows,
-        excluded=set(TARGET_COLUMNS) | {"subject_id", "severity_group", "source_file"},
+        excluded=set(TARGET_COLUMNS) | {"video_id", "subject_id", "matched_on", "severity_group", "source_file"},
     )
     if len(rows) < 2 or not feature_names:
         return []

@@ -148,6 +148,7 @@ src/diagnostics/        # 独立诊断与可视化系统
 - [ ] 新增 `src/diagnostics/openface_quality.py`，读取 OpenFace CSV 并生成 subject-level quality summary
 - [ ] 新增 `src/diagnostics/shortcut_audit.py`，合并 `predictions.csv`、OpenFace quality summary 和 split 信息
 - [ ] 新增 `scripts/audit_shortcuts.py`，作为非抑郁捷径验证的离线入口
+- [x] 修正 Shortcut Audit 合并键：优先使用完整 `video_id`，避免 Freeform/Northwind 与短 `subject_id` 错配
 - [ ] 输出 `openface_quality_summary.csv`
 - [ ] 输出 `shortcut_correlation.csv`
 - [ ] 输出 `shortcut_correlation_heatmap.png`

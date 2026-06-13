@@ -112,6 +112,16 @@ def infer_subject_id_from_openface_path(csv_path):
     return stem
 
 
+def infer_video_id_from_openface_path(csv_path):
+    return Path(csv_path).stem
+
+
+def infer_task_name_from_openface_path(csv_path):
+    stem = Path(csv_path).stem
+    match = re.search(r"\d{3}_\d_(.+?)(?:_video)?$", stem)
+    return match.group(1) if match else ""
+
+
 def looks_like_openface_csv(csv_path):
     csv_path = Path(csv_path)
     if not csv_path.exists() or csv_path.suffix.lower() != ".csv":
@@ -127,11 +137,14 @@ def looks_like_openface_csv(csv_path):
 
 def summarize_openface_csv(
     csv_path,
+    video_id=None,
     subject_id=None,
     low_confidence_threshold=DEFAULT_LOW_CONFIDENCE_THRESHOLD,
 ):
     csv_path = Path(csv_path)
+    video_id = video_id or infer_video_id_from_openface_path(csv_path)
     subject_id = subject_id or infer_subject_id_from_openface_path(csv_path)
+    task_name = infer_task_name_from_openface_path(csv_path)
 
     with csv_path.open("r", newline="", encoding="utf-8-sig") as f:
         reader = csv.DictReader(f)
@@ -201,7 +214,9 @@ def summarize_openface_csv(
     confidence_mean = confidence_stats.mean
     success_ratio = success_count / frame_count if frame_count else None
     summary = {
+        "video_id": video_id,
         "subject_id": subject_id,
+        "task_name": task_name,
         "source_file": str(csv_path),
         "frame_count": frame_count,
         "valid_frame_count": frame_count,
@@ -279,7 +294,7 @@ def write_openface_quality_summary(
     csv_path = Path(csv_path)
     ensure_dir(csv_path.parent)
     if not summaries:
-        write_csv_rows(csv_path, [], ["subject_id", "source_file"])
+        write_csv_rows(csv_path, [], ["video_id", "subject_id", "task_name", "source_file"])
         return csv_path
 
     fieldnames = []

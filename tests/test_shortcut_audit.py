@@ -58,7 +58,9 @@ def test_summarize_openface_csv(tmp_path):
 
     summary = summarize_openface_csv(csv_path, low_confidence_threshold=0.8)
 
+    assert summary["video_id"] == "203_1_Freeform_video"
     assert summary["subject_id"] == "203_1"
+    assert summary["task_name"] == "Freeform"
     assert summary["frame_count"] == 3
     assert summary["success_count"] == 2
     assert summary["low_confidence_ratio"] == pytest.approx(2 / 3)
@@ -81,6 +83,7 @@ def test_run_shortcut_audit(tmp_path):
     write_prediction_table(
         predictions_csv,
         subject_ids=["203_1", "204_1", "205_1"],
+        video_ids=["203_1_Freeform_video", "204_1_Freeform_video", "205_1_Freeform_video"],
         targets=[8, 20, 35],
         preds=[9, 18, 32],
     )
@@ -96,3 +99,30 @@ def test_run_shortcut_audit(tmp_path):
     assert (tmp_path / "shortcut_audit" / "tables" / "shortcut_correlation.csv").exists()
     assert (tmp_path / "shortcut_audit" / "tables" / "shortcut_predictor_results.csv").exists()
     assert (tmp_path / "shortcut_audit" / "reports" / "shortcut_audit_report.md").exists()
+
+
+def test_shortcut_audit_skips_ambiguous_subject_only_predictions(tmp_path):
+    openface_root = tmp_path / "openface"
+    openface_root.mkdir()
+    _write_openface_csv(openface_root / "203_1_Freeform_video.csv", [0.98, 0.95], [0.10, 0.11])
+    _write_openface_csv(openface_root / "203_1_Northwind_video.csv", [0.70, 0.65], [0.40, 0.42])
+
+    predictions_csv = tmp_path / "predictions.csv"
+    write_prediction_table(
+        predictions_csv,
+        subject_ids=["203_1"],
+        targets=[8],
+        preds=[9],
+    )
+
+    generated = run_shortcut_audit(
+        predictions_csv=predictions_csv,
+        openface_root=openface_root,
+        output_dir=tmp_path / "shortcut_audit",
+    )
+
+    assert generated
+    merged_path = tmp_path / "shortcut_audit" / "tables" / "shortcut_merged.csv"
+    with merged_path.open(newline="", encoding="utf-8") as f:
+        rows = list(csv.DictReader(f))
+    assert rows == []

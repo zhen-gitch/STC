@@ -173,7 +173,8 @@ class AVECDataset(Dataset):
         return {
             "class_label": torch.tensor(classes_label, dtype=torch.long),
             "bdi_score": torch.tensor(label, dtype=torch.float32),
-            "subject_id": match_id
+            "subject_id": match_id,
+            "video_id": video_id,
         }
 
     def iter_bdi_scores(self):

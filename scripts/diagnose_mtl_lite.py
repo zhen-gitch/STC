@@ -139,9 +139,17 @@ def _subject_ids_from_labels(labels):
     return [str(item) for item in subject_ids]
 
 
+def _video_ids_from_labels(labels):
+    video_ids = labels.get("video_id", labels["subject_id"])
+    if isinstance(video_ids, str):
+        return [video_ids]
+    return [str(item) for item in video_ids]
+
+
 def collect_predictions_and_features(model, data_loader, device):
     import torch
 
+    all_video_ids = []
     all_subject_ids = []
     all_targets = []
     all_preds = []
@@ -156,6 +164,7 @@ def collect_predictions_and_features(model, data_loader, device):
             targets = labels["bdi_score"].detach().cpu().numpy()
             features = outputs.shared_features.detach().cpu().numpy()
 
+            all_video_ids.extend(_video_ids_from_labels(labels))
             all_subject_ids.extend(_subject_ids_from_labels(labels))
             all_targets.extend(targets.tolist())
             all_preds.extend(preds.tolist())
@@ -163,16 +172,32 @@ def collect_predictions_and_features(model, data_loader, device):
 
     import numpy as np
 
-    return all_subject_ids, np.asarray(all_targets), np.asarray(all_preds), np.concatenate(all_features, axis=0)
+    return (
+        all_video_ids,
+        all_subject_ids,
+        np.asarray(all_targets),
+        np.asarray(all_preds),
+        np.concatenate(all_features, axis=0),
+    )
 
 
-def _find_batch_for_subject(data_loader, subject_id):
+def _find_batch_for_record(data_loader, record):
+    target_video_id = str(record.get("video_id", ""))
+    target_subject_id = str(record["subject_id"])
     for video_tensor, mask, labels in data_loader:
+        video_ids = _video_ids_from_labels(labels)
         subject_ids = _subject_ids_from_labels(labels)
-        if subject_id in subject_ids:
-            idx = subject_ids.index(subject_id)
+        if target_video_id and target_video_id in video_ids:
+            idx = video_ids.index(target_video_id)
+            return video_tensor[idx:idx + 1], mask[idx:idx + 1], labels
+        if target_subject_id in subject_ids and not target_video_id:
+            idx = subject_ids.index(target_subject_id)
             return video_tensor[idx:idx + 1], mask[idx:idx + 1], labels
     return None, None, None
+
+
+def _safe_output_id(record):
+    return str(record.get("video_id") or record["subject_id"]).replace("/", "_").replace("\\", "_")
 
 
 def _target_frame_from_arg(target_frame, key_frame, mask):
@@ -196,7 +221,8 @@ def run_expensive_diagnostics(args, enabled, model, data_loader, records, output
 
     for record in selected:
         subject_id = record["subject_id"]
-        video_tensor, mask, _labels = _find_batch_for_subject(data_loader, subject_id)
+        output_id = _safe_output_id(record)
+        video_tensor, mask, _labels = _find_batch_for_record(data_loader, record)
         if video_tensor is None:
             continue
         video_tensor = video_tensor.to(device)
@@ -209,7 +235,7 @@ def run_expensive_diagnostics(args, enabled, model, data_loader, records, output
                 video_tensor=video_tensor,
                 mask=mask,
                 save_dir=output_root / "keyframes",
-                subject_id=subject_id,
+                subject_id=output_id,
                 temporal_window=args.temporal_window,
             )
             if enabled["keyframes"]:
@@ -227,7 +253,7 @@ def run_expensive_diagnostics(args, enabled, model, data_loader, records, output
                     video_tensor=video_tensor,
                     mask=mask,
                     frame_idx=target_frame,
-                    save_path=output_root / "occlusion" / f"occlusion_impact_subject_{subject_id}.png",
+                    save_path=output_root / "occlusion" / f"occlusion_impact_subject_{output_id}.png",
                     patch_size=args.occlusion_patch_size,
                     stride=args.occlusion_stride,
                 )
@@ -240,7 +266,7 @@ def run_expensive_diagnostics(args, enabled, model, data_loader, records, output
                     video_tensor=video_tensor,
                     mask=mask,
                     frame_idx=target_frame,
-                    save_path=output_root / "model_attention" / f"model_attention_subject_{subject_id}.png",
+                    save_path=output_root / "model_attention" / f"model_attention_subject_{output_id}.png",
                     method=args.attention_method,
                 )
             )
@@ -268,9 +294,9 @@ def main():
     data_module = build_data_module(cfgs, args.batch_size)
     data_loader = get_split_loader(data_module, args.split)
 
-    subject_ids, targets, preds, features = collect_predictions_and_features(model, data_loader, device)
+    video_ids, subject_ids, targets, preds, features = collect_predictions_and_features(model, data_loader, device)
     prediction_csv = output_root / "regression" / f"{args.split}_predictions.csv"
-    records = write_prediction_table(prediction_csv, subject_ids, targets, preds)
+    records = write_prediction_table(prediction_csv, subject_ids, targets, preds, video_ids=video_ids)
     generated_files.append(prediction_csv)
 
     features_npz = output_root / "embeddings" / f"{args.split}_features.npz"

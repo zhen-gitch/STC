@@ -5,6 +5,7 @@ import numpy as np
 
 
 PREDICTION_FIELDS = [
+    "video_id",
     "subject_id",
     "true_bdi",
     "pred_bdi",
@@ -48,14 +49,17 @@ def severity_group(score):
     return "severe"
 
 
-def build_prediction_records(subject_ids, targets, preds):
+def build_prediction_records(subject_ids, targets, preds, video_ids=None):
     targets = np.asarray(targets, dtype=float).reshape(-1)
     preds = np.asarray(preds, dtype=float).reshape(-1)
+    if video_ids is None:
+        video_ids = subject_ids
     records = []
-    for subject_id, target, pred in zip(subject_ids, targets, preds):
+    for video_id, subject_id, target, pred in zip(video_ids, subject_ids, targets, preds):
         residual = float(pred - target)
         records.append(
             {
+                "video_id": str(video_id),
                 "subject_id": str(subject_id),
                 "true_bdi": f"{float(target):.6f}",
                 "pred_bdi": f"{float(pred):.6f}",
@@ -67,8 +71,8 @@ def build_prediction_records(subject_ids, targets, preds):
     return records
 
 
-def write_prediction_table(csv_path, subject_ids, targets, preds):
-    records = build_prediction_records(subject_ids, targets, preds)
+def write_prediction_table(csv_path, subject_ids, targets, preds, video_ids=None):
+    records = build_prediction_records(subject_ids, targets, preds, video_ids=video_ids)
     write_csv_rows(csv_path, records, PREDICTION_FIELDS)
     return records
 
@@ -80,6 +84,7 @@ def read_prediction_table(csv_path):
         try:
             records.append(
                 {
+                    "video_id": row.get("video_id", row["subject_id"]),
                     "subject_id": row["subject_id"],
                     "true_bdi": float(row["true_bdi"]),
                     "pred_bdi": float(row["pred_bdi"]),

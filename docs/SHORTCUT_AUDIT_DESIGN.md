@@ -27,7 +27,7 @@
 最小输入：
 
 ```text
-predictions.csv          # subject_id, true_bdi, pred_bdi, residual, abs_error
+predictions.csv          # video_id, subject_id, true_bdi, pred_bdi, residual, abs_error
 OpenFace CSV root        # 每个 subject/video 的 OpenFace 原始输出
 split file               # train/val/test subject 划分
 label files              # BDI 标签，仅用于 subject-level 汇总
@@ -53,6 +53,14 @@ AU*_r, AU*_c             # AU intensity / presence
 ```
 
 如果当前 OpenFace 版本字段不完全一致，脚本应采用“字段存在则统计，不存在则跳过”的策略。
+
+对齐约定：
+
+- `video_id` 是 Shortcut Audit 的首选合并键；
+- OpenFace 文件名应推断为完整 `video_id`，例如 `203_1_Freeform_video.csv` -> `203_1_Freeform_video`；
+- `subject_id` 只保留短 ID，例如 `203_1`；
+- 当同一 `subject_id` 同时存在 Freeform 和 Northwind 等多个 OpenFace CSV 时，不能只按 `subject_id` 合并；
+- 只有在某个 `subject_id` 对应唯一 OpenFace 文件时，才允许退回 `subject_id` 合并。
 
 ## 3. 输出结构
 

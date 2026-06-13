@@ -40,3 +40,11 @@ workflow milestones. Keep entries concise and reproducible.
 - Scoped the first implementation to offline diagnostics: OpenFace quality
   summary, prediction-residual correlation, heatmaps, and markdown report.
 - Added `docs/SHORTCUT_AUDIT_DESIGN.md` as the implementation blueprint.
+
+### Shortcut Audit video-level alignment
+
+- Found that short `subject_id` values such as `203_1` are ambiguous because
+  OpenFace exports may contain both Freeform and Northwind files for the same
+  subject/session.
+- Updated the planned diagnostic alignment to prefer full `video_id` and only
+  fall back to `subject_id` when the match is unique.
