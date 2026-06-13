@@ -12,6 +12,14 @@ from src.diagnostics.openface_quality import (
 
 
 TARGET_COLUMNS = ("true_bdi", "pred_bdi", "residual", "abs_error")
+PREDICTOR_EXCLUDED_COLUMNS = set(TARGET_COLUMNS) | {
+    "video_id",
+    "subject_id",
+    "matched_on",
+    "severity_group",
+    "source_file",
+    "task_name",
+}
 
 
 def _safe_float(value):
@@ -299,20 +307,48 @@ def _predictor_metrics(targets, preds):
     return mae, rmse, pearson
 
 
-def evaluate_shortcut_predictors(rows):
-    feature_names = _numeric_feature_names(
-        rows,
-        excluded=set(TARGET_COLUMNS) | {"video_id", "subject_id", "matched_on", "severity_group", "source_file"},
-    )
+def _predictor_feature_names(rows):
+    return _numeric_feature_names(rows, excluded=PREDICTOR_EXCLUDED_COLUMNS)
+
+
+def _predictor_arrays(rows, target_column="true_bdi"):
+    feature_names = _predictor_feature_names(rows)
     if len(rows) < 2 or not feature_names:
-        return []
+        return None, None, []
+
+    target_values = [_safe_float(row.get(target_column)) for row in rows]
+    if any(value is None for value in target_values):
+        return None, None, []
 
     x = np.asarray([[float(_safe_float(row.get(name))) for name in feature_names] for row in rows], dtype=float)
-    y = np.asarray([float(_safe_float(row.get("true_bdi"))) for row in rows], dtype=float)
-
+    y = np.asarray([float(value) for value in target_values], dtype=float)
     keep = x.std(axis=0) > 1e-8
     x = x[:, keep]
+    feature_names = [name for name, keep_feature in zip(feature_names, keep) if keep_feature]
     if x.shape[1] == 0:
+        return None, None, []
+    return x, y, feature_names
+
+
+def _make_group_folds(groups, num_folds=5, seed=42):
+    unique_groups = sorted({str(group) for group in groups})
+    if len(unique_groups) < 2:
+        return []
+
+    num_folds = min(max(2, int(num_folds)), len(unique_groups))
+    rng = np.random.default_rng(seed)
+    shuffled = list(unique_groups)
+    rng.shuffle(shuffled)
+
+    folds = [set() for _ in range(num_folds)]
+    for idx, group in enumerate(shuffled):
+        folds[idx % num_folds].add(group)
+    return [fold for fold in folds if fold]
+
+
+def evaluate_shortcut_predictors(rows):
+    x, y, feature_names = _predictor_arrays(rows)
+    if x is None:
         return []
 
     x_mean = x.mean(axis=0)
@@ -369,16 +405,138 @@ def evaluate_shortcut_predictors(rows):
     return rows_out
 
 
+def evaluate_shortcut_predictors_grouped_cv(
+    rows,
+    group_column="subject_id",
+    target_column="true_bdi",
+    alpha_values=(10.0, 100.0, 1000.0, 10000.0),
+    num_folds=5,
+    seed=42,
+):
+    x, y, feature_names = _predictor_arrays(rows, target_column=target_column)
+    if x is None:
+        return []
+
+    groups = np.asarray([str(row.get(group_column, "")) for row in rows], dtype=object)
+    folds = _make_group_folds(groups, num_folds=num_folds, seed=seed)
+    if len(folds) < 2:
+        return []
+
+    num_groups = len(set(groups.tolist()))
+    rows_out = []
+
+    model_preds = np.asarray([_safe_float(row.get("pred_bdi")) for row in rows], dtype=object)
+    if all(value is not None for value in model_preds):
+        model_preds = model_preds.astype(float)
+        mae, rmse, pearson = _predictor_metrics(y, model_preds)
+        rows_out.append(
+            {
+                "model": "rgb_mtl_lite",
+                "evaluation": "existing_predictions",
+                "mae": mae,
+                "rmse": rmse,
+                "pearson": pearson,
+                "num_samples": int(y.size),
+                "num_features": 0,
+                "num_groups": int(num_groups),
+                "num_folds": int(len(folds)),
+            }
+        )
+
+    mean_preds = np.full_like(y, np.nan, dtype=float)
+    for fold in folds:
+        test_mask = np.asarray([group in fold for group in groups], dtype=bool)
+        train_mask = ~test_mask
+        if not train_mask.any() or not test_mask.any():
+            continue
+        mean_preds[test_mask] = y[train_mask].mean()
+    if np.isfinite(mean_preds).all():
+        mae, rmse, pearson = _predictor_metrics(y, mean_preds)
+        rows_out.append(
+            {
+                "model": "mean",
+                "evaluation": "grouped_cv_subject",
+                "mae": mae,
+                "rmse": rmse,
+                "pearson": pearson,
+                "num_samples": int(y.size),
+                "num_features": 0,
+                "num_groups": int(num_groups),
+                "num_folds": int(len(folds)),
+            }
+        )
+
+    for alpha in alpha_values:
+        alpha = float(alpha)
+        preds = np.full_like(y, np.nan, dtype=float)
+        for fold in folds:
+            test_mask = np.asarray([group in fold for group in groups], dtype=bool)
+            train_mask = ~test_mask
+            if not train_mask.any() or not test_mask.any():
+                continue
+
+            x_train = x[train_mask]
+            x_test = x[test_mask]
+            y_train = y[train_mask]
+            x_mean = x_train.mean(axis=0)
+            x_std = np.where(x_train.std(axis=0) > 1e-8, x_train.std(axis=0), 1.0)
+            x_train_scaled = (x_train - x_mean) / x_std
+            x_test_scaled = (x_test - x_mean) / x_std
+            y_mean = y_train.mean()
+            xtx = x_train_scaled.T @ x_train_scaled
+            weights = np.linalg.solve(
+                xtx + alpha * np.eye(xtx.shape[0]),
+                x_train_scaled.T @ (y_train - y_mean),
+            )
+            preds[test_mask] = y_mean + x_test_scaled @ weights
+
+        if np.isfinite(preds).all():
+            mae, rmse, pearson = _predictor_metrics(y, preds)
+            alpha_text = f"{alpha:g}"
+            rows_out.append(
+                {
+                    "model": f"ridge_alpha_{alpha_text}",
+                    "evaluation": "grouped_cv_subject",
+                    "mae": mae,
+                    "rmse": rmse,
+                    "pearson": pearson,
+                    "num_samples": int(y.size),
+                    "num_features": int(len(feature_names)),
+                    "num_groups": int(num_groups),
+                    "num_folds": int(len(folds)),
+                }
+            )
+    return rows_out
+
+
 def write_predictor_results(rows, csv_path):
-    fields = ["model", "evaluation", "mae", "rmse", "pearson", "num_samples", "num_features"]
+    fields = [
+        "model",
+        "evaluation",
+        "mae",
+        "rmse",
+        "pearson",
+        "num_samples",
+        "num_features",
+        "num_groups",
+        "num_folds",
+    ]
     formatted = [{key: _format_value(row.get(key)) for key in fields} for row in rows]
     write_csv_rows(csv_path, formatted, fields)
     return Path(csv_path)
 
 
-def write_shortcut_audit_report(report_path, generated_files, merged_rows, correlations, predictor_rows):
+def write_shortcut_audit_report(
+    report_path,
+    generated_files,
+    merged_rows,
+    correlations,
+    predictor_rows,
+    grouped_predictor_rows=None,
+):
     report_path = Path(report_path)
     ensure_dir(report_path.parent)
+    grouped_predictor_rows = grouped_predictor_rows or []
     top_correlations = correlations[:15]
     max_abs = max((row["abs_correlation"] for row in correlations), default=0.0)
     if max_abs >= 0.5:
@@ -422,12 +580,30 @@ def write_shortcut_audit_report(report_path, generated_files, merged_rows, corre
     else:
         lines.append("Shortcut-only predictor diagnostics were skipped because there were too few valid samples.")
 
+    lines.extend(["", "## Grouped-CV Shortcut-only Predictor Diagnostics", ""])
+    if grouped_predictor_rows:
+        lines.append("| Model | Evaluation | MAE | RMSE | Pearson | Groups | Folds |")
+        lines.append("|---|---|---:|---:|---:|---:|---:|")
+        for row in grouped_predictor_rows:
+            pearson = row["pearson"]
+            pearson_text = f"{pearson:.4f}" if math.isfinite(pearson) else "nan"
+            lines.append(
+                f"| {row['model']} | {row['evaluation']} | "
+                f"{row['mae']:.4f} | {row['rmse']:.4f} | {pearson_text} | "
+                f"{row.get('num_groups', '')} | {row.get('num_folds', '')} |"
+            )
+    else:
+        lines.append(
+            "Grouped-CV shortcut-only predictor diagnostics were skipped because there were too few valid groups."
+        )
+
     lines.extend(
         [
             "",
             "## Notes",
             "",
-            "- Predictor diagnostics are in-sample and should only be used as shortcut-risk signals.",
+            "- In-sample predictor diagnostics are overfitting-sensitive and should only be used as shortcut-risk signals.",
+            "- Grouped-CV predictor diagnostics group by subject_id to reduce Freeform/Northwind leakage.",
             "- This report is offline diagnostics only; it must not be used to tune on validation/test labels.",
         ]
     )
@@ -482,8 +658,17 @@ def run_shortcut_audit(
         pass
 
     predictor_rows = evaluate_shortcut_predictors(merged_rows)
-    predictor_path = write_predictor_results(predictor_rows, tables_dir / "shortcut_predictor_results.csv")
+    grouped_predictor_rows = evaluate_shortcut_predictors_grouped_cv(merged_rows)
+    predictor_path = write_predictor_results(
+        predictor_rows + grouped_predictor_rows,
+        tables_dir / "shortcut_predictor_results.csv",
+    )
     generated_files.append(predictor_path)
+    grouped_predictor_path = write_predictor_results(
+        grouped_predictor_rows,
+        tables_dir / "shortcut_predictor_grouped_cv.csv",
+    )
+    generated_files.append(grouped_predictor_path)
 
     report_path = write_shortcut_audit_report(
         reports_dir / "shortcut_audit_report.md",
@@ -491,6 +676,7 @@ def run_shortcut_audit(
         merged_rows=merged_rows,
         correlations=correlations,
         predictor_rows=predictor_rows,
+        grouped_predictor_rows=grouped_predictor_rows,
     )
     generated_files.append(report_path)
 

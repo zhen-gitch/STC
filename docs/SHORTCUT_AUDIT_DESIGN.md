@@ -147,6 +147,24 @@ OpenFace quality + pose + gaze + video quality -> BDI
 - ridge regression；
 - random forest。
 
+评估约束：
+
+- in-sample predictor 只能作为过拟合敏感的 shortcut-risk 信号，不能作为泛化性能；
+- 当样本数较少、OpenFace 特征数较多时，例如约 100 个样本对应约 90 个以上特征，in-sample linear/ridge 结果很容易虚高；
+- shortcut-only predictor 应优先提供按 `subject_id` 分组的交叉验证，避免同一 subject 的 Freeform/Northwind 同时出现在训练折和测试折；
+- 正式报告中至少应同时列出 mean baseline、当前 RGB/MTL-Lite 模型、shortcut-only ridge 多个 alpha 的 MAE、RMSE 和 Pearson；
+- 如果 grouped CV 下 shortcut-only 模型接近当前 RGB 模型，应视为中高优先级风险，优先建立 behavior-only baseline 和输入消融，而不是继续单纯调 backbone。
+
+本次 P0 实施设计：
+
+- 新增 `evaluate_shortcut_predictors_grouped_cv()`，默认以 `subject_id` 分组，使用固定 seed 构造 folds；
+- 同一 `subject_id` 的 Freeform/Northwind 样本必须始终进入同一 fold；
+- 每个 fold 的标准化参数只能由训练 fold 估计，不能使用全体样本；
+- grouped CV 至少输出 `mean`、`rgb_mtl_lite`、`ridge_alpha_10`、`ridge_alpha_100`、`ridge_alpha_1000`、`ridge_alpha_10000`；
+- grouped CV 结果写入 `shortcut_predictor_grouped_cv.csv`，并追加到 `shortcut_predictor_results.csv`；
+- `shortcut_audit_report.md` 中应分开显示 in-sample predictor 和 grouped-CV predictor，避免误读；
+- 如果可用 subject 数少于 2，grouped CV 应跳过并返回空结果。
+
 判读：
 
 - 如果 shortcut-only 模型接近 RGB 模型，说明数据中存在强捷径；

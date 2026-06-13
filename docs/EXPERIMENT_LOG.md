@@ -85,3 +85,48 @@ workflow milestones. Keep entries concise and reproducible.
   short `subject_id` matching.
 - Verified with the latest local logs that 100/100 prediction rows match the
   OpenFace quality summary after normalization.
+
+### Valid Shortcut Audit and representation analysis
+
+- Re-ran Shortcut Audit after the `_aligned` video-id normalization fix.
+- Verified that `shortcut_audit_report.md` now reports `Matched samples: 100`
+  and `shortcut_merged.csv` contains 100 rows matched by full `video_id`.
+- Current Shortcut Audit risk level is medium, with maximum absolute
+  correlation about 0.418 between `AU07_c_mean` and `true_bdi`.
+- Current RGB/MTL-Lite prediction remains range-compressed:
+  MAE about 8.91, RMSE about 10.95, Pearson about 0.35, CCC about 0.29,
+  prediction std about 6.13 versus true BDI std about 11.48.
+- Group-wise bias:
+  minimal samples are overpredicted on average by about +6.89, while severe
+  samples are underpredicted on average by about -16.50.
+- Most severe high-error cases include `246_1`, `359_1`, `237_1`, and
+  `315_2`; these should be prioritized for case-study visualization.
+- Freeform and Northwind aggregate metrics are similar, but same-subject task
+  predictions can differ substantially. The largest observed task-pair
+  difference is about 13.61, and high-difference cases include `237_1`,
+  `247_1`, `247_3`, `224_1`, and `212_1`.
+- In-sample shortcut-only linear/ridge predictors are very strong, but this is
+  not a valid generalization estimate because the diagnostic currently has 100
+  samples and 94 numeric OpenFace features.
+- A manual grouped-CV check suggests shortcut-only ridge remains close to, but
+  slightly weaker than, the current RGB model. This supports treating OpenFace
+  behavior/quality features as a medium shortcut risk and motivates a formal
+  grouped-CV diagnostic plus behavior-only baseline.
+
+### Grouped-CV shortcut-only predictor implementation
+
+- Added subject-level grouped CV design to `docs/SHORTCUT_AUDIT_DESIGN.md`.
+- Implemented grouped-CV shortcut-only predictor diagnostics in Shortcut Audit.
+- The grouped CV logic keeps all videos from the same `subject_id` in the same
+  fold to reduce Freeform/Northwind leakage.
+- Shortcut Audit now writes both the combined `shortcut_predictor_results.csv`
+  and a focused `shortcut_predictor_grouped_cv.csv`.
+- The markdown report now separates in-sample predictor diagnostics from
+  grouped-CV predictor diagnostics.
+- Local validation:
+  - `python -m compileall src scripts tests` passed.
+  - Direct grouped-CV smoke passed.
+  - Temporary end-to-end Shortcut Audit smoke generated the grouped-CV CSV and
+    report section successfully.
+- Local bundled Python still lacks `pytest`, so full pytest validation should
+  be run in the server environment.

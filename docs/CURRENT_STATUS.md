@@ -211,20 +211,25 @@ debug smoke：
 python scripts/train.py --override configs/debug_smoke.yaml
 ```
 
-## 2026-06-13 Shortcut Audit 状态更新
+## 2026-06-13 Shortcut Audit 有效结果更新
 
-最新一批 Shortcut Audit 输出文件显示 `Matched samples: 0`。原因是
-`test_predictions.csv` 中的 `video_id` 形如 `203_2_Freeform_video_aligned`，
-而 `openface_quality_summary.csv` 中的 `video_id` 形如
-`203_2_Freeform_video`。因此当前 `shortcut_audit_report.md`、`shortcut_merged.csv`、
-`shortcut_correlation.csv` 和 `shortcut_predictor_results.csv` 不能用于判断
-shortcut risk。
+`_aligned` 后缀导致的 `video_id` 未匹配问题已经修复并在最新表征数据中复跑确认：
+`shortcut_audit_report.md` 显示 `Matched samples: 100`，且 `shortcut_merged.csv`
+中的样本均通过完整 `video_id` 匹配。当前 Shortcut Audit 结果可以解释。
 
-手动去除 `_aligned` 后缀后可以匹配 100/100 个预测样本，说明问题主要是
-Shortcut Audit 的 `video_id` 规范化缺口。下一步应先修复该对齐逻辑并重新运行
-Shortcut Audit，再解释相关性热力图、shortcut-only predictor 和风险等级。
+最新有效结果显示 shortcut 风险为 medium，最大绝对相关为
+`AU07_c_mean` 与 `true_bdi` 的相关性，约 `r = 0.418`。OpenFace 的 AU、gaze、
+pose 和质量统计特征与 `true_bdi`、`pred_bdi`、`residual`、`abs_error` 均存在
+中等强度信号，说明 aligned face 中仍有非抑郁捷径风险。
 
-当前 `test_predictions.csv` 仍显示明显预测范围压缩：整体 MAE 约 8.91、RMSE 约
-10.95、Pearson 约 0.35、CCC 约 0.29。minimal 组存在平均高估，severe 组存在
-严重平均低估；后续分析应优先关注 severe 低估、Freeform/Northwind 同一 subject
-预测一致性，以及 OpenFace pose/gaze/AU/quality 特征是否构成非抑郁捷径。
+当前 MTL-Lite/RGB 预测仍存在明显范围压缩：整体 MAE 约 8.91、RMSE 约 10.95、
+Pearson 约 0.35、CCC 约 0.29，预测标准差约 6.13，明显低于真实 BDI 标准差
+约 11.48。minimal 组平均高估约 +6.89，severe 组平均低估约 -16.50；后续分析
+应优先关注 severe 低估、Freeform/Northwind 同一 subject 预测一致性，以及
+behavior-only baseline 是否接近当前 RGB 模型。
+
+`shortcut_predictor_results.csv` 中 in-sample linear/ridge 表现很强，但当前是
+100 个样本、94 个特征的训练内诊断结果，不能视为泛化性能。Shortcut Audit 已支持
+按 `subject_id` 分组的 shortcut-only predictor 交叉验证，并额外输出
+`shortcut_predictor_grouped_cv.csv`。下一步应在服务器复跑 Shortcut Audit，用正式
+grouped-CV 结果判断 shortcut-only 特征是否接近当前 RGB 模型。

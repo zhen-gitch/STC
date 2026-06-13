@@ -62,10 +62,9 @@ or experiment results. Keep entries concise, reproducible, and tied to files.
     matching.
   - A real-log merge check matched 100/100 prediction samples against the
     OpenFace quality summary after the fix.
-- Follow-up:
-  - Re-run `scripts/audit_shortcuts.py` to regenerate
-    `shortcut_merged.csv`, `shortcut_correlation.csv`,
-    `shortcut_predictor_results.csv`, and `shortcut_audit_report.md`.
+  - After rerunning Shortcut Audit, `shortcut_audit_report.md` reports
+    `Matched samples: 100`, so the generated correlation and predictor tables
+    are now valid for offline risk interpretation.
 
 ### BUG-001: Training entry imports missing `src.paths`
 

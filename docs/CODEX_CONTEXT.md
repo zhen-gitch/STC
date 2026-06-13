@@ -254,17 +254,24 @@ python scripts/train_mtl_lite.py --override configs/mtl_lite_debug_smoke.yaml
 python scripts/diagnose_mtl_lite.py --run-dir /path/to/LOG_DIR/mtl_lite_csv/version_0 --ckpt best
 ```
 
-## Shortcut Audit 当前注意事项
+## Shortcut Audit 当前结论
 
-最新一批诊断文件中，`test_predictions.csv` 的 `video_id` 带有 `_aligned` 后缀，
-例如 `203_2_Freeform_video_aligned`，而 OpenFace summary 使用
-`203_2_Freeform_video`。因此当前 Shortcut Audit 出现 `Matched samples: 0`，
-相关报告只能说明对齐失败，不能解释为 low shortcut risk。
+`*_video` 与 `*_video_aligned` 的 `video_id` 规范化问题已经修复。最新有效
+Shortcut Audit 输出中，`Matched samples: 100`，且样本均通过完整 `video_id`
+匹配，不再依赖可能歧义的短 `subject_id`。
 
-后续 Codex 在处理 Shortcut Audit、OpenFace 相关性或 shortcut-only predictor 前，
-必须先确认：
+当前诊断结论：
 
-- `video_id` 已规范化，`*_video` 与 `*_video_aligned` 能够匹配；
-- Freeform/Northwind 等任务名没有被规范化过程抹掉；
-- `shortcut_audit_report.md` 中 `Matched samples` 达到预期样本数；
-- 只有匹配成功后，才解释相关性、热力图、shortcut-only predictor 和风险等级。
+- Shortcut Audit 风险等级为 medium；
+- 最大绝对相关约为 `0.418`，来自 `AU07_c_mean` 与 `true_bdi`；
+- OpenFace 的 AU、gaze、pose、quality 统计与 `true_bdi`、`pred_bdi`、
+  `residual`、`abs_error` 均存在中等强度信号；
+- 当前 RGB/MTL-Lite 模型仍有明显预测范围压缩，severe 组被系统性低估，
+  minimal 组被系统性高估；
+- `shortcut_predictor_results.csv` 的 in-sample predictor 结果过拟合风险很高，不能当作泛化性能；
+- Shortcut Audit 已支持按 `subject_id` 分组的 shortcut-only predictor 交叉验证，并会额外输出
+  `shortcut_predictor_grouped_cv.csv`；
+- 下一步应在服务器复跑 Shortcut Audit，读取正式 grouped-CV 结果，并建立 AU/pose/gaze/landmark-only behavior baseline。
+
+后续 Codex 在解释 Shortcut Audit 时，仍必须先确认 `Matched samples` 达到预期样本数；
+若匹配数为 0 或明显偏低，只能判定为对齐失败，不能解释风险等级。

@@ -4,7 +4,12 @@ import pytest
 
 from src.diagnostics.io import write_prediction_table
 from src.diagnostics.openface_quality import summarize_openface_csv
-from src.diagnostics.shortcut_audit import merge_predictions_with_quality, run_shortcut_audit
+from src.diagnostics.shortcut_audit import (
+    _make_group_folds,
+    evaluate_shortcut_predictors_grouped_cv,
+    merge_predictions_with_quality,
+    run_shortcut_audit,
+)
 
 
 def _write_openface_csv(path, confidence_values, pose_values):
@@ -98,6 +103,7 @@ def test_run_shortcut_audit(tmp_path):
     assert (tmp_path / "shortcut_audit" / "tables" / "openface_quality_summary.csv").exists()
     assert (tmp_path / "shortcut_audit" / "tables" / "shortcut_correlation.csv").exists()
     assert (tmp_path / "shortcut_audit" / "tables" / "shortcut_predictor_results.csv").exists()
+    assert (tmp_path / "shortcut_audit" / "tables" / "shortcut_predictor_grouped_cv.csv").exists()
     assert (tmp_path / "shortcut_audit" / "reports" / "shortcut_audit_report.md").exists()
 
 
@@ -161,3 +167,60 @@ def test_shortcut_audit_matches_aligned_prediction_video_ids():
     assert merged[0]["video_id"] == "203_2_Freeform_video"
     assert merged[0]["task_name"] == "Freeform"
     assert merged[0]["confidence_mean"] == "0.97"
+
+
+def test_make_group_folds_keeps_subject_videos_together():
+    groups = [
+        "203_1",
+        "203_1",
+        "204_1",
+        "204_1",
+        "205_1",
+        "205_1",
+        "206_1",
+        "206_1",
+    ]
+
+    folds = _make_group_folds(groups, num_folds=3, seed=42)
+
+    assert len(folds) == 3
+    for subject_id in set(groups):
+        assert sum(subject_id in fold for fold in folds) == 1
+
+
+def test_grouped_cv_predictor_outputs_expected_rows():
+    rows = []
+    for idx, subject_id in enumerate(["203_1", "204_1", "205_1", "206_1"], start=1):
+        for task_offset, task_name in enumerate(["Freeform", "Northwind"]):
+            true_bdi = float(idx * 5)
+            rows.append(
+                {
+                    "video_id": f"{subject_id}_{task_name}_video",
+                    "subject_id": subject_id,
+                    "matched_on": "video_id",
+                    "true_bdi": true_bdi,
+                    "pred_bdi": true_bdi + 0.5 * task_offset,
+                    "residual": 0.5 * task_offset,
+                    "abs_error": 0.5 * task_offset,
+                    "severity_group": "minimal",
+                    "task_name": task_name,
+                    "source_file": f"{subject_id}_{task_name}_video.csv",
+                    "confidence_mean": 0.8 + 0.01 * idx,
+                    "pose_rx_abs_mean": 0.1 * idx,
+                    "AU01_r_mean": 0.2 * idx,
+                }
+            )
+
+    predictor_rows = evaluate_shortcut_predictors_grouped_cv(
+        rows,
+        alpha_values=(10.0, 100.0),
+        num_folds=2,
+        seed=42,
+    )
+
+    by_model = {row["model"]: row for row in predictor_rows}
+    assert {"rgb_mtl_lite", "mean", "ridge_alpha_10", "ridge_alpha_100"}.issubset(by_model)
+    assert by_model["mean"]["evaluation"] == "grouped_cv_subject"
+    assert by_model["ridge_alpha_10"]["num_groups"] == 4
+    assert by_model["ridge_alpha_10"]["num_folds"] == 2
+    assert by_model["ridge_alpha_10"]["num_features"] == 3
