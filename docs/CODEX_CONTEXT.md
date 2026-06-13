@@ -31,6 +31,32 @@
 
 有序严重程度预测为连续 BDI 回归提供结构化辅助监督；轻量、可解释、可消融的多任务结构比继续堆叠复杂模块更适合作为当前论文主线。
 
+### 研究路线修订：OpenFace 行为表征优先
+
+当前视频帧序列已经由 OpenFace 裁剪和对齐，所用 OpenFace 版本可能不是最新版。后续分析不应简单描述为“背景过拟合”，而应关注 OpenFace aligned face 中仍然存在的非抑郁捷径：
+
+- 身份纹理：脸型、肤色、皱纹、眼镜、胡须、发际线；
+- 裁剪和对齐伪影：黑边、插值痕迹、边界位置、脸部尺度残留；
+- 姿态和追踪质量：head pose、gaze、`confidence`、`success`、landmark 抖动；
+- 视频质量：模糊、压缩、光照和分辨率；
+- subject-level bias：模型可能记住身份或采集条件，而不是稳定面部行为。
+
+因此，下一阶段优先级从继续搜索 `FINETUNE_LAST_N_BLOCKS` 转向：
+
+```text
+OpenFace aligned RGB baseline
+-> OpenFace 质量与捷径诊断
+-> landmark/AU/pose/gaze 行为 baseline
+-> RGB + behavior late fusion
+-> 面部行为辅助任务的 MTL-Lite
+```
+
+相关研究和实验路线归档在 `docs/RESEARCH_NOTES.md`。后续 Codex 在设计实验或修改模型前，应优先阅读该文档。
+
+非抑郁捷径验证框架归档在 `docs/SHORTCUT_AUDIT_DESIGN.md`。后续若用户要求实现 OpenFace 质量诊断、输入消融、shortcut-only baseline 或行为表征 baseline，应先阅读该文档，并优先采用离线诊断方式，避免改动训练主流程。
+
+当前不建议直接升级 OpenFace 并覆盖已有数据。若使用 OpenFace 3.0、LibreFace 或其他工具，应作为独立数据版本和消融实验，不与当前 OpenFace 版本混用。
+
 ## 当前项目状态
 
 - 项目已经在服务器环境通过 debug smoke，可以完整运行旧模型训练流程。
@@ -182,7 +208,9 @@ src/diagnostics/
 11. 在服务器运行 MTL-Lite debug smoke。
 12. 在服务器运行 MTL-Lite 离线诊断脚本。
 13. 对比 regression-only 与 MTL-Lite。
-14. baseline 稳定后逐项加入 CCC、LDS、`loss_dist` 消融。
+14. 先完成 OpenFace 质量相关性、输入消融、landmark/AU/pose/gaze 行为 baseline。
+15. 在行为表征 baseline 稳定后，再重新设计 MTL 辅助任务，并逐项加入 CCC、LDS、`loss_dist` 或任务权重消融。
+16. Shortcut Audit 的最小可行版本应先实现 OpenFace quality summary、预测残差相关性、相关性热力图和 markdown 报告，再考虑输入消融与 behavior-only baseline。
 
 ## 安全重构规则
 

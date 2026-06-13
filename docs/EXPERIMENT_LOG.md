@@ -18,3 +18,25 @@ workflow milestones. Keep entries concise and reproducible.
   - `import scripts.diagnose`
   - `from scripts.diagnose import build_parser, load_config_from_args, run_diagnostic`
   - `python scripts/diagnose.py --help`
+
+## 2026-06-13
+
+### OpenFace behavior-representation research direction
+
+- Reviewed recent experiment behavior from regression-only and backbone
+  freeze/high-layer finetuning runs.
+- Interpreted the generalization issue as likely shortcut learning inside
+  OpenFace aligned face frames rather than only raw background overfitting.
+- Decided to prioritize OpenFace quality diagnostics, input ablations,
+  landmark/AU/pose/gaze baselines, and RGB + behavior late fusion before
+  further backbone-layer search.
+- Added `docs/RESEARCH_NOTES.md` to archive related papers and the next
+  experiment roadmap.
+
+### Shortcut Audit design
+
+- Defined the Shortcut Audit Framework for validating non-depression shortcuts
+  in OpenFace aligned face inputs.
+- Scoped the first implementation to offline diagnostics: OpenFace quality
+  summary, prediction-residual correlation, heatmaps, and markdown report.
+- Added `docs/SHORTCUT_AUDIT_DESIGN.md` as the implementation blueprint.

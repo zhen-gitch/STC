@@ -41,6 +41,31 @@ MTL-Lite 主流程：
 
 使用有序严重程度辅助监督约束共享时序表征，在 AVEC2014 面部视频小样本场景中提升连续 BDI 预测的稳定性和可解释性。
 
+### 2.1 OpenFace 行为表征扩展方向
+
+当前输入帧已经经过 OpenFace 裁剪和对齐。后续模型设计需要承认 aligned face 中仍可能包含身份纹理、裁剪伪影、姿态残留、追踪质量和视频质量等非抑郁捷径。仅依赖 RGB backbone 可能不足以学习跨 subject 稳定的抑郁相关行为线索。
+
+因此，MTL-Lite 的后续扩展方向从单纯 BDI ordinal 辅助监督，逐步转向 OpenFace 行为结构特征：
+
+```text
+aligned RGB frames
+  + OpenFace landmarks / AU / pose / gaze / confidence
+  -> RGB branch + behavior branch
+  -> video-level fusion
+  -> BDI regression + behavior-aware auxiliary tasks
+```
+
+建议优先实现和比较：
+
+- landmark-only temporal baseline；
+- AU / pose / gaze-only temporal baseline；
+- RGB + behavior late fusion；
+- AU intensity、AU presence、landmark motion、pose/gaze、expression distribution 等辅助任务。
+
+该方向的研究依据和实验计划见 `docs/RESEARCH_NOTES.md`。
+
+非抑郁捷径验证的具体实施方案见 `docs/SHORTCUT_AUDIT_DESIGN.md`。该框架应作为模型改动前的离线诊断层，优先验证 OpenFace 质量、姿态、gaze、裁剪伪影和预测误差之间的关系。
+
 ## 3. 推荐目录结构
 
 目标结构：
@@ -404,10 +429,30 @@ src/diagnostics/
 
 顺序：
 
-1. MTL-Lite + CCC loss；
-2. MTL-Lite + LDS；
-3. MTL-Lite + `loss_dist`；
-4. MTL-Lite + 动态任务权重或梯度冲突处理。
+1. OpenFace 质量与预测误差相关性；
+2. 输入消融：RGB、grayscale、masked face、landmark heatmap、landmark/AU/pose only；
+3. landmark-only temporal baseline；
+4. AU / pose / gaze-only temporal baseline；
+5. RGB + behavior late fusion；
+6. 面部行为辅助任务 MTL；
+7. MTL-Lite + CCC loss；
+8. MTL-Lite + LDS；
+9. MTL-Lite + `loss_dist`；
+10. MTL-Lite + 动态任务权重或梯度冲突处理。
+
+### 阶段 8：Shortcut Audit Framework
+
+目标：在继续修改模型前，验证当前模型是否依赖非抑郁捷径。
+
+任务：
+
+1. 新增 OpenFace quality summary；
+2. 合并 `predictions.csv`、OpenFace quality summary 和 split 信息；
+3. 输出捷径变量与 BDI、预测值、残差、绝对误差的相关性；
+4. 输出 shortcut-only BDI predictor baseline；
+5. 输出 attention/occlusion 区域级统计；
+6. 生成 `shortcut_audit_report.md`；
+7. 所有诊断必须离线运行，不改变训练、验证或测试结果。
 
 ## 12. 验证命令
 

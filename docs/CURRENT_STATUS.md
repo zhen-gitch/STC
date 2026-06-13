@@ -2,7 +2,7 @@
 
 ## 状态日期
 
-2026-06-12
+2026-06-13
 
 ## 当前项目状态
 
@@ -54,10 +54,28 @@ src/diagnostics/        # 独立诊断与可视化系统
 
 这些模块后续只作为 legacy 能力、消融项或扩展项。
 
+## 当前研究判断
+
+当前视频帧序列已经由 OpenFace 裁剪和对齐，所用 OpenFace 版本可能不是最新版。因此，近期实验中出现的泛化问题不应只解释为普通背景过拟合，而应重点检查 OpenFace aligned face 中仍然存在的非抑郁捷径，包括身份纹理、裁剪边界、对齐伪影、姿态残留、追踪质量、光照和视频质量。
+
+backbone 冻结与高层微调实验提示：仅调整 `FREEZE_BACKBONE` / `FINETUNE_LAST_N_BLOCKS` 不能充分解决泛化问题。下一阶段优先方向应转为 OpenFace 行为表征和诊断：
+
+```text
+OpenFace aligned RGB baseline
+-> OpenFace 质量与捷径诊断
+-> landmark/AU/pose/gaze 行为 baseline
+-> RGB + behavior late fusion
+-> 面部行为辅助任务的 MTL-Lite
+```
+
+相关论文线索和实验路线记录在 `docs/RESEARCH_NOTES.md`。非抑郁捷径验证框架的具体实施方案记录在 `docs/SHORTCUT_AUDIT_DESIGN.md`。
+
 ## 重要文件
 
 - `docs/MTL_LITE_DESIGN.md`：新架构、模块边界、接口定义和实施路线。
 - `docs/CODEX_CONTEXT.md`：Codex 长期上下文。
+- `docs/RESEARCH_NOTES.md`：OpenFace 行为表征、相关论文和后续实验路线。
+- `docs/SHORTCUT_AUDIT_DESIGN.md`：非抑郁捷径验证框架和实施方案。
 - `docs/TODO.md`：分阶段任务计划。
 - `docs/BUG_LOG.md`：问题与风险记录。
 - `docs/EXPERIMENT_LOG.md`：已完成验证记录。
@@ -91,11 +109,13 @@ src/diagnostics/        # 独立诊断与可视化系统
 ## 当前优先级
 
 1. 确保 legacy 中的 `local_paths.yaml`、日志、权重、checkpoint 不进入提交。
-2. 在服务器训练环境运行 MTL-Lite import 和 pytest 验证。
-3. 在服务器训练环境验证 backbone 冻结/高层微调配置。
-4. 在服务器训练环境运行 MTL-Lite debug smoke。
-5. 对比 regression-only baseline 与 MTL-Lite baseline。
-6. 在服务器训练环境运行 MTL-Lite 离线诊断脚本，确认图表可生成。
+2. 记录当前 OpenFace 数据版本、生成命令、输出字段、裁剪尺寸和帧采样方式。
+3. 优先实现 Shortcut Audit 最小可行版本：OpenFace quality summary、预测残差相关性、相关性热力图和 markdown 报告。
+4. 若保留 OpenFace CSV，统计 `confidence`、`success`、pose、gaze、AU、landmark 抖动与 BDI/预测误差的相关性。
+5. 运行输入消融：aligned RGB、grayscale、masked face、landmark heatmap、landmark/AU/pose only。
+6. 建立 landmark-only 与 AU/pose/gaze-only temporal baseline。
+7. 在行为 baseline 稳定后，再设计 RGB + behavior late fusion 和行为辅助任务 MTL。
+8. 在服务器训练环境继续验证 MTL-Lite import、pytest、debug smoke 和离线诊断脚本。
 
 ## 当前风险
 
@@ -104,6 +124,10 @@ src/diagnostics/        # 独立诊断与可视化系统
 - 根目录和 legacy 中的 `local_paths.yaml` 都不应进入 git。
 - 旧模型 debug smoke 通过不代表 MTL-Lite 已可运行。
 - 诊断逻辑必须避免污染 validation/test。
+- OpenFace aligned face 仍可能包含身份、裁剪伪影、姿态残留、追踪质量和视频质量等非抑郁捷径。
+- 不同 OpenFace 版本生成的数据不应混用；升级 OpenFace 应作为独立数据版本和消融实验。
+- Shortcut Audit 只能使用 validation/test 已有预测结果和 OpenFace 元数据做离线诊断，不得用 validation/test 统计量反向影响训练配置。
+- 当前 BDI ordinal 辅助任务可能不足以强迫模型学习面部行为，后续需要考虑 AU、landmark motion、pose/gaze 等辅助任务。
 - 多 GPU DDP metric logging 和 best checkpoint 行为仍需专门验证。
 - bf16/mixed precision 稳定性仍需专门验证。
 

@@ -91,16 +91,23 @@ src/diagnostics/        # 独立诊断与可视化系统
 - [x] 支持模型自身关注区域热力图（Grad-CAM 可用时优先，否则回退到 input-gradient）
 - [ ] 服务器运行 MTL-Lite 离线诊断脚本
 - [ ] 保留旧诊断入口的向后兼容
+- [ ] 新增 Shortcut Audit 离线诊断入口，不参与训练 forward
 
 ## 阶段 7：实验路线
 
 - [ ] 运行 regression-only baseline
 - [ ] 运行 MTL-Lite baseline
 - [ ] 在相同 split、seed、backbone、时序编码器和指标下比较二者
-- [ ] 添加 MTL-Lite + CCC loss 消融
-- [ ] 添加 MTL-Lite + LDS 消融
-- [ ] 添加 MTL-Lite + `loss_dist` 消融
-- [ ] 固定权重 baseline 稳定后，再考虑动态任务权重或梯度冲突处理
+- [ ] 建立 OpenFace 质量、姿态、gaze、AU 与 BDI/误差的相关性诊断
+- [ ] 运行输入消融：aligned RGB、grayscale、masked face、landmark heatmap、landmark/AU/pose only
+- [ ] 建立 landmark-only temporal baseline
+- [ ] 建立 AU / pose / gaze-only temporal baseline
+- [ ] 建立 RGB + behavior late-fusion baseline
+- [ ] 将辅助任务从单纯 BDI ordinal 扩展到 AU、landmark motion、pose/gaze 或 expression 相关行为任务
+- [ ] 行为辅助任务稳定后，再考虑 MTL-Lite + CCC loss 消融
+- [ ] 行为辅助任务稳定后，再考虑 MTL-Lite + LDS 消融
+- [ ] 行为辅助任务稳定后，再考虑 MTL-Lite + `loss_dist` 消融
+- [ ] 固定行为表征 baseline 稳定后，再考虑动态任务权重或梯度冲突处理
 
 ## 近期验证
 
@@ -117,6 +124,38 @@ src/diagnostics/        # 独立诊断与可视化系统
 - [ ] 标准化实验日志格式
 - [ ] 添加将 `metrics.csv` 导出为 LaTeX 表格的脚本
 - [ ] 将诊断图表输出组织为论文可用目录结构
+- [ ] 维护 `docs/RESEARCH_NOTES.md`，记录 OpenFace、AVEC2014、面部行为建模、多任务学习和捷径学习相关论文
+
+## OpenFace 行为表征研究路线
+
+- [x] 建立非抑郁捷径验证框架设计文档 `docs/SHORTCUT_AUDIT_DESIGN.md`
+- [ ] 确认当前数据使用的 OpenFace 版本、命令、输出字段、裁剪尺寸和帧采样方式
+- [ ] 确认是否保留 OpenFace 原始 CSV，并列出可用字段：`confidence`、`success`、pose、gaze、AU、landmark
+- [ ] 统计每个视频的 OpenFace `confidence` 均值、方差和低置信帧比例
+- [ ] 统计每个视频的 `success` 失败帧比例
+- [ ] 统计 pose/gaze 分布和 landmark 抖动
+- [ ] 分析 OpenFace 质量变量与 BDI、预测误差、残差的相关性
+- [ ] 对高误差 subject 生成 aligned face、attention、occlusion、keyframe case study 图组
+- [ ] 验证模型关注区域是否集中于眼、眉、嘴、鼻唇沟，而不是脸部边界、头发、眼镜、黑边或裁剪伪影
+- [ ] 建立 `E0_openface_quality_correlation` 实验记录模板
+- [ ] 建立 `E1_input_ablation` 实验记录模板
+- [ ] 建立 `E2_landmark_temporal_baseline` 实验记录模板
+- [ ] 建立 `E3_au_pose_gaze_baseline` 实验记录模板
+- [ ] 建立 `E4_rgb_behavior_late_fusion` 实验记录模板
+
+## Shortcut Audit 实施路线
+
+- [ ] 新增 `src/diagnostics/openface_quality.py`，读取 OpenFace CSV 并生成 subject-level quality summary
+- [ ] 新增 `src/diagnostics/shortcut_audit.py`，合并 `predictions.csv`、OpenFace quality summary 和 split 信息
+- [ ] 新增 `scripts/audit_shortcuts.py`，作为非抑郁捷径验证的离线入口
+- [ ] 输出 `openface_quality_summary.csv`
+- [ ] 输出 `shortcut_correlation.csv`
+- [ ] 输出 `shortcut_correlation_heatmap.png`
+- [ ] 输出 residual vs confidence / pose / quality 诊断图
+- [ ] 输出 `shortcut_audit_report.md`
+- [ ] 实现 shortcut-only BDI predictor baseline：mean、linear regression、ridge、random forest
+- [ ] 设计输入消融配置或离线输入变体：`rgb`、`grayscale`、`blur`、`center_mask`、`boundary_erased`、`landmark_heatmap`
+- [ ] 设计区域级 attention/occlusion 统计：eye、brow、mouth、face center、boundary、non-face
 
 ## Codex 任务队列
 
@@ -143,3 +182,11 @@ src/diagnostics/        # 独立诊断与可视化系统
 ### Task 6
 
 新增 MTL-Lite 离线诊断与模型表征绘图系统。
+
+### Task 7
+
+整理 OpenFace 行为表征、相关论文和下一阶段实验路线，并将研究计划归档到文档。
+
+### Task 8
+
+构建 Shortcut Audit Framework 的最小可行实现：OpenFace quality summary、预测残差相关性、热力图和 markdown 报告。
