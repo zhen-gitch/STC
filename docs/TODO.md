@@ -149,14 +149,26 @@ src/diagnostics/        # 独立诊断与可视化系统
 - [ ] 新增 `src/diagnostics/shortcut_audit.py`，合并 `predictions.csv`、OpenFace quality summary 和 split 信息
 - [ ] 新增 `scripts/audit_shortcuts.py`，作为非抑郁捷径验证的离线入口
 - [x] 修正 Shortcut Audit 合并键：优先使用完整 `video_id`，避免 Freeform/Northwind 与短 `subject_id` 错配
+- [x] 修正 Shortcut Audit 的 `video_id` 规范化：兼容 `*_video` 与 `*_video_aligned`，确保 OpenFace summary 与 prediction CSV 能够按同一视频匹配
+- [ ] 重新运行 Shortcut Audit，并确认 `shortcut_audit_report.md` 中 `Matched samples` 等于当前预测样本数；若为 0 或明显偏低，不得解释 shortcut risk
 - [ ] 输出 `openface_quality_summary.csv`
 - [ ] 输出 `shortcut_correlation.csv`
 - [ ] 输出 `shortcut_correlation_heatmap.png`
 - [ ] 输出 residual vs confidence / pose / quality 诊断图
 - [ ] 输出 `shortcut_audit_report.md`
 - [ ] 实现 shortcut-only BDI predictor baseline：mean、linear regression、ridge、random forest
+- [ ] 在 shortcut-only predictor 中优先加入按 `subject_id` 分组的交叉验证，避免同一 subject 的 Freeform/Northwind 泄漏到不同折中
 - [ ] 设计输入消融配置或离线输入变体：`rgb`、`grayscale`、`blur`、`center_mask`、`boundary_erased`、`landmark_heatmap`
 - [ ] 设计区域级 attention/occlusion 统计：eye、brow、mouth、face center、boundary、non-face
+
+## 当前实验诊断待办：预测压缩与捷径风险
+
+- [ ] 基于最新 `test_predictions.csv` 记录 regression 诊断：整体 MAE 约 8.91、RMSE 约 10.95、Pearson 约 0.35、CCC 约 0.29
+- [ ] 单独分析 severe 组系统性低估问题：severe 平均真实 BDI 约 34.14，平均预测约 17.64，平均残差约 -16.50
+- [ ] 单独分析 minimal 组系统性高估问题：minimal 平均真实 BDI 约 4.96，平均预测约 11.85，平均残差约 +6.89
+- [ ] 增加 Freeform/Northwind 同一 subject 预测一致性诊断，记录任务间预测差异和高差异 case
+- [ ] 在 Shortcut Audit 匹配修复后，重新判断 OpenFace pose/gaze/AU/quality 特征与 `true_bdi`、`pred_bdi`、`residual`、`abs_error` 的相关性
+- [ ] 暂不将 OpenFace shortcut 特征直接加入训练输入；应先作为离线审计变量和 behavior-only baseline 对照使用
 
 ## Codex 任务队列
 

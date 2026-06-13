@@ -48,3 +48,40 @@ workflow milestones. Keep entries concise and reproducible.
   subject/session.
 - Updated the planned diagnostic alignment to prefer full `video_id` and only
   fall back to `subject_id` when the match is unique.
+
+### Latest Shortcut Audit file review
+
+- Reviewed the latest exported diagnostic files:
+  - `test_predictions.csv`
+  - `openface_quality_summary.csv`
+  - `shortcut_audit_report.md`
+  - `shortcut_merged.csv`
+  - `shortcut_correlation.csv`
+  - `shortcut_predictor_results.csv`
+- Found that `test_predictions.csv` used IDs such as
+  `203_2_Freeform_video_aligned`, while OpenFace summaries used IDs such as
+  `203_2_Freeform_video`.
+- The current Shortcut Audit matched 0 samples, so the generated shortcut risk
+  level is invalid and must not be interpreted as evidence of low shortcut
+  risk.
+- A manual normalization check that removes the `_aligned` suffix matched
+  100/100 prediction samples, confirming that the problem is an ID
+  normalization gap rather than missing OpenFace files.
+- Current prediction diagnostics still show strong range compression:
+  MAE about 8.91, RMSE about 10.95, Pearson about 0.35, CCC about 0.29.
+- Group-wise bias remains important:
+  minimal samples are overpredicted on average, while severe samples are
+  strongly underpredicted on average.
+- OpenFace pose/gaze/AU/quality features show non-trivial diagnostic signal
+  after manual matching; they should remain offline audit variables until a
+  behavior-only baseline and leakage-safe grouped validation are established.
+
+### Shortcut Audit `_aligned` video-id normalization fix
+
+- Updated Shortcut Audit matching so prediction IDs such as
+  `203_2_Freeform_video_aligned` normalize to `203_2_Freeform_video`.
+- Added a focused test to ensure aligned prediction IDs match the correct
+  Freeform/Northwind OpenFace summary row without falling back to ambiguous
+  short `subject_id` matching.
+- Verified with the latest local logs that 100/100 prediction rows match the
+  OpenFace quality summary after normalization.

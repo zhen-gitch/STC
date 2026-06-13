@@ -43,6 +43,30 @@ or experiment results. Keep entries concise, reproducible, and tied to files.
 
 ## Resolved Issues
 
+### BUG-007: Shortcut Audit does not match `_aligned` prediction video IDs
+
+- Status: resolved
+- Severity: high
+- Resolved on: 2026-06-13
+- Files:
+  - `src/diagnostics/shortcut_audit.py`
+  - `tests/test_shortcut_audit.py`
+  - `docs/SHORTCUT_AUDIT_DESIGN.md`
+- Evidence:
+  - Latest `test_predictions.csv` uses IDs such as
+    `203_2_Freeform_video_aligned`.
+  - Latest `openface_quality_summary.csv` uses IDs such as
+    `203_2_Freeform_video`.
+  - Before the fix, `shortcut_audit_report.md` reported `Matched samples: 0`.
+  - `_normalize_video_id()` now strips the `_aligned` processing suffix before
+    matching.
+  - A real-log merge check matched 100/100 prediction samples against the
+    OpenFace quality summary after the fix.
+- Follow-up:
+  - Re-run `scripts/audit_shortcuts.py` to regenerate
+    `shortcut_merged.csv`, `shortcut_correlation.csv`,
+    `shortcut_predictor_results.csv`, and `shortcut_audit_report.md`.
+
 ### BUG-001: Training entry imports missing `src.paths`
 
 - Status: resolved

@@ -210,3 +210,21 @@ debug smoke：
 ```bash
 python scripts/train.py --override configs/debug_smoke.yaml
 ```
+
+## 2026-06-13 Shortcut Audit 状态更新
+
+最新一批 Shortcut Audit 输出文件显示 `Matched samples: 0`。原因是
+`test_predictions.csv` 中的 `video_id` 形如 `203_2_Freeform_video_aligned`，
+而 `openface_quality_summary.csv` 中的 `video_id` 形如
+`203_2_Freeform_video`。因此当前 `shortcut_audit_report.md`、`shortcut_merged.csv`、
+`shortcut_correlation.csv` 和 `shortcut_predictor_results.csv` 不能用于判断
+shortcut risk。
+
+手动去除 `_aligned` 后缀后可以匹配 100/100 个预测样本，说明问题主要是
+Shortcut Audit 的 `video_id` 规范化缺口。下一步应先修复该对齐逻辑并重新运行
+Shortcut Audit，再解释相关性热力图、shortcut-only predictor 和风险等级。
+
+当前 `test_predictions.csv` 仍显示明显预测范围压缩：整体 MAE 约 8.91、RMSE 约
+10.95、Pearson 约 0.35、CCC 约 0.29。minimal 组存在平均高估，severe 组存在
+严重平均低估；后续分析应优先关注 severe 低估、Freeform/Northwind 同一 subject
+预测一致性，以及 OpenFace pose/gaze/AU/quality 特征是否构成非抑郁捷径。

@@ -4,7 +4,7 @@ import pytest
 
 from src.diagnostics.io import write_prediction_table
 from src.diagnostics.openface_quality import summarize_openface_csv
-from src.diagnostics.shortcut_audit import run_shortcut_audit
+from src.diagnostics.shortcut_audit import merge_predictions_with_quality, run_shortcut_audit
 
 
 def _write_openface_csv(path, confidence_values, pose_values):
@@ -126,3 +126,38 @@ def test_shortcut_audit_skips_ambiguous_subject_only_predictions(tmp_path):
     with merged_path.open(newline="", encoding="utf-8") as f:
         rows = list(csv.DictReader(f))
     assert rows == []
+
+
+def test_shortcut_audit_matches_aligned_prediction_video_ids():
+    prediction_records = [
+        {
+            "video_id": "203_2_Freeform_video_aligned",
+            "subject_id": "203_2",
+            "true_bdi": 8.0,
+            "pred_bdi": 4.5,
+            "residual": -3.5,
+            "abs_error": 3.5,
+            "severity_group": "minimal",
+        }
+    ]
+    quality_rows = [
+        {
+            "video_id": "203_2_Freeform_video",
+            "subject_id": "203_2",
+            "task_name": "Freeform",
+            "confidence_mean": "0.97",
+        },
+        {
+            "video_id": "203_2_Northwind_video",
+            "subject_id": "203_2",
+            "task_name": "Northwind",
+            "confidence_mean": "0.96",
+        },
+    ]
+
+    merged = merge_predictions_with_quality(prediction_records, quality_rows)
+
+    assert len(merged) == 1
+    assert merged[0]["video_id"] == "203_2_Freeform_video"
+    assert merged[0]["task_name"] == "Freeform"
+    assert merged[0]["confidence_mean"] == "0.97"

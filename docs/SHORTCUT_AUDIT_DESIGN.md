@@ -58,9 +58,18 @@ AU*_r, AU*_c             # AU intensity / presence
 
 - `video_id` 是 Shortcut Audit 的首选合并键；
 - OpenFace 文件名应推断为完整 `video_id`，例如 `203_1_Freeform_video.csv` -> `203_1_Freeform_video`；
+- 诊断脚本应在合并前规范化 `video_id`，将 `_aligned` 等处理流程后缀视为派生数据标记，而不是语义视频身份的一部分；
+- 例如 `203_2_Freeform_video_aligned` 与 `203_2_Freeform_video` 应匹配到同一个 Freeform 视频；
+- 规范化不得丢失任务名，必须继续区分 Freeform、Northwind 等不同任务视频；
 - `subject_id` 只保留短 ID，例如 `203_1`；
 - 当同一 `subject_id` 同时存在 Freeform 和 Northwind 等多个 OpenFace CSV 时，不能只按 `subject_id` 合并；
 - 只有在某个 `subject_id` 对应唯一 OpenFace 文件时，才允许退回 `subject_id` 合并。
+
+质量门槛：
+
+- 如果 `shortcut_audit_report.md` 中 `Matched samples` 为 0，或明显小于 `predictions.csv` 中的样本数，该报告只能说明对齐失败，不能用于判断 shortcut risk；
+- `shortcut_merged.csv`、`shortcut_correlation.csv`、`shortcut_predictor_results.csv` 只有表头时，应视为无效输出；
+- 只有在匹配样本数达到预期后，才解释相关性热力图、shortcut-only predictor 和风险等级。
 
 ## 3. 输出结构
 

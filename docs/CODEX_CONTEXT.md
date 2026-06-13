@@ -253,3 +253,18 @@ python -m pytest tests/test_mtl_lite_forward.py tests/test_mtl_lite_loss_backwar
 python scripts/train_mtl_lite.py --override configs/mtl_lite_debug_smoke.yaml
 python scripts/diagnose_mtl_lite.py --run-dir /path/to/LOG_DIR/mtl_lite_csv/version_0 --ckpt best
 ```
+
+## Shortcut Audit 当前注意事项
+
+最新一批诊断文件中，`test_predictions.csv` 的 `video_id` 带有 `_aligned` 后缀，
+例如 `203_2_Freeform_video_aligned`，而 OpenFace summary 使用
+`203_2_Freeform_video`。因此当前 Shortcut Audit 出现 `Matched samples: 0`，
+相关报告只能说明对齐失败，不能解释为 low shortcut risk。
+
+后续 Codex 在处理 Shortcut Audit、OpenFace 相关性或 shortcut-only predictor 前，
+必须先确认：
+
+- `video_id` 已规范化，`*_video` 与 `*_video_aligned` 能够匹配；
+- Freeform/Northwind 等任务名没有被规范化过程抹掉；
+- `shortcut_audit_report.md` 中 `Matched samples` 达到预期样本数；
+- 只有匹配成功后，才解释相关性、热力图、shortcut-only predictor 和风险等级。

@@ -56,6 +56,10 @@ def _normalize_video_id(video_id):
     video_id = str(video_id or "")
     if video_id.endswith(".csv"):
         video_id = Path(video_id).stem
+    processing_suffixes = ("_aligned",)
+    for suffix in processing_suffixes:
+        if video_id.endswith(suffix):
+            video_id = video_id[: -len(suffix)]
     return video_id
 
 
