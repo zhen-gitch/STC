@@ -282,6 +282,15 @@ LOSSES:
   DIST_WEIGHT: 0.0
 ```
 
+输入消融配置：
+
+```yaml
+DATASET:
+  INPUT_VARIANT: "rgb"
+```
+
+当前 RGB dataset 支持 `rgb`、`grayscale`、`blur`、`center_mask`、`boundary_erased`。`landmark_heatmap` 需要真实 OpenFace landmark 坐标，应在后续 behavior baseline 或 OpenFace landmark dataset 中实现，不应由 RGB 帧伪造。
+
 为了避免破坏现有配置，新模型实现应对缺失字段提供默认值。
 
 backbone 可训练范围由以下配置控制：
@@ -439,6 +448,30 @@ src/diagnostics/
 8. MTL-Lite + LDS；
 9. MTL-Lite + `loss_dist`；
 10. MTL-Lite + 动态任务权重或梯度冲突处理。
+
+### 阶段 7.1：OpenFace behavior-only baseline
+
+当前已新增独立 behavior-only baseline 路线：
+
+```text
+OpenFace CSV
+  -> AU / pose / gaze / landmark / confidence / success sequence
+  -> temporal delta / optional acceleration
+  -> GRU temporal encoder
+  -> BDI regression head
+```
+
+实现位置：
+
+```text
+src/datasets/openface_features.py
+src/models/behavior_baseline.py
+src/trainers/behavior_baseline_runner.py
+scripts/train_behavior_baseline.py
+configs/behavior_baseline.yaml
+```
+
+该路线用于判断结构化行为变量是否可以解释当前 RGB 模型的有效信号。它不依赖 RGB visual backbone，不应并入 `MTLLiteDepressionModel`，除非后续已经完成 behavior-only 与 RGB baseline 的正式对照实验并确认需要 late fusion。
 
 ### 阶段 8：Shortcut Audit Framework
 

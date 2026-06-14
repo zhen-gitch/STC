@@ -275,3 +275,46 @@ Shortcut Audit 输出中，`Matched samples: 100`，且样本均通过完整 `vi
 
 后续 Codex 在解释 Shortcut Audit 时，仍必须先确认 `Matched samples` 达到预期样本数；
 若匹配数为 0 或明显偏低，只能判定为对齐失败，不能解释风险等级。
+
+## P0 后续执行上下文
+
+grouped-CV shortcut-only predictor 已经把当前风险判断从“可能由 OpenFace 统计特征完全解释”修正为“存在中等 shortcut 风险，但仍需要进一步定位 RGB/MTL-Lite 的失败模式”。后续 Codex 不应只根据 in-sample linear/ridge predictor 的高分继续扩大 shortcut 结论，也不应在缺乏诊断证据时继续围绕 backbone 解冻层数反复试验。
+
+当前 P0 的合理推进顺序：
+
+1. 先建立 `case_study_manifest`：把 severe 低估、minimal 高估、Freeform/Northwind 高差异和 low-error reference 固定为可复查样本集合。（已实现）
+2. 再设计输入消融协议：使用 `rgb`、`grayscale`、`blur`、`center_mask`、`boundary_erased`、`landmark_heatmap` 判断模型是否依赖 RGB 纹理、身份线索、裁剪边界、黑边或非行为区域。（RGB dataset 变体已实现；`landmark_heatmap` 保留给 OpenFace landmark/behavior 路径）
+3. 再设计 behavior-only baseline 接口：使用 AU、pose、gaze、landmark、landmark motion、confidence/success mask 建立不依赖 RGB 纹理的行为表征对照。（已实现独立入口）
+
+实现这些任务时应保持以下边界：
+
+- case study manifest 和输入消融设计优先作为离线诊断，不嵌入训练 forward；
+- behavior-only baseline 应作为独立训练入口和独立配置，不污染 MTL-Lite 主线；
+- 所有实验必须保持相同 split、seed、checkpoint 选择策略和核心指标，避免把数据划分或评估策略变化误解释为模型改进；
+- 任何涉及训练超参数、dataset 输入变体实际接入或新模型训练入口的修改，都需要用户确认后再实施。
+
+P0-2 当前实现位置：
+
+- `src/diagnostics/case_studies.py`：构建并写出 case study manifest；
+- `src/diagnostics/regression.py`：回归诊断输出 `case_study_manifest.csv` 和 `case_study_manifest.md`；
+- `src/diagnostics/shortcut_audit.py`：Shortcut Audit 输出 `tables/case_study_manifest.csv` 和 `reports/case_study_manifest.md`。
+
+P0-3 当前实现位置：
+
+- `src/datasets/input_variants.py`：定义 `DATASET.INPUT_VARIANT` 的 RGB 输入变体；
+- `src/datasets/dataset.py`：在 raw frames 进入 resize/normalize 之前应用输入变体；
+- `configs/avec2014_base.yaml`：默认 `DATASET.INPUT_VARIANT: "rgb"`；
+- `tests/test_input_variants.py`：验证输入变体行为。
+
+当前支持 `rgb`、`grayscale`、`blur`、`center_mask`、`boundary_erased`。`landmark_heatmap` 需要真实 OpenFace landmark 坐标，不能由 RGB 帧伪造，因此当前在 RGB dataset 中作为保留值报错，后续应在 behavior baseline 或 OpenFace landmark dataset 中实现。
+
+P0-4 当前实现位置：
+
+- `src/datasets/openface_features.py`：读取 OpenFace CSV 并构建 AU/pose/gaze/landmark/quality 时序特征；
+- `src/models/behavior_baseline.py`：OpenFace behavior-only GRU baseline；
+- `src/trainers/behavior_baseline_runner.py`：独立 Lightning runner；
+- `scripts/train_behavior_baseline.py`：独立训练入口；
+- `configs/behavior_baseline.yaml`：behavior-only baseline override；
+- `tests/test_openface_features.py` 与 `tests/test_behavior_baseline.py`：接口测试。
+
+Behavior baseline 运行时需要通过本地配置或 override 提供 `DATASET.OPENFACE_ROOT`。该路径不应写入公共配置中的私有绝对路径，也不应修改 `configs/local_paths.yaml`，除非用户明确要求在本机维护该私有路径。

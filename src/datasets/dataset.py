@@ -18,6 +18,8 @@ from torch.utils.data import Dataset, DataLoader
 from torchvision.io import read_image, ImageReadMode
 from torchvision.transforms import v2  # 视频级的图像增强
 
+from src.datasets.input_variants import apply_input_variant, normalize_input_variant
+
 
 def _get_config_value(configs, section_name, key, default):
     section = getattr(configs, section_name, None)
@@ -92,6 +94,9 @@ class AVECDataset(Dataset):
         self.return_multi_view_train = bool(
             _get_config_value(configs, "DATASET", "RETURN_MULTI_VIEW_TRAIN", True)
         )
+        self.input_variant = normalize_input_variant(
+            _get_config_value(configs, "DATASET", "INPUT_VARIANT", "rgb")
+        )
 
         # Base transform must stay deterministic; random augmentations are applied
         # only in _apply_video_augmentation for the training views.
@@ -149,6 +154,7 @@ class AVECDataset(Dataset):
         return torch.cat((video_tensor, padding_frames), dim=0)
 
     def _build_video_output(self, raw_video_tensor):
+        raw_video_tensor = apply_input_variant(raw_video_tensor, self.input_variant)
         if self.dataset_name == "train" and self.return_multi_view_train:
             return {
                 "orig": self._pad_video(self.transform(raw_video_tensor.clone())),

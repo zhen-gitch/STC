@@ -130,3 +130,92 @@ workflow milestones. Keep entries concise and reproducible.
     report section successfully.
 - Local bundled Python still lacks `pytest`, so full pytest validation should
   be run in the server environment.
+
+### P0 剩余任务设计归档
+
+- 根据最新 grouped-CV shortcut-only predictor 结果，当前 shortcut 风险维持为
+  medium：OpenFace 统计特征与标签、预测和误差存在中等相关，但不能单独接近
+  RGB/MTL-Lite 测试表现。
+- 后续 P0 不再只围绕 in-sample shortcut predictor 或 backbone 解冻层数展开，
+  而是优先定位预测范围压缩、severe 系统性低估、minimal 系统性高估和
+  Freeform/Northwind 同一 subject 预测不一致。
+- 已将 P0-2 case study manifest、P0-3 input ablation protocol、
+  P0-4 behavior-only baseline interface 的目标、输出、字段和判读原则写入
+  `docs/TODO.md`、`docs/SHORTCUT_AUDIT_DESIGN.md`、`docs/CURRENT_STATUS.md`
+  和 `docs/CODEX_CONTEXT.md`。
+- 本次仅进行文档设计，不修改训练代码、不修改训练超参数、不修改
+  `configs/local_paths.yaml`，也不删除或覆盖任何实验结果。
+
+### P0-2 case study manifest implementation
+
+- Added offline case-study manifest generation for high-error and
+  task-inconsistency analysis.
+- New module: `src/diagnostics/case_studies.py`.
+- Regression diagnostics now emit `case_study_manifest.csv` and
+  `case_study_manifest.md` next to the regression plots.
+- Shortcut Audit now emits `tables/case_study_manifest.csv` and
+  `reports/case_study_manifest.md`.
+- Manifest case types:
+  - `severe_underestimate`
+  - `minimal_overestimate`
+  - `task_inconsistency`
+  - `low_error_reference`
+- Added tests for manifest selection and output wiring.
+- Validation:
+  - `python -m compileall src scripts tests` passed with the bundled Codex
+    Python runtime.
+  - Direct manifest smoke passed.
+  - Direct Shortcut Audit smoke generated `case_study_manifest.csv` and
+    `case_study_manifest.md`.
+  - Import check for `case_studies`, `regression`, and `shortcut_audit` passed.
+  - Local bundled Python still lacks `pytest`; run the focused pytest command
+    on the server environment.
+
+### P0-3 input ablation variant implementation
+
+- Added optional RGB input ablation support through `DATASET.INPUT_VARIANT`.
+- New module: `src/datasets/input_variants.py`.
+- `AVECDataset` now applies the selected variant before resize/normalize and
+  before training augmentations.
+- Default behavior remains `rgb`, so existing configs keep the same data path.
+- Supported variants:
+  - `rgb`
+  - `grayscale`
+  - `blur`
+  - `center_mask`
+  - `boundary_erased`
+- `landmark_heatmap` is intentionally reserved for the OpenFace
+  landmark/behavior baseline route; configuring it in the RGB dataset raises a
+  clear error instead of silently generating a fake landmark input.
+- Added `DATASET.INPUT_VARIANT: "rgb"` to `configs/avec2014_base.yaml`.
+- Added `tests/test_input_variants.py`.
+- Validation:
+  - `python -m compileall src scripts tests` passed with the bundled Codex
+    Python runtime.
+  - Local bundled Python lacks `torch`, `pytorch_lightning`, and `pytest`; run
+    input-variant pytest and dataset import checks on the server environment.
+
+### P0-4 behavior-only baseline interface implementation
+
+- Added independent OpenFace behavior-only baseline route.
+- New dataset module: `src/datasets/openface_features.py`.
+  - Matches OpenFace CSV files to split video IDs.
+  - Builds AU/pose/gaze/landmark/quality temporal features.
+  - Appends temporal delta by default and optional acceleration.
+  - Computes normalization statistics from the training split only.
+- New model module: `src/models/behavior_baseline.py`.
+  - Feature projection + GRU temporal encoder + mask-aware pooling.
+  - BDI regression head and optional ordinal auxiliary head.
+- New runner and entry:
+  - `src/trainers/behavior_baseline_runner.py`
+  - `scripts/train_behavior_baseline.py`
+- New config:
+  - `configs/behavior_baseline.yaml`
+- New tests:
+  - `tests/test_openface_features.py`
+  - `tests/test_behavior_baseline.py`
+- Validation:
+  - `python -m compileall src scripts tests` passed with the bundled Codex
+    Python runtime.
+  - Local bundled Python lacks `torch`, `pytorch_lightning`, and `pytest`; run
+    focused behavior baseline tests and import checks on the server environment.

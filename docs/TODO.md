@@ -159,7 +159,8 @@ src/diagnostics/        # 独立诊断与可视化系统
 - [x] 实现 shortcut-only BDI predictor baseline：mean、linear regression、ridge、random forest
 - [x] 在 shortcut-only predictor 中优先加入按 `subject_id` 分组的交叉验证，避免同一 subject 的 Freeform/Northwind 泄漏到不同折中
 - [x] 将 grouped CV shortcut-only predictor 写入正式诊断输出，至少报告 mean baseline、RGB 模型、ridge 多个 alpha 的 MAE/RMSE/Pearson
-- [ ] 设计输入消融配置或离线输入变体：`rgb`、`grayscale`、`blur`、`center_mask`、`boundary_erased`、`landmark_heatmap`
+- [x] 设计并接入输入消融配置 `DATASET.INPUT_VARIANT`，支持 `rgb`、`grayscale`、`blur`、`center_mask`、`boundary_erased`
+- [ ] 将 `landmark_heatmap` 接入 OpenFace landmark CSV 或 behavior baseline 路径，不在 RGB dataset 中伪造 landmark 输入
 - [ ] 设计区域级 attention/occlusion 统计：eye、brow、mouth、face center、boundary、non-face
 
 ## 当前实验诊断待办：预测压缩与捷径风险
@@ -170,9 +171,25 @@ src/diagnostics/        # 独立诊断与可视化系统
 - [x] 增加 Freeform/Northwind 同一 subject 预测一致性诊断，记录任务间预测差异和高差异 case
 - [x] 在 Shortcut Audit 匹配修复后，重新判断 OpenFace pose/gaze/AU/quality 特征与 `true_bdi`、`pred_bdi`、`residual`、`abs_error` 的相关性
 - [x] 暂不将 OpenFace shortcut 特征直接加入训练输入；应先作为离线审计变量和 behavior-only baseline 对照使用
-- [ ] 将 severe 组高误差样本整理为 case study 清单，优先检查 `246_1`、`359_1`、`237_1`、`315_2`
-- [ ] 将 Freeform/Northwind 高差异样本整理为 case study 清单，优先检查 `237_1`、`247_1`、`247_3`、`224_1`、`212_1`
-- [ ] 建立 AU/pose/gaze/landmark-only behavior baseline，与当前 RGB 模型在相同 split/seed/test checkpoint 下比较
+- [x] 将 severe 组高误差样本整理为 case study 清单，优先检查 `246_1`、`359_1`、`237_1`、`315_2`
+- [x] 将 Freeform/Northwind 高差异样本整理为 case study 清单，优先检查 `237_1`、`247_1`、`247_3`、`224_1`、`212_1`
+- [x] 建立 AU/pose/gaze/landmark-only behavior baseline 接口，与当前 RGB 模型在相同 split/seed/test checkpoint 下比较
+
+## P0 剩余任务设计：从 shortcut 诊断转向可解释改进
+
+当前 grouped-CV shortcut-only predictor 结果显示，OpenFace shortcut 特征不能单独接近 RGB/MTL-Lite 模型的测试表现；因此后续 P0 任务不应继续只围绕 backbone 微调或 in-sample shortcut 分数，而应优先解释模型为何出现预测范围压缩、severe 系统性低估、minimal 系统性高估，以及同一 subject 在 Freeform/Northwind 之间预测不一致。
+
+- [x] P0-2：建立 high-error / task-inconsistency case study 清单。目标是把 severe 低估、minimal 高估、Freeform/Northwind 高差异和 low-error reference 分成可复查样本集合，为 attention、occlusion、keyframe、aligned face 逐案检查提供固定入口。
+- [x] P0-2 输出设计：生成 `case_study_manifest.csv` 与 `case_study_manifest.md`，字段至少包括 `case_type`、`rank`、`video_id`、`subject_id`、`task_name`、`true_bdi`、`pred_bdi`、`residual`、`abs_error`、`severity_group`、`paired_task_pred_bdi`、`task_pred_diff`、`recommended_diagnostics`。
+- [x] P0-2 判读重点：优先检查 `246_1`、`359_1`、`237_1`、`315_2` 等 severe 低估 subject，以及 `237_1`、`247_1`、`247_3`、`224_1`、`212_1` 等任务间高差异 subject；同时加入若干 low-error 样本作为对照。
+- [x] P0-3：设计输入消融协议，但暂不直接改训练超参数。目标是判断模型是否依赖 RGB 纹理、边界伪影、身份线索、裁剪黑边或局部区域，而不是稳定面部行为动态。
+- [x] P0-3 输入变体设计：`rgb` 作为当前 baseline；`grayscale` 弱化颜色线索；`blur` 弱化身份纹理；`center_mask` 保留面部中心；`boundary_erased` 弱化裁剪边界、头发、衣物残留和黑边。
+- [ ] P0-3 后续补充：`landmark_heatmap` 应由 OpenFace landmark 坐标生成，归入 landmark/behavior baseline 路线，不能在只有 RGB 帧时伪造。
+- [x] P0-3 评估约束：所有输入变体必须使用相同 split、seed、checkpoint 选择策略、训练入口和指标；优先记录 MAE、RMSE、Pearson、CCC、prediction mean/std、severe/minimal 分组误差和 Freeform/Northwind 一致性。
+- [x] P0-4：设计 AU/pose/gaze/landmark-only behavior baseline 接口。目标是建立不依赖 RGB 纹理的行为表征对照，用来判断当前 RGB 模型是否真正捕捉到可泛化的行为动态。
+- [x] P0-4 接口设计：新增 `src/datasets/openface_features.py`、`src/models/behavior_baseline.py`、`src/trainers/behavior_baseline_runner.py`、`scripts/train_behavior_baseline.py` 和 `configs/behavior_baseline.yaml`；输入包含 AU intensity/presence、pose、gaze、landmark、landmark temporal delta、confidence/success mask。
+- [x] P0-4 判读方式：如果 behavior-only baseline 接近或超过 RGB/MTL-Lite，说明当前 RGB 输入中有大量可由结构化行为变量解释的有效信号；如果 behavior-only 显著弱于 RGB，但 RGB attribution 不集中在合理面部区域，则继续优先排查非行为捷径。
+- [ ] 在服务器使用真实 OpenFace CSV 运行 behavior baseline debug smoke，并与 regression-only RGB baseline 使用相同 split/seed/metrics 对齐比较。
 
 ## Codex 任务队列
 

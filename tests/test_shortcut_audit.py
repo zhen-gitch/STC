@@ -104,6 +104,8 @@ def test_run_shortcut_audit(tmp_path):
     assert (tmp_path / "shortcut_audit" / "tables" / "shortcut_correlation.csv").exists()
     assert (tmp_path / "shortcut_audit" / "tables" / "shortcut_predictor_results.csv").exists()
     assert (tmp_path / "shortcut_audit" / "tables" / "shortcut_predictor_grouped_cv.csv").exists()
+    assert (tmp_path / "shortcut_audit" / "tables" / "case_study_manifest.csv").exists()
+    assert (tmp_path / "shortcut_audit" / "reports" / "case_study_manifest.md").exists()
     assert (tmp_path / "shortcut_audit" / "reports" / "shortcut_audit_report.md").exists()
 
 

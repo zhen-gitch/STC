@@ -3,6 +3,7 @@ from pathlib import Path
 
 import numpy as np
 
+from src.diagnostics.case_studies import write_case_study_manifest
 from src.diagnostics.io import ensure_dir, read_csv_rows, read_prediction_table, write_csv_rows
 from src.diagnostics.openface_quality import (
     DEFAULT_LOW_CONFIDENCE_THRESHOLD,
@@ -636,6 +637,13 @@ def run_shortcut_audit(
     merged_rows = merge_predictions_with_quality(prediction_records, read_csv_rows(quality_path))
     merged_path = write_merged_shortcut_table(merged_rows, tables_dir / "shortcut_merged.csv")
     generated_files.append(merged_path)
+
+    case_table_path, case_report_path = write_case_study_manifest(
+        merged_rows,
+        table_path=tables_dir / "case_study_manifest.csv",
+        report_path=reports_dir / "case_study_manifest.md",
+    )
+    generated_files.extend([case_table_path, case_report_path])
 
     correlations = compute_shortcut_correlations(merged_rows)
     correlation_path = write_shortcut_correlations(correlations, tables_dir / "shortcut_correlation.csv")

@@ -367,3 +367,165 @@ Shortcut Diagnosis and Behavior-oriented Validation
 4. 生成相关性热力图；
 5. 输出 markdown audit report；
 6. 再考虑输入消融和 behavior-only baseline。
+
+## 10. P0 剩余任务设计
+
+当前 grouped-CV shortcut-only predictor 的判读结论是：OpenFace quality、pose、gaze、AU 等统计特征与 BDI、预测和误差存在中等相关，但这些特征在 subject-level grouped CV 中不能单独接近 RGB/MTL-Lite 模型。因此 shortcut 风险应继续保留为 medium，而不是直接判定模型完全依赖 OpenFace shortcut。下一阶段 P0 的核心不是继续解释 in-sample predictor，而是系统定位预测范围压缩、severe 低估、minimal 高估和任务间不一致的来源。
+
+### 10.1 P0-2：Case Study Manifest
+
+目的：
+
+- 将高误差样本从零散诊断输出整理为固定清单；
+- 保证后续 attention、occlusion、keyframe、aligned face 可视化都围绕同一批样本复查；
+- 同时保留 low-error reference，避免只看失败样本造成解释偏差。
+
+样本类型：
+
+```text
+severe_underestimate        # severe 真实 BDI 高，但预测明显偏低
+minimal_overestimate        # minimal 真实 BDI 低，但预测明显偏高
+task_inconsistency          # 同一 subject 的 Freeform/Northwind 预测差异大
+low_error_reference         # 误差较低的对照样本
+```
+
+建议输出：
+
+```text
+tables/case_study_manifest.csv
+reports/case_study_manifest.md
+figures/case_studies/<video_id>/...
+```
+
+核心字段：
+
+```text
+case_type
+rank
+video_id
+subject_id
+task_name
+true_bdi
+pred_bdi
+residual
+abs_error
+severity_group
+paired_task_pred_bdi
+task_pred_diff
+recommended_diagnostics
+```
+
+判读重点：
+
+- severe 低估优先检查 `246_1`、`359_1`、`237_1`、`315_2`；
+- Freeform/Northwind 高差异优先检查 `237_1`、`247_1`、`247_3`、`224_1`、`212_1`；
+- 每类样本都应对应 attention、occlusion、keyframe 和 aligned face 可视化，而不是只看表格。
+
+实现状态：
+
+- 已新增 `src/diagnostics/case_studies.py`；
+- 已接入 `src/diagnostics/regression.py`，回归诊断会输出 `case_study_manifest.csv` 与 `case_study_manifest.md`；
+- 已接入 `src/diagnostics/shortcut_audit.py`，Shortcut Audit 会在 `tables/` 和 `reports/` 下输出同名文件；
+- 当前实现只读取已有预测结果或 Shortcut Audit merged rows，不参与训练 forward，也不改变任何标签、split 或训练配置。
+
+### 10.2 P0-3：Input Ablation Protocol
+
+目的：
+
+- 验证模型是否依赖 RGB 纹理、身份线索、裁剪边界、黑边、头发、衣物残留或其他非行为线索；
+- 区分“模型没有学到抑郁相关行为”与“模型学到了可泛化但不充分的视觉行为线索”；
+- 为后续是否改 dataset、训练入口或模型结构提供证据。
+
+输入变体：
+
+```text
+rgb                # 当前 OpenFace aligned RGB baseline
+grayscale          # 弱化颜色和肤色捷径
+blur               # 弱化身份纹理、皱纹、皮肤细节
+center_mask        # 保留面部中心行为区域
+boundary_erased    # 弱化裁剪边界、黑边、头发、衣物残留
+landmark_heatmap   # 用几何结构替代 RGB 纹理
+```
+
+实验约束：
+
+- 所有变体必须使用相同 split、seed、训练入口、checkpoint 选择策略和指标；
+- 不得在观察 test 结果后反向调整训练超参数；
+- 每个变体至少报告 MAE、RMSE、Pearson、CCC、prediction mean/std、severity group error、Freeform/Northwind task consistency；
+- 如果 `boundary_erased` 明显改善 severe 低估或任务间一致性，应优先检查裁剪伪影；
+- 如果 `landmark_heatmap` 或 behavior-only 接近 RGB，应优先转向行为表征建模。
+
+实现状态：
+
+- 已新增 `src/datasets/input_variants.py`；
+- 已在 `AVECDataset` 中接入 `DATASET.INPUT_VARIANT`，默认值为 `rgb`，因此不改变既有训练行为；
+- 当前 RGB dataset 已支持 `rgb`、`grayscale`、`blur`、`center_mask`、`boundary_erased`；
+- `landmark_heatmap` 被显式保留为 OpenFace landmark/behavior baseline 路径，当前如果在 RGB dataset 中配置该值会报错，避免伪造 landmark 输入；
+- 已在 `configs/avec2014_base.yaml` 中加入 `DATASET.INPUT_VARIANT: "rgb"` 作为默认约定；
+- 已新增 `tests/test_input_variants.py`，用于验证输入变体的形状、dtype、alias 和保留值行为。
+
+### 10.3 P0-4：Behavior-only Baseline Interface
+
+目的：
+
+- 建立不依赖 RGB 纹理的结构化行为表征对照；
+- 判断 AU、pose、gaze、landmark motion 是否足以解释当前 RGB 模型的有效信号；
+- 为后续 RGB + behavior late fusion 和行为辅助任务 MTL 提供干净接口。
+
+建议模块：
+
+```text
+src/datasets/openface_features.py
+src/models/behavior_baseline.py
+scripts/train_behavior_baseline.py
+configs/behavior_baseline.yaml
+```
+
+建议输入：
+
+```text
+AU intensity / AU presence
+head pose
+gaze
+landmark coordinates
+landmark velocity / acceleration
+confidence / success mask
+```
+
+建议输出：
+
+```text
+BDI regression
+optional severity ordinal
+optional behavior reconstruction auxiliary task
+```
+
+判读方式：
+
+- 如果 behavior-only baseline 接近或超过 RGB/MTL-Lite，说明当前有效信号很可能主要来自可结构化的面部行为变量；
+- 如果 behavior-only 明显弱于 RGB，但 RGB attribution 不集中于眼、眉、嘴、鼻唇沟等合理区域，应继续优先排查非行为捷径；
+- 如果 behavior-only 和 RGB 都表现出 severe 低估，则需要进一步处理标签分布、损失尺度和 severity-aware sampling，而不是单纯改 backbone。
+
+实现状态：
+
+- 已新增 `src/datasets/openface_features.py`，从 OpenFace CSV 读取 `confidence`、`success`、pose、gaze、AU、landmark 坐标，并可追加 temporal delta / acceleration；
+- 已新增 `src/models/behavior_baseline.py`，使用轻量 GRU 时序编码器、mask-aware pooling、BDI 回归头和可选 ordinal 辅助头；
+- 已新增 `src/trainers/behavior_baseline_runner.py` 与 `scripts/train_behavior_baseline.py`，作为独立训练入口；
+- 已新增 `configs/behavior_baseline.yaml`，默认 `MODE: "behavior_baseline"`，并要求通过本地配置或 override 提供 `DATASET.OPENFACE_ROOT`；
+- 已新增 `tests/test_openface_features.py` 与 `tests/test_behavior_baseline.py`；
+- 该 baseline 不读取 RGB 帧，不复用 MTL-Lite visual backbone，不修改 `scripts/train_mtl_lite.py`，也不改变现有训练超参数。
+
+建议运行方式：
+
+```bash
+python scripts/train_behavior_baseline.py \
+  --override configs/behavior_baseline.yaml \
+  --override configs/your_openface_paths.yaml
+```
+
+其中 `configs/your_openface_paths.yaml` 至少需要提供：
+
+```yaml
+DATASET:
+  OPENFACE_ROOT: "/path/to/openface_csv_root"
+```

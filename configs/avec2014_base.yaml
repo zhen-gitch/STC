@@ -66,6 +66,7 @@ PROCESS_TEMPORAL:
 
 DATASET:
   RETURN_MULTI_VIEW_TRAIN: True
+  INPUT_VARIANT: "rgb"
 
 MODEL:
   NAME: "legacy_full_model"

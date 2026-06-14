@@ -32,6 +32,8 @@ def test_prediction_table_and_regression_plots(tmp_path):
     assert (output_dir / "prediction_target_scatter.png").exists()
     assert (output_dir / "residual_histogram.png").exists()
     assert (output_dir / "high_error_subjects.csv").exists()
+    assert (output_dir / "case_study_manifest.csv").exists()
+    assert (output_dir / "case_study_manifest.md").exists()
     assert paths
 
 

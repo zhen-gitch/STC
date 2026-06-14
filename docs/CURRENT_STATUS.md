@@ -233,3 +233,84 @@ behavior-only baseline 是否接近当前 RGB 模型。
 按 `subject_id` 分组的 shortcut-only predictor 交叉验证，并额外输出
 `shortcut_predictor_grouped_cv.csv`。下一步应在服务器复跑 Shortcut Audit，用正式
 grouped-CV 结果判断 shortcut-only 特征是否接近当前 RGB 模型。
+
+## 2026-06-13 P0 剩余任务设计
+
+最新 grouped-CV shortcut-only predictor 结果显示，OpenFace shortcut 特征虽然与标签、预测和误差存在中等相关，但不能单独接近当前 RGB/MTL-Lite 模型的测试表现。因此当前风险判断应保持为 medium：需要继续诊断捷径，但不应把后续工作简化为“OpenFace 统计特征已经解释了模型”。接下来的 P0 应围绕模型主要失败模式展开：预测范围压缩、severe 系统性低估、minimal 系统性高估，以及 Freeform/Northwind 同一 subject 预测不一致。
+
+当前 P0 顺序：
+
+1. P0-2：建立 high-error / task-inconsistency case study manifest。固定 severe 低估、minimal 高估、任务间高差异和 low-error reference 样本集合，作为后续 attention、occlusion、keyframe、aligned face 图组的统一入口。
+2. P0-3：设计输入消融协议。比较 `rgb`、`grayscale`、`blur`、`center_mask`、`boundary_erased`、`landmark_heatmap` 等输入变体，用于判断模型是否依赖身份纹理、裁剪伪影、边界黑边或非行为区域。
+3. P0-4：设计 AU/pose/gaze/landmark-only behavior baseline 接口。建立不依赖 RGB 纹理的行为表征对照，后续再决定是否进入 RGB + behavior late fusion 和行为辅助任务 MTL。
+
+这些任务当前均属于诊断与接口设计，不应修改 `configs/local_paths.yaml`，不应删除或覆盖既有实验结果，也不应在没有明确确认前改变训练超参数。
+
+## 2026-06-14 P0-2 Case Study Manifest 实现
+
+P0-2 已作为离线诊断能力落地。新增 `src/diagnostics/case_studies.py`，用于从已有 prediction/merged rows 中选择以下样本：
+
+- `severe_underestimate`：severe 真实 BDI 高但预测明显偏低；
+- `minimal_overestimate`：minimal 真实 BDI 低但预测明显偏高；
+- `task_inconsistency`：同一 subject 的 Freeform/Northwind 等任务视频预测差异大；
+- `low_error_reference`：低误差对照样本。
+
+该能力已接入两个离线诊断入口：
+
+- `plot_regression_diagnostics()` 会在 regression 诊断目录输出 `case_study_manifest.csv` 和 `case_study_manifest.md`；
+- `run_shortcut_audit()` 会在 Shortcut Audit 的 `tables/` 与 `reports/` 下输出同名 manifest 文件。
+
+该实现不改变训练 forward、不改变模型结构、不改变训练超参数，也不依赖 `configs/local_paths.yaml`。后续 P0-3 输入消融和 P0-4 behavior-only baseline 应以该 manifest 固定的 case 集合作为优先复查对象。
+
+## 2026-06-14 P0-3 Input Ablation Variant 接入
+
+P0-3 已以可选 dataset input variant 的方式接入主线数据集，默认行为保持 `rgb`，不会改变既有训练结果。新增 `src/datasets/input_variants.py`，并在 `AVECDataset` 中通过 `DATASET.INPUT_VARIANT` 调用。
+
+当前支持的 RGB 帧输入变体：
+
+- `rgb`：当前 OpenFace aligned RGB baseline；
+- `grayscale`：弱化颜色和肤色线索；
+- `blur`：弱化身份纹理和细粒度皮肤细节；
+- `center_mask`：保留面部中央区域，弱化边界和外围区域；
+- `boundary_erased`：弱化裁剪边界、黑边、头发、衣物残留等外围伪影。
+
+`landmark_heatmap` 当前被显式保留给 OpenFace landmark/behavior baseline 路径。由于它需要真实 landmark 坐标，RGB dataset 中不会伪造该输入；如果误配为 `landmark_heatmap`，会直接报错。
+
+默认配置已在 `configs/avec2014_base.yaml` 中加入：
+
+```yaml
+DATASET:
+  INPUT_VARIANT: "rgb"
+```
+
+后续运行输入消融时，应只在 override 中修改该字段，并保持 split、seed、训练入口、checkpoint 选择策略和指标一致。
+
+## 2026-06-14 P0-4 Behavior-only Baseline 接口实现
+
+P0-4 已作为独立 OpenFace 行为表征 baseline 落地。该路线不使用 RGB 帧，不调用 MTL-Lite visual backbone，目标是用结构化行为变量判断当前 RGB 模型是否真正捕捉到可泛化的面部行为动态。
+
+新增模块：
+
+- `src/datasets/openface_features.py`：读取 OpenFace CSV，按 split 匹配视频，构建 AU/pose/gaze/landmark/quality 时序特征，并只用训练集统计量做标准化；
+- `src/models/behavior_baseline.py`：OpenFace 特征投影 + GRU + mask-aware pooling + BDI 回归头，可选 ordinal 辅助头；
+- `src/trainers/behavior_baseline_runner.py`：独立 Lightning runner；
+- `scripts/train_behavior_baseline.py`：独立训练入口；
+- `configs/behavior_baseline.yaml`：behavior-only baseline override；
+- `tests/test_openface_features.py` 与 `tests/test_behavior_baseline.py`：接口测试。
+
+使用要求：
+
+```bash
+python scripts/train_behavior_baseline.py \
+  --override configs/behavior_baseline.yaml \
+  --override configs/your_openface_paths.yaml
+```
+
+其中 `configs/your_openface_paths.yaml` 至少需要提供：
+
+```yaml
+DATASET:
+  OPENFACE_ROOT: "/path/to/openface_csv_root"
+```
+
+该实现不修改 `configs/local_paths.yaml`，不删除或覆盖任何实验结果，也不改变 `scripts/train_mtl_lite.py` 的行为。后续需要在服务器使用真实 OpenFace CSV 运行 debug smoke，并与 RGB regression-only baseline 保持相同 split、seed 和指标进行比较。

@@ -2,6 +2,7 @@ from pathlib import Path
 
 import numpy as np
 
+from src.diagnostics.case_studies import write_case_study_manifest
 from src.diagnostics.io import ensure_dir, read_prediction_table, write_csv_rows
 
 
@@ -167,4 +168,11 @@ def plot_regression_diagnostics(prediction_csv, save_dir, max_score=63, bin_size
         plot_severity_group_error(records, save_dir),
     ]
     paths.extend(write_error_rankings(records, save_dir))
+    paths.extend(
+        write_case_study_manifest(
+            records,
+            table_path=Path(save_dir) / "case_study_manifest.csv",
+            report_path=Path(save_dir) / "case_study_manifest.md",
+        )
+    )
     return paths
