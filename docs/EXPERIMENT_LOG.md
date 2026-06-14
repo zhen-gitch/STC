@@ -219,3 +219,84 @@ workflow milestones. Keep entries concise and reproducible.
     Python runtime.
   - Local bundled Python lacks `torch`, `pytorch_lightning`, and `pytest`; run
     focused behavior baseline tests and import checks on the server environment.
+
+## 2026-06-14
+
+### Behavior-only baseline result review
+
+- Reviewed the latest `behavior_metrics.csv` exported from the OpenFace
+  behavior-only baseline run.
+- Test metrics:
+  - MAE about 9.93.
+  - RMSE about 12.86.
+  - CCC about 0.151.
+- Best validation RMSE occurred around epoch 65:
+  - val MAE about 9.94.
+  - val RMSE about 12.38.
+  - val CCC about 0.324.
+  - corresponding train MAE about 2.17, train RMSE about 2.74, train CCC about
+    0.975.
+- Interpretation:
+  - The behavior-only baseline currently overfits strongly.
+  - Complete OpenFace feature sets should not be treated as clean behavioral
+    representations.
+  - Raw landmark coordinates and static facial geometry may carry identity or
+    subject-specific shortcuts.
+  - Late fusion should wait until feature-group ablation identifies a stable
+    behavior subset.
+- Updated documentation:
+  - `docs/CURRENT_STATUS.md`
+  - `docs/TODO.md`
+  - `docs/CODEX_CONTEXT.md`
+  - `docs/RESEARCH_NOTES.md`
+  - `docs/SHORTCUT_AUDIT_DESIGN.md`
+  - `docs/BUG_LOG.md`
+
+### P0 behavior prediction export implementation
+
+- Added behavior baseline val/test prediction export after best-checkpoint test
+  evaluation.
+- Prediction CSV files are written under:
+  `behavior_baseline_csv/version_*/diagnostics/behavior/`.
+- Exported files:
+  - `val_predictions.csv`
+  - `test_predictions.csv`
+- Prediction rows now include `video_id`, `subject_id`, `task_name`,
+  `true_bdi`, `pred_bdi`, `residual`, `abs_error`, and `severity_group`.
+- Extended the shared prediction-table writer with an optional `task_name`
+  field while preserving existing callers that do not provide task names.
+- This change does not alter model forward, losses, metrics, training
+  hyperparameters, checkpoint selection, or `configs/local_paths.yaml`.
+
+### P0 behavior feature-set ablation interface
+
+- Added `BEHAVIOR_FEATURES.FEATURE_SET` with default value `custom`.
+- Supported named feature sets:
+  - `quality_only`
+  - `au_only`
+  - `pose_gaze_only`
+  - `raw_landmark_only`
+  - `landmark_delta_only`
+  - `au_landmark_delta`
+  - `all_without_raw_landmarks`
+- The named feature sets make future ablations runnable with a minimal override
+  instead of maintaining many near-duplicate YAML files.
+- `landmark_delta_only` excludes raw landmark coordinates, and
+  `all_without_raw_landmarks` keeps non-landmark raw features while retaining
+  temporal deltas for all selected features.
+- Default `custom` behavior preserves the existing boolean feature flags and
+  therefore does not change previous behavior baseline runs.
+
+### P0 RGB-vs-behavior prediction comparison interface
+
+- Added offline comparison module:
+  - `src/diagnostics/behavior_comparison.py`
+  - `scripts/compare_behavior_predictions.py`
+- The comparison aligns RGB/MTL-Lite and behavior-only predictions by
+  normalized `video_id`, including compatibility with `_aligned` processing
+  suffixes.
+- Outputs:
+  - `rgb_behavior_prediction_comparison.csv`
+  - `rgb_behavior_prediction_summary.csv`
+- The summary reports RGB and behavior MAE/RMSE/Pearson/CCC, severity-group
+  metrics, and counts where RGB, behavior, or neither is better.

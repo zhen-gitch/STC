@@ -76,31 +76,122 @@ def _feature_flag(configs, key, default):
     return bool(_get_config_value(configs, "BEHAVIOR_FEATURES", key, default))
 
 
-def select_openface_feature_columns(fieldnames, configs):
+def _feature_set(configs):
+    return str(_get_config_value(configs, "BEHAVIOR_FEATURES", "FEATURE_SET", "custom")).lower()
+
+
+def _add_columns(columns, groups, fieldnames, selected_group):
+    if selected_group == "quality":
+        selected = [name for name in ("confidence", "success") if name in fieldnames]
+    elif selected_group == "pose":
+        selected = [name for name in fieldnames if name.startswith("pose_R") or name.startswith("pose_T")]
+    elif selected_group == "gaze":
+        selected = [name for name in fieldnames if name.startswith("gaze_")]
+    elif selected_group == "au":
+        selected = [name for name in fieldnames if name.startswith("AU") and name.endswith(("_r", "_c"))]
+    elif selected_group == "landmark":
+        selected = _numbered_columns(fieldnames, "x") + _numbered_columns(fieldnames, "y")
+    else:
+        selected = []
+
+    for column in selected:
+        if column not in columns:
+            columns.append(column)
+            groups.append(selected_group)
+
+
+def _indices_for_groups(groups, included_groups):
+    included_groups = set(included_groups)
+    return [idx for idx, group in enumerate(groups) if group in included_groups]
+
+
+def select_openface_feature_columns_and_options(fieldnames, configs):
     columns = []
+    groups = []
     fieldnames = list(fieldnames)
+    feature_set = _feature_set(configs)
 
-    if _feature_flag(configs, "INCLUDE_QUALITY", True):
-        columns.extend([name for name in ("confidence", "success") if name in fieldnames])
+    include_delta = bool(_get_config_value(configs, "BEHAVIOR_FEATURES", "INCLUDE_DELTA", True))
+    include_acceleration = bool(_get_config_value(configs, "BEHAVIOR_FEATURES", "INCLUDE_ACCELERATION", False))
+    include_raw = True
+    raw_indices = None
+    delta_indices = None
+    acceleration_indices = None
 
-    if _feature_flag(configs, "INCLUDE_POSE", True):
-        columns.extend([name for name in fieldnames if name.startswith("pose_R") or name.startswith("pose_T")])
+    if feature_set == "custom":
+        if _feature_flag(configs, "INCLUDE_QUALITY", True):
+            _add_columns(columns, groups, fieldnames, "quality")
+        if _feature_flag(configs, "INCLUDE_POSE", True):
+            _add_columns(columns, groups, fieldnames, "pose")
+        if _feature_flag(configs, "INCLUDE_GAZE", True):
+            _add_columns(columns, groups, fieldnames, "gaze")
+        if _feature_flag(configs, "INCLUDE_AU", True):
+            _add_columns(columns, groups, fieldnames, "au")
+        if _feature_flag(configs, "INCLUDE_LANDMARKS", True):
+            _add_columns(columns, groups, fieldnames, "landmark")
 
-    if _feature_flag(configs, "INCLUDE_GAZE", True):
-        columns.extend([name for name in fieldnames if name.startswith("gaze_")])
+    elif feature_set == "quality_only":
+        _add_columns(columns, groups, fieldnames, "quality")
+        include_delta = False
+        include_acceleration = False
 
-    if _feature_flag(configs, "INCLUDE_AU", True):
-        columns.extend([name for name in fieldnames if name.startswith("AU") and name.endswith(("_r", "_c"))])
+    elif feature_set == "au_only":
+        _add_columns(columns, groups, fieldnames, "au")
 
-    if _feature_flag(configs, "INCLUDE_LANDMARKS", True):
-        columns.extend(_numbered_columns(fieldnames, "x"))
-        columns.extend(_numbered_columns(fieldnames, "y"))
+    elif feature_set == "pose_gaze_only":
+        _add_columns(columns, groups, fieldnames, "pose")
+        _add_columns(columns, groups, fieldnames, "gaze")
 
-    deduped = []
-    for column in columns:
-        if column not in deduped:
-            deduped.append(column)
-    return deduped
+    elif feature_set == "raw_landmark_only":
+        _add_columns(columns, groups, fieldnames, "landmark")
+        include_delta = False
+        include_acceleration = False
+
+    elif feature_set == "landmark_delta_only":
+        _add_columns(columns, groups, fieldnames, "landmark")
+        include_raw = False
+        include_delta = True
+        include_acceleration = False
+
+    elif feature_set == "au_landmark_delta":
+        _add_columns(columns, groups, fieldnames, "au")
+        _add_columns(columns, groups, fieldnames, "landmark")
+        raw_indices = _indices_for_groups(groups, {"au"})
+        delta_indices = _indices_for_groups(groups, {"landmark"})
+        include_delta = True
+        include_acceleration = False
+
+    elif feature_set == "all_without_raw_landmarks":
+        for group in ("quality", "pose", "gaze", "au", "landmark"):
+            _add_columns(columns, groups, fieldnames, group)
+        raw_indices = _indices_for_groups(groups, {"quality", "pose", "gaze", "au"})
+        delta_indices = list(range(len(columns)))
+        include_delta = True
+
+    else:
+        raise ValueError(
+            "Unknown BEHAVIOR_FEATURES.FEATURE_SET: "
+            f"{feature_set}. Supported values: custom, quality_only, au_only, "
+            "pose_gaze_only, raw_landmark_only, landmark_delta_only, "
+            "au_landmark_delta, all_without_raw_landmarks."
+        )
+
+    options = {
+        "feature_set": feature_set,
+        "groups": groups,
+        "include_raw": include_raw,
+        "include_delta": include_delta,
+        "include_acceleration": include_acceleration,
+        "raw_indices": raw_indices,
+        "delta_indices": delta_indices,
+        "acceleration_indices": acceleration_indices,
+    }
+    return columns, options
+
+
+def select_openface_feature_columns(fieldnames, configs):
+    columns, _options = select_openface_feature_columns_and_options(fieldnames, configs)
+    return columns
 
 
 def load_split_video_ids(dataset_split_file, split):
@@ -160,45 +251,88 @@ def build_openface_records(openface_root, dataset_split_file, split, allow_missi
     return records
 
 
-def derive_temporal_features(features, include_delta=True, include_acceleration=False):
-    outputs = [features]
+def _select_feature_indices(features, indices):
+    if indices is None:
+        return features
+    if not indices:
+        return np.zeros((features.shape[0], 0), dtype=features.dtype)
+    return features[:, indices]
+
+
+def derive_temporal_features(
+    features,
+    include_delta=True,
+    include_acceleration=False,
+    include_raw=True,
+    raw_indices=None,
+    delta_indices=None,
+    acceleration_indices=None,
+):
+    outputs = []
+    if include_raw:
+        outputs.append(_select_feature_indices(features, raw_indices))
     if include_delta:
         delta = np.zeros_like(features)
         if features.shape[0] > 1:
             delta[1:] = features[1:] - features[:-1]
-        outputs.append(delta)
+        outputs.append(_select_feature_indices(delta, delta_indices))
     if include_acceleration:
         acceleration = np.zeros_like(features)
         if features.shape[0] > 2:
             acceleration[2:] = features[2:] - 2.0 * features[1:-1] + features[:-2]
-        outputs.append(acceleration)
+        outputs.append(_select_feature_indices(acceleration, acceleration_indices))
+    if not outputs:
+        return np.zeros((features.shape[0], 0), dtype=features.dtype)
     return np.concatenate(outputs, axis=1)
 
 
 class OpenFaceFeatureDataset(Dataset):
     """Sequence dataset built from OpenFace CSV behavior features."""
 
-    def __init__(self, configs, split, records, feature_columns, feature_mean=None, feature_std=None):
+    def __init__(self, configs, split, records, feature_columns, feature_options=None, feature_mean=None, feature_std=None):
         super().__init__()
         self.cfgs = configs
         self.split = split
         self.records = list(records)
         self.feature_columns = list(feature_columns)
+        self.feature_options = dict(feature_options or {})
         self.label_dir = Path(configs.LABEL_DIR)
         self.class_step = int(configs.PROCESS_TEMPORAL.CLASS_STEP)
         self.sample_step = int(configs.PROCESS_TEMPORAL.SAMPLE_STEP)
         self.max_len = int(configs.PROCESS_TEMPORAL.MAX_SEQ_LEN // self.sample_step)
-        self.include_delta = bool(_get_config_value(configs, "BEHAVIOR_FEATURES", "INCLUDE_DELTA", True))
-        self.include_acceleration = bool(
-            _get_config_value(configs, "BEHAVIOR_FEATURES", "INCLUDE_ACCELERATION", False)
+        self.include_raw = bool(self.feature_options.get("include_raw", True))
+        self.include_delta = bool(
+            self.feature_options.get(
+                "include_delta",
+                _get_config_value(configs, "BEHAVIOR_FEATURES", "INCLUDE_DELTA", True),
+            )
         )
+        self.include_acceleration = bool(
+            self.feature_options.get(
+                "include_acceleration",
+                _get_config_value(configs, "BEHAVIOR_FEATURES", "INCLUDE_ACCELERATION", False),
+            )
+        )
+        self.raw_indices = self.feature_options.get("raw_indices")
+        self.delta_indices = self.feature_options.get("delta_indices")
+        self.acceleration_indices = self.feature_options.get("acceleration_indices")
         self.feature_mean = feature_mean
         self.feature_std = feature_std
 
     @property
     def feature_dim(self):
-        multiplier = 1 + int(self.include_delta) + int(self.include_acceleration)
-        return len(self.feature_columns) * multiplier
+        total = 0
+        if self.include_raw:
+            total += len(self.raw_indices) if self.raw_indices is not None else len(self.feature_columns)
+        if self.include_delta:
+            total += len(self.delta_indices) if self.delta_indices is not None else len(self.feature_columns)
+        if self.include_acceleration:
+            total += (
+                len(self.acceleration_indices)
+                if self.acceleration_indices is not None
+                else len(self.feature_columns)
+            )
+        return total
 
     def _label_value_for_subject(self, subject_id):
         label_path = self.label_dir.joinpath(f"{subject_id}_Depression.csv").expanduser()
@@ -220,6 +354,10 @@ class OpenFaceFeatureDataset(Dataset):
             features,
             include_delta=self.include_delta,
             include_acceleration=self.include_acceleration,
+            include_raw=self.include_raw,
+            raw_indices=self.raw_indices,
+            delta_indices=self.delta_indices,
+            acceleration_indices=self.acceleration_indices,
         ).astype(np.float32)
 
     def _pad_and_normalize(self, features):
@@ -291,6 +429,7 @@ class OpenFaceFeatureDataModule(pl.LightningDataModule):
             raise ValueError("DATASET.OPENFACE_ROOT is required for behavior baseline training.")
         self.allow_missing = bool(_get_config_value(configs, "DATASET", "ALLOW_MISSING_OPENFACE", False))
         self.feature_columns = None
+        self.feature_options = None
         self.feature_mean = None
         self.feature_std = None
         self.train_dataset = None
@@ -314,28 +453,52 @@ class OpenFaceFeatureDataModule(pl.LightningDataModule):
     def _build_feature_columns(self, records):
         for record in records:
             header = _read_header(record["csv_path"])
-            columns = select_openface_feature_columns(header, self.cfgs)
+            columns, options = select_openface_feature_columns_and_options(header, self.cfgs)
             if columns:
-                return columns
+                return columns, options
         raise ValueError("No OpenFace behavior feature columns were selected.")
 
     def setup(self, stage=None):
         train_records = self._records("train")
         val_records = self._records("val")
         test_records = self._records("test")
-        self.feature_columns = self._build_feature_columns(train_records)
+        self.feature_columns, self.feature_options = self._build_feature_columns(train_records)
 
-        raw_train = OpenFaceFeatureDataset(self.cfgs, "train", train_records, self.feature_columns)
+        raw_train = OpenFaceFeatureDataset(
+            self.cfgs,
+            "train",
+            train_records,
+            self.feature_columns,
+            self.feature_options,
+        )
         self.feature_mean, self.feature_std = compute_feature_stats(raw_train)
 
         self.train_dataset = OpenFaceFeatureDataset(
-            self.cfgs, "train", train_records, self.feature_columns, self.feature_mean, self.feature_std
+            self.cfgs,
+            "train",
+            train_records,
+            self.feature_columns,
+            self.feature_options,
+            self.feature_mean,
+            self.feature_std,
         )
         self.val_dataset = OpenFaceFeatureDataset(
-            self.cfgs, "val", val_records, self.feature_columns, self.feature_mean, self.feature_std
+            self.cfgs,
+            "val",
+            val_records,
+            self.feature_columns,
+            self.feature_options,
+            self.feature_mean,
+            self.feature_std,
         )
         self.test_dataset = OpenFaceFeatureDataset(
-            self.cfgs, "test", test_records, self.feature_columns, self.feature_mean, self.feature_std
+            self.cfgs,
+            "test",
+            test_records,
+            self.feature_columns,
+            self.feature_options,
+            self.feature_mean,
+            self.feature_std,
         )
 
     def train_dataloader(self):

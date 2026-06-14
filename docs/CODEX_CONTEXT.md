@@ -318,3 +318,28 @@ P0-4 当前实现位置：
 - `tests/test_openface_features.py` 与 `tests/test_behavior_baseline.py`：接口测试。
 
 Behavior baseline 运行时需要通过本地配置或 override 提供 `DATASET.OPENFACE_ROOT`。该路径不应写入公共配置中的私有绝对路径，也不应修改 `configs/local_paths.yaml`，除非用户明确要求在本机维护该私有路径。
+
+## 2026-06-14 Behavior baseline 后的新上下文
+
+最新 behavior-only baseline 已完成训练，但结果显示强烈训练集拟合和较差泛化：test MAE 约 `9.93`，RMSE 约 `12.86`，CCC 约 `0.151`；best validation RMSE 约 `12.38`，而同 epoch train RMSE 约 `2.74`。后续 Codex 不应把 behavior-only train MAE/RMSE 很低解释为路线成功，也不应立即推进 RGB + behavior late fusion。
+
+当前更合理的判断是：OpenFace CSV 中既包含有价值的面部行为线索，也包含身份、静态 landmark 几何、追踪质量、视频采集条件等容易被模型记忆的非抑郁信号。下一步必须先做 feature-group ablation 和 prediction-level 对齐比较，确定哪些特征组在 subject-level 泛化上真正有用。
+
+后续优先顺序：
+
+```text
+behavior prediction export
+-> behavior feature-group ablation
+-> RGB vs behavior prediction-level comparison
+-> stable behavior subset selection
+-> RGB + behavior late fusion
+-> behavior auxiliary MTL-Lite
+```
+
+实现时继续保持边界：
+
+- 不修改 `configs/local_paths.yaml`；
+- 不删除或覆盖任何日志、权重、checkpoint 或实验结果；
+- 不在 test 结果之后反向调训练超参数；
+- behavior baseline 默认作为独立入口，不污染 `scripts/train_mtl_lite.py`；
+- late fusion 和辅助任务必须等待 behavior 特征子集稳定后再做。

@@ -5,6 +5,36 @@ or experiment results. Keep entries concise, reproducible, and tied to files.
 
 ## Open Issues
 
+### RISK-001: Behavior-only baseline strongly overfits full OpenFace feature set
+
+- Status: open
+- Severity: high
+- Files:
+  - `src/datasets/openface_features.py`
+  - `src/models/behavior_baseline.py`
+  - `configs/behavior_baseline.yaml`
+- Evidence:
+  - Latest behavior-only run reports test MAE about `9.93`, RMSE about `12.86`,
+    and CCC about `0.151`.
+  - Best validation RMSE is about `12.38`, while the corresponding train RMSE
+    is about `2.74`.
+  - Train CCC reaches about `0.975`, but test CCC remains about `0.151`.
+- Impact:
+  - The full OpenFace feature set is not yet a reliable behavior representation
+    for downstream fusion.
+  - Raw landmark coordinates, static facial geometry, quality variables, or
+    subject-specific acquisition conditions may be acting as shortcuts.
+  - Direct RGB + behavior late fusion may amplify overfitting if performed
+    before feature-group ablation.
+- Recommended fix:
+  - Export behavior val/test predictions with the same schema as RGB/MTL-Lite
+    predictions.
+  - Run feature-group ablations: quality-only, AU-only, pose+gaze-only,
+    raw-landmark-only, landmark-delta-only, AU+landmark-delta, and
+    all-without-raw-landmarks.
+  - Compare RGB and behavior predictions at case level before attempting late
+    fusion or behavior auxiliary MTL.
+
 ### BUG-004: Legacy default config contains absolute local paths
 
 - Status: open

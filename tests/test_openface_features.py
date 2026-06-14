@@ -7,6 +7,7 @@ from src.datasets.openface_features import (
     OpenFaceFeatureDataModule,
     build_openface_records,
     select_openface_feature_columns,
+    select_openface_feature_columns_and_options,
 )
 
 
@@ -95,6 +96,7 @@ def _config(openface, labels, split_path):
                 "ALLOW_MISSING_OPENFACE": False,
             },
             "BEHAVIOR_FEATURES": {
+                "FEATURE_SET": "custom",
                 "INCLUDE_QUALITY": True,
                 "INCLUDE_POSE": True,
                 "INCLUDE_GAZE": True,
@@ -122,6 +124,7 @@ def test_select_openface_feature_columns_respects_groups():
     cfg = OmegaConf.create(
         {
             "BEHAVIOR_FEATURES": {
+                "FEATURE_SET": "custom",
                 "INCLUDE_QUALITY": True,
                 "INCLUDE_POSE": False,
                 "INCLUDE_GAZE": True,
@@ -134,6 +137,33 @@ def test_select_openface_feature_columns_respects_groups():
     columns = select_openface_feature_columns(fieldnames, cfg)
 
     assert columns == ["confidence", "success", "gaze_angle_x", "AU01_r", "AU01_c"]
+
+
+def test_named_feature_sets_select_expected_columns_and_options():
+    fieldnames = [
+        "frame",
+        "confidence",
+        "success",
+        "pose_Rx",
+        "pose_Ry",
+        "gaze_angle_x",
+        "x_0",
+        "y_0",
+        "AU01_r",
+        "AU01_c",
+    ]
+
+    landmark_cfg = OmegaConf.create({"BEHAVIOR_FEATURES": {"FEATURE_SET": "landmark_delta_only"}})
+    columns, options = select_openface_feature_columns_and_options(fieldnames, landmark_cfg)
+    assert columns == ["x_0", "y_0"]
+    assert options["include_raw"] is False
+    assert options["include_delta"] is True
+
+    mixed_cfg = OmegaConf.create({"BEHAVIOR_FEATURES": {"FEATURE_SET": "au_landmark_delta"}})
+    columns, options = select_openface_feature_columns_and_options(fieldnames, mixed_cfg)
+    assert columns == ["AU01_r", "AU01_c", "x_0", "y_0"]
+    assert options["raw_indices"] == [0, 1]
+    assert options["delta_indices"] == [2, 3]
 
 
 def test_openface_feature_datamodule_builds_padded_batches(tmp_path):
@@ -151,3 +181,16 @@ def test_openface_feature_datamodule_builds_padded_batches(tmp_path):
     assert features.shape == (2, 4, data_module.feature_dim)
     assert mask.shape == (2, 4)
     assert labels_batch["bdi_score"].shape == (2,)
+
+
+def test_feature_set_changes_derived_feature_dim(tmp_path):
+    openface, labels, split_path = _write_fixture(tmp_path)
+    cfg = _config(openface, labels, split_path)
+    cfg.BEHAVIOR_FEATURES.FEATURE_SET = "all_without_raw_landmarks"
+
+    data_module = OpenFaceFeatureDataModule(cfg)
+    data_module.setup()
+
+    non_landmark_raw_dim = 2 + 3 + 2 + 2
+    all_delta_dim = 2 + 3 + 2 + 4 + 2
+    assert data_module.feature_dim == non_landmark_raw_dim + all_delta_dim

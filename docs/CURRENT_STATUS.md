@@ -2,7 +2,7 @@
 
 ## 状态日期
 
-2026-06-13
+2026-06-14
 
 ## 当前项目状态
 
@@ -314,3 +314,51 @@ DATASET:
 ```
 
 该实现不修改 `configs/local_paths.yaml`，不删除或覆盖任何实验结果，也不改变 `scripts/train_mtl_lite.py` 的行为。后续需要在服务器使用真实 OpenFace CSV 运行 debug smoke，并与 RGB regression-only baseline 保持相同 split、seed 和指标进行比较。
+
+## 2026-06-14 Behavior-only baseline 结果与优先级重评估
+
+最新 behavior-only baseline 已能完整训练并输出 `behavior_metrics.csv`。该实验使用 OpenFace 结构化特征而非 RGB 帧，当前结果显示其训练集拟合很强，但泛化仍明显不足：
+
+- test MAE 约 `9.93`，RMSE 约 `12.86`，CCC 约 `0.151`；
+- best validation RMSE 出现在 epoch 65，val MAE 约 `9.94`，val RMSE 约 `12.38`，val CCC 约 `0.324`；
+- 同一 epoch 的 train MAE 约 `2.17`，train RMSE 约 `2.74`，train CCC 约 `0.975`；
+- 最后 epoch 的 train/val RMSE 差距扩大到约 `10.68`。
+
+当前判读：
+
+- behavior-only baseline 暂时不能替代 RGB/MTL-Lite，也不应直接进入 late fusion；
+- 该结果更像是 OpenFace 行为特征中存在可记忆的 subject/static geometry 信号，但可泛化行为动态仍没有被稳定提取；
+- 原始 landmark 坐标、静态几何、身份相关形状和视频级采集差异可能是主要过拟合来源；
+- 当前阶段不应继续把工作重点放在 backbone 解冻层数搜索，也不应因为 train MAE 很低就认为行为表征路线已经成功。
+
+重新评估后的当前优先级：
+
+### P0：必须立即处理
+
+1. 为 behavior baseline 导出 val/test prediction CSV，字段尽量与 RGB/MTL-Lite `test_predictions.csv` 对齐，至少包含 `video_id`、`subject_id`、`task_name`、`true_bdi`、`pred_bdi`、`residual`、`abs_error`。
+2. 对 behavior baseline 做特征组消融：quality-only、AU-only、pose+gaze-only、raw-landmark-only、landmark-delta-only、AU+landmark-delta、all-without-raw-landmarks。
+3. 在相同 split、seed、metric 和 checkpoint 策略下，对齐比较 RGB/MTL-Lite 与 behavior-only 的整体指标、severity group 误差、Freeform/Northwind 一致性和 case overlap。
+4. 记录 OpenFace CSV 匹配数、可用字段、特征维度、缺失字段和标准化统计来源，确保 behavior baseline 不发生 split 泄漏。
+
+### P1：强烈建议处理
+
+1. 在完成特征组消融后，再决定是否默认移除 raw landmark 坐标，优先保留 AU、landmark motion、pose/gaze motion 和 quality mask 等更接近行为动态的特征。
+2. 降低 behavior baseline 容量并增强正则化，例如更小 hidden dim、单向 GRU、dropout、weight decay、早停和更短最大 epoch。
+3. 建立 behavior prediction 诊断报告，复用 regression diagnostics 与 case study manifest。
+
+### P2：后续优化
+
+1. 只有当某个 behavior 特征子集在验证/测试上稳定后，再尝试 RGB + behavior late fusion。
+2. 只有当行为子任务本身稳定后，再将 AU、landmark motion、pose/gaze 等作为 MTL-Lite 辅助任务。
+3. 动态任务权重、GradNorm、PCGrad、LDS、`loss_dist` 仍应保持为后续消融项，而不是当前主线。
+
+### P0 执行进展
+
+- 已实现 behavior baseline 的 val/test prediction CSV 导出。
+- 导出目录为 `behavior_baseline_csv/version_*/diagnostics/behavior/`。
+- `val_predictions.csv` 与 `test_predictions.csv` 已包含 `video_id`、`subject_id`、`task_name`、`true_bdi`、`pred_bdi`、`residual`、`abs_error`、`severity_group`。
+- 该导出发生在 best-checkpoint test evaluation 之后，不改变训练 forward、loss、metric、训练超参数或 checkpoint 选择策略。
+- 已新增 `BEHAVIOR_FEATURES.FEATURE_SET` 命名特征组入口，默认值为 `custom`，不改变既有 behavior baseline。
+- 当前支持 `quality_only`、`au_only`、`pose_gaze_only`、`raw_landmark_only`、`landmark_delta_only`、`au_landmark_delta`、`all_without_raw_landmarks`，用于后续服务器端批量消融。
+- 已新增 `scripts/compare_behavior_predictions.py`，可将 RGB/MTL-Lite prediction CSV 与 behavior-only prediction CSV 对齐比较。
+- 比较工具输出 `rgb_behavior_prediction_comparison.csv` 和 `rgb_behavior_prediction_summary.csv`，用于检查整体指标、severity 分组和逐样本谁更好。

@@ -529,3 +529,39 @@ python scripts/train_behavior_baseline.py \
 DATASET:
   OPENFACE_ROOT: "/path/to/openface_csv_root"
 ```
+
+## 11. Behavior baseline 后续审计扩展
+
+最新 behavior-only baseline 说明：OpenFace 结构化特征不应被整体视为“干净行为信号”。当前完整特征训练出现明显 train/val/test gap，提示 raw landmark、静态几何、质量变量或 subject-specific 采集条件可能被模型记忆。因此 Shortcut Audit 后续需要从“OpenFace 特征是否相关”推进到“哪些 OpenFace 特征组可泛化”。
+
+新增必要输出：
+
+```text
+behavior_test_predictions.csv
+behavior_val_predictions.csv
+behavior_feature_ablation_results.csv
+rgb_behavior_prediction_comparison.csv
+behavior_case_study_manifest.csv
+```
+
+推荐 feature-group ablation：
+
+```text
+quality_only
+au_only
+pose_gaze_only
+raw_landmark_only
+landmark_delta_only
+au_landmark_delta
+all_without_raw_landmarks
+```
+
+判读规则：
+
+- 如果 `raw_landmark_only` 训练好、测试差，说明静态几何或身份信号风险高；
+- 如果 `landmark_delta_only` 或 `AU+landmark_delta` 泛化优于 raw landmark，说明动态行为特征更可靠；
+- 如果 `quality_only` 能预测误差或 BDI，需要把 OpenFace 追踪质量作为混杂因素报告；
+- 如果 behavior-only 与 RGB 错误样本高度重叠，说明二者可能受相同 subject 或采集条件影响；
+- 如果 behavior-only 能修正 RGB 的 severe 低估或 task inconsistency，才有必要优先进入 late fusion。
+
+在这些审计完成前，RGB + behavior late fusion 只应作为 P2 计划，不应提前作为主要模型改进。

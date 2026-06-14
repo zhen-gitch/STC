@@ -165,3 +165,33 @@ quality summary + predictions.csv -> correlation heatmap
 quality summary + residual -> residual dependency report
 shortcut_audit_report.md
 ```
+
+## 2026-06-14 Behavior-only baseline 结果后的研究路线修订
+
+最新 behavior-only baseline 使用 OpenFace 结构化特征进行 BDI 回归，结果显示训练集拟合很强但泛化不足：test MAE 约 `9.93`，RMSE 约 `12.86`，CCC 约 `0.151`；best validation RMSE 约 `12.38`，但对应 train RMSE 只有约 `2.74`。这说明 OpenFace 行为表征路线仍然有研究价值，但不能直接把“所有 OpenFace 特征”视为可靠行为表征。
+
+新的研究假设：
+
+- AU、landmark motion、pose/gaze motion 可能比 raw landmark 坐标更接近可泛化的行为动态；
+- raw landmark coordinates 和静态 facial geometry 可能携带较强身份线索；
+- OpenFace quality、confidence、success 和 tracking stability 既可作为质量控制变量，也可能成为预测捷径；
+- behavior-only baseline 弱于 RGB 不代表行为线索无效，可能是特征组混杂、模型容量过大或评价粒度不够导致。
+
+下一阶段实验应优先回答三个问题：
+
+1. 哪些 OpenFace 特征组可以在 subject-level 泛化中稳定降低误差？
+2. RGB/MTL-Lite 与 behavior-only 的错误样本是否重叠，还是互补？
+3. severe 低估、minimal 高估和 Freeform/Northwind 不一致是否能被某些行为特征组解释或缓解？
+
+因此，行为路线的实验顺序调整为：
+
+```text
+behavior prediction export
+-> feature-group ablation
+-> RGB vs behavior case overlap
+-> stable behavior subset
+-> late fusion
+-> behavior auxiliary MTL
+```
+
+论文表述上，当前 behavior-only baseline 可作为一个重要诊断结论：直接使用完整 OpenFace CSV 特征并不会自动获得可泛化抑郁表征，必须通过特征组消融、去身份化和行为动态约束来筛选可靠线索。

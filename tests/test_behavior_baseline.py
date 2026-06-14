@@ -2,6 +2,7 @@ import torch
 from omegaconf import OmegaConf
 
 from src.models.behavior_baseline import BehaviorBaselineModel
+from src.trainers.behavior_baseline_runner import collect_behavior_predictions
 
 
 def _config():
@@ -77,3 +78,28 @@ def test_behavior_baseline_regression_head_gets_gradients():
             grad_norm += float(param.grad.abs().sum().item())
 
     assert grad_norm > 0.0
+
+
+def test_collect_behavior_predictions_keeps_video_and_task_ids():
+    model = BehaviorBaselineModel(_config(), input_dim=6)
+    features = torch.randn(2, 5, 6)
+    mask = torch.ones(2, 5, dtype=torch.bool)
+    labels = {
+        "bdi_score": torch.tensor([10.0, 20.0]),
+        "class_label": torch.tensor([1, 2]),
+        "subject_id": ["001_1", "002_1"],
+        "video_id": ["001_1_Freeform_video", "002_1_Northwind_video"],
+        "task_name": ["Freeform", "Northwind"],
+    }
+
+    video_ids, subject_ids, task_names, targets, preds = collect_behavior_predictions(
+        model,
+        [(features, mask, labels)],
+        torch.device("cpu"),
+    )
+
+    assert video_ids == ["001_1_Freeform_video", "002_1_Northwind_video"]
+    assert subject_ids == ["001_1", "002_1"]
+    assert task_names == ["Freeform", "Northwind"]
+    assert targets == [10.0, 20.0]
+    assert len(preds) == 2

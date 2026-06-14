@@ -17,6 +17,7 @@ def test_prediction_table_and_regression_plots(tmp_path):
     records = write_prediction_table(
         prediction_csv,
         subject_ids=["001", "002", "003", "004"],
+        task_names=["Freeform", "Northwind", "Freeform", "Northwind"],
         targets=[3, 15, 27, 42],
         preds=[4, 13, 30, 38],
     )
@@ -27,6 +28,7 @@ def test_prediction_table_and_regression_plots(tmp_path):
     paths = plot_regression_diagnostics(prediction_csv, output_dir)
 
     assert len(records) == 4
+    assert loaded[0]["task_name"] == "Freeform"
     assert summary["count"] == 4
     assert summary["mae"] > 0
     assert (output_dir / "prediction_target_scatter.png").exists()

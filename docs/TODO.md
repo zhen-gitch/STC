@@ -224,3 +224,39 @@ src/diagnostics/        # 独立诊断与可视化系统
 ### Task 8
 
 构建 Shortcut Audit Framework 的最小可行实现：OpenFace quality summary、预测残差相关性、热力图和 markdown 报告。
+
+## 2026-06-14 行为 baseline 后任务优先级重评估
+
+最新 behavior-only baseline 训练结果显示：OpenFace 结构化特征路线可以在训练集上强拟合，但当前泛化不足。test MAE 约 `9.93`，RMSE 约 `12.86`，CCC 约 `0.151`；best validation RMSE 约 `12.38`，但同一 epoch 的 train RMSE 只有约 `2.74`。因此，下一阶段任务重点应从“直接融合行为特征”调整为“先判断哪些 OpenFace 特征真正可泛化，哪些只是身份或静态几何捷径”。
+
+### P0：必须立即处理
+
+- [x] 为 behavior baseline 导出 val/test prediction CSV，并与 RGB/MTL-Lite prediction schema 对齐。
+- [x] 在 behavior prediction 中记录 `video_id`、`subject_id`、`task_name`、`true_bdi`、`pred_bdi`、`residual`、`abs_error`、`severity_group`。
+- [x] 为 behavior baseline 增加 `BEHAVIOR_FEATURES.FEATURE_SET` 命名特征组入口，支持后续以最小 override 运行特征组消融。
+- [ ] 为 behavior baseline 添加或运行 feature-group ablation：quality-only。
+- [ ] 为 behavior baseline 添加或运行 feature-group ablation：AU-only。
+- [ ] 为 behavior baseline 添加或运行 feature-group ablation：pose+gaze-only。
+- [ ] 为 behavior baseline 添加或运行 feature-group ablation：raw-landmark-only。
+- [ ] 为 behavior baseline 添加或运行 feature-group ablation：landmark-delta-only。
+- [ ] 为 behavior baseline 添加或运行 feature-group ablation：AU+landmark-delta。
+- [ ] 为 behavior baseline 添加或运行 feature-group ablation：all-without-raw-landmarks。
+- [ ] 对齐比较 RGB/MTL-Lite 与 behavior-only 的整体 MAE/RMSE/Pearson/CCC。
+- [ ] 对齐比较 RGB/MTL-Lite 与 behavior-only 的 severe 低估、minimal 高估和 Freeform/Northwind task consistency。
+- [ ] 分析 RGB 错而 behavior 对、behavior 错而 RGB 对、二者同时错误、二者同时正确的 case overlap。
+- [x] 新增 RGB/MTL-Lite 与 behavior-only prediction CSV 离线比较入口，输出逐样本对照和整体/severity summary。
+- [ ] 在训练日志或诊断报告中记录 OpenFace CSV 匹配数、可用字段、特征维度、缺失字段和训练集标准化统计来源。
+
+### P1：强烈建议处理
+
+- [ ] 在 feature-group ablation 后重新决定 behavior baseline 默认特征组，暂不默认相信 raw landmark 坐标。
+- [ ] 尝试更小 behavior baseline 容量，例如减小 hidden dim、使用单向 GRU、增加 dropout 或 weight decay。
+- [ ] 为 behavior baseline 引入更严格 early stopping，避免 train RMSE 继续下降但 val/test 不改善。
+- [ ] 将 behavior prediction CSV 接入现有 regression diagnostics 和 case study manifest。
+- [ ] 将 behavior feature ablation 结果整理为 `behavior_feature_ablation_results.csv`，便于论文表格化。
+
+### P2：后续优化
+
+- [ ] 在存在稳定可泛化 behavior 特征子集后，再设计 RGB + behavior late fusion。
+- [ ] 在 behavior 特征子集稳定后，再设计 AU、landmark motion、pose/gaze 辅助任务的 MTL-Lite。
+- [ ] 在辅助任务稳定后，再考虑 GradNorm、PCGrad、uncertainty weighting、LDS 或 `loss_dist` 消融。
