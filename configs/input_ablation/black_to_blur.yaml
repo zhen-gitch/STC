@@ -1,0 +1,5 @@
+MODEL:
+  NAME: "rgb_ablation_black_to_blur"
+
+DATASET:
+  INPUT_VARIANT: "black_to_blur"

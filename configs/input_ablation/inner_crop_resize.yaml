@@ -1,0 +1,5 @@
+MODEL:
+  NAME: "rgb_ablation_inner_crop_resize"
+
+DATASET:
+  INPUT_VARIANT: "inner_crop_resize"

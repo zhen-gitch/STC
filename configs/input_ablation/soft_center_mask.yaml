@@ -1,0 +1,5 @@
+MODEL:
+  NAME: "rgb_ablation_soft_center_mask"
+
+DATASET:
+  INPUT_VARIANT: "soft_center_mask"
