@@ -1,0 +1,5 @@
+MODEL:
+  NAME: "rgb_ablation_boundary_erased"
+
+DATASET:
+  INPUT_VARIANT: "boundary_erased"
