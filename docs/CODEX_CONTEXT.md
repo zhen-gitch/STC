@@ -41,6 +41,8 @@
 - 视频质量：模糊、压缩、光照和分辨率；
 - subject-level bias：模型可能记住身份或采集条件，而不是稳定面部行为。
 
+2026-06-15 的 RGB 输入消融和样例帧检查进一步说明：当前最值得优先验证的不是泛泛的背景过拟合，而是 OpenFace aligned face 中的纯黑填充和硬边界伪迹。样例帧中脸部轮廓外区域为纯黑，遮挡面部的麦克风也呈黑色块，这会在脸部边界和遮挡处产生强像素突变。`center_mask` 明显优于原始 `rgb`，而 `grayscale`、`blur` 变差，说明应优先排查黑填充、裁剪边界和对齐残留，而不是继续堆叠 late fusion 或新的辅助任务。
+
 因此，下一阶段优先级从继续搜索 `FINETUNE_LAST_N_BLOCKS` 转向：
 
 ```text
@@ -306,7 +308,68 @@ P0-3 当前实现位置：
 - `configs/avec2014_base.yaml`：默认 `DATASET.INPUT_VARIANT: "rgb"`；
 - `tests/test_input_variants.py`：验证输入变体行为。
 
-当前支持 `rgb`、`grayscale`、`blur`、`center_mask`、`boundary_erased`。`landmark_heatmap` 需要真实 OpenFace landmark 坐标，不能由 RGB 帧伪造，因此当前在 RGB dataset 中作为保留值报错，后续应在 behavior baseline 或 OpenFace landmark dataset 中实现。
+当前支持 `rgb`、`grayscale`、`blur`、`center_mask`、`boundary_erased`、`black_to_gray`、`black_to_mean`、`black_to_blur`、`soft_center_mask`、`inner_crop_resize`。`landmark_heatmap` 需要真实 OpenFace landmark 坐标，不能由 RGB 帧伪造，因此当前在 RGB dataset 中作为保留值报错，后续应在 behavior baseline 或 OpenFace landmark dataset 中实现。
+
+P0-3 的最新解释口径：
+
+- `center_mask` 的改善不能简单解释为“模型只需要面部中心行为区域”；它也可能意味着该变体抑制了 OpenFace 黑填充、硬裁剪边界、麦克风黑块或外围对齐伪迹。
+- `boundary_erased` 接近或略优于 `rgb`，但不如 `center_mask`，说明外围区域确实有风险，但硬擦除本身也可能产生新的边界。
+- `grayscale` 和 `blur` 变差，说明当前不应把问题缩小为肤色/颜色捷径或高频纹理捷径。
+- severe 低估仍然存在，后续需要把黑伪迹问题与标签分布、severity-aware loss/sampling 和 subject-level bias 分开分析。
+
+P0-3 黑伪迹实现位置：
+
+- `configs/input_ablation/black_to_gray.yaml`
+- `configs/input_ablation/black_to_mean.yaml`
+- `configs/input_ablation/black_to_blur.yaml`
+- `configs/input_ablation/soft_center_mask.yaml`
+- `configs/input_ablation/inner_crop_resize.yaml`
+- `src/diagnostics/black_artifacts.py`：统计黑像素和硬边界伪迹；
+- `scripts/audit_black_artifacts.py`：离线审计入口。
+
+建议服务器运行顺序：
+
+```bash
+python scripts/train_mtl_lite.py \
+  --override configs/regression_only_baseline.yaml \
+  --override configs/input_ablation/black_to_gray.yaml
+
+python scripts/train_mtl_lite.py \
+  --override configs/regression_only_baseline.yaml \
+  --override configs/input_ablation/black_to_mean.yaml
+
+python scripts/train_mtl_lite.py \
+  --override configs/regression_only_baseline.yaml \
+  --override configs/input_ablation/black_to_blur.yaml
+
+python scripts/train_mtl_lite.py \
+  --override configs/regression_only_baseline.yaml \
+  --override configs/input_ablation/soft_center_mask.yaml
+
+python scripts/train_mtl_lite.py \
+  --override configs/regression_only_baseline.yaml \
+  --override configs/input_ablation/inner_crop_resize.yaml
+```
+
+黑伪迹审计示例：
+
+```bash
+python scripts/audit_black_artifacts.py \
+  --predictions logs/rgb/test_predictions.csv \
+  --image-root /path/to/aligned/frame/root \
+  --output-dir logs/rgb/diagnostics/black_artifacts \
+  --sample-step 10
+```
+
+黑伪迹审计后的最新约束：
+
+- 不要把 `black_center_ratio_mean` 直接解释为 OpenFace 伪迹。中心近黑像素可能是鼻孔、嘴角、胡须、自然阴影、麦克风或真实遮挡。
+- `black_border_ratio_mean` 是当前更可靠的边界填充/裁剪伪迹指标。
+- 第二轮 ablation 中 `black_to_gray` 优于 `rgb` 但弱于 `center_mask`，说明黑像素替换有帮助，但不是完整解释。
+- `black_to_mean` 和 `inner_crop_resize` 当前不应作为主线继续扩展。
+- 已实现 `border_black_to_gray`、`border_black_feather`、`center_mask_black_to_gray`，下一步是在服务器运行 pytest 和三组训练消融。
+- 新的边界黑区 mask 应只处理与图像边界连通的近黑区域，默认保留中心近黑区域。
+- case study 必须对照高黑边高误差、高黑边低误差、低黑边高误差三类样本，避免把黑边风险过度泛化。
 
 P0-4 当前实现位置：
 

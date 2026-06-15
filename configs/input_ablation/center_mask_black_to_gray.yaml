@@ -1,0 +1,5 @@
+MODEL:
+  NAME: "rgb_ablation_center_mask_black_to_gray"
+
+DATASET:
+  INPUT_VARIANT: "center_mask_black_to_gray"

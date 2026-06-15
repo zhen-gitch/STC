@@ -300,3 +300,181 @@ workflow milestones. Keep entries concise and reproducible.
   - `rgb_behavior_prediction_summary.csv`
 - The summary reports RGB and behavior MAE/RMSE/Pearson/CCC, severity-group
   metrics, and counts where RGB, behavior, or neither is better.
+
+## 2026-06-15
+
+### RGB input ablation result review
+
+- Reviewed the first RGB input ablation batch:
+  - `rgb`
+  - `grayscale`
+  - `blur`
+  - `center_mask`
+  - `boundary_erased`
+- All reviewed runs used comparable core settings: same split, seed, MTL-Lite
+  regression-only route, DeiT-tiny backbone weights, frozen backbone with the
+  last 2 transformer blocks trainable, max sequence length 2000, and the same
+  checkpoint-based evaluation style.
+- Key test results:
+  - `center_mask`: MAE about `7.94`, RMSE about `10.16`, Pearson about `0.51`,
+    CCC about `0.48`.
+  - `rgb`: MAE about `8.91`, RMSE about `10.95`, Pearson about `0.35`, CCC
+    about `0.29`.
+  - `boundary_erased`: close to or slightly better than `rgb`, but weaker than
+    `center_mask`.
+  - `blur` and `grayscale`: worse than `rgb`.
+- Interpretation:
+  - The improvement from `center_mask` suggests that peripheral/crop/alignment
+    artifacts are hurting generalization.
+  - The degradation from `grayscale` and `blur` suggests that simple color
+    shortcut or fine texture shortcut is not the only explanation.
+  - Severe underestimation remains unresolved, so input artifact mitigation is
+    only one part of the failure analysis.
+
+### OpenFace black-padding artifact hypothesis
+
+- Reviewed an OpenFace aligned face sample showing pure black fill around the
+  face contour and black microphone occlusion inside the crop.
+- Updated the research hypothesis from generic "background shortcut" to a more
+  specific OpenFace artifact mechanism:
+  - black padding around aligned face contours;
+  - black occluder regions such as microphones;
+  - hard pixel discontinuities at crop and mask boundaries;
+  - possible ViT/DeiT sensitivity to these structured high-contrast edges.
+- Current priority is to explain RGB model overfitting before adding RGB +
+  behavior late fusion or additional auxiliary tasks.
+
+### Black artifact ablation implementation
+
+- Extended `src/datasets/input_variants.py` with black artifact variants:
+  - `black_to_gray`
+  - `black_to_mean`
+  - `black_to_blur`
+  - `soft_center_mask`
+  - `inner_crop_resize`
+- Added aliases:
+  - `black_fill_gray`
+  - `black_fill_mean`
+  - `black_fill_blur`
+  - `soft_mask`
+  - `inner_crop`
+- Added input ablation configs:
+  - `configs/input_ablation/black_to_gray.yaml`
+  - `configs/input_ablation/black_to_mean.yaml`
+  - `configs/input_ablation/black_to_blur.yaml`
+  - `configs/input_ablation/soft_center_mask.yaml`
+  - `configs/input_ablation/inner_crop_resize.yaml`
+- Added tests for black replacement, soft masks, inner crop behavior, and
+  aliases in `tests/test_input_variants.py`.
+
+### Black artifact diagnostic implementation
+
+- Added offline audit module:
+  - `src/diagnostics/black_artifacts.py`
+  - `scripts/audit_black_artifacts.py`
+- The audit samples aligned frames and writes:
+  - `tables/black_artifact_summary.csv`
+  - `tables/black_artifact_merged.csv`
+  - `tables/black_artifact_correlation.csv`
+  - `reports/black_artifact_audit_report.md`
+- Per-video features include:
+  - mean/std black pixel ratio;
+  - border black pixel ratio;
+  - center black pixel ratio;
+  - black-boundary edge ratio;
+  - frame-to-frame black ratio delta.
+- The merged audit correlates these artifact statistics with `true_bdi`,
+  `pred_bdi`, `residual`, and `abs_error`.
+
+### Validation
+
+- Local compile validation passed for:
+  - `src/datasets/input_variants.py`
+  - `src/diagnostics/black_artifacts.py`
+  - `scripts/audit_black_artifacts.py`
+  - `tests/test_input_variants.py`
+- Local bundled Python still lacks `torch` and `pytest`; focused pytest should
+  be run on the server:
+
+```bash
+python -m pytest tests/test_input_variants.py
+```
+
+### Black artifact ablation result review
+
+- Reviewed second-round RGB artifact ablations:
+  - `black_to_gray`
+  - `black_to_mean`
+  - `black_to_blur`
+  - `soft_center_mask`
+  - `inner_crop_resize`
+- Compared them against previous `rgb`, `center_mask`, and
+  `boundary_erased` runs under the same core training settings.
+- Main results:
+  - `center_mask` remains best overall: MAE about `7.94`, RMSE about `10.16`,
+    Pearson about `0.51`, CCC about `0.48`.
+  - `black_to_gray` is the best new black-artifact variant: MAE about `8.34`,
+    RMSE about `10.62`, CCC about `0.39`.
+  - `soft_center_mask` improves severe bias more than most variants but
+    overpredicts minimal samples, leading to worse overall MAE than
+    `center_mask`.
+  - `black_to_mean` and `inner_crop_resize` degrade test performance and should
+    not be prioritized as the next main direction.
+- Interpretation:
+  - Replacing black pixels helps compared with raw `rgb`, but does not explain
+    the full `center_mask` gain.
+  - The artifact risk is likely a mixture of boundary fill, crop shape,
+    peripheral non-behavior regions, face contour, pose/scale remnants, and
+    subject-specific appearance.
+
+### Black artifact audit result review
+
+- Reviewed `black_artifact_audit_report.md`,
+  `black_artifact_summary.csv`, `black_artifact_merged.csv`, and
+  `black_artifact_correlation.csv`.
+- The audit matched all expected test videos:
+  - Videos summarized: `100`.
+  - Missing videos: `0`.
+  - Matched prediction rows: `100`.
+- Black regions are common in aligned frames:
+  - `black_ratio_mean` average about `0.24`.
+  - `black_border_ratio_mean` average about `0.44`.
+  - `black_center_ratio_mean` average about `0.02`.
+- Maximum absolute correlation is weak, about `0.207`, so black artifacts are
+  not a strong single-variable explanation for RGB overfitting.
+- However, high-border-black quartile samples show larger average error than
+  low-border-black quartile samples, about `12.29` versus `7.45`.
+- Important correction:
+  - `black_border_ratio_mean` is the cleaner OpenFace artifact indicator.
+  - `black_center_ratio_mean` is semantically mixed because center black pixels
+    may represent nostrils, mouth shadows, beard, natural facial shadows,
+    microphones, or true occlusions.
+- Next experiment plan:
+  - Implement `border_black_to_gray`.
+  - Implement `border_black_feather`.
+  - Implement `center_mask_black_to_gray`.
+  - Keep center black pixels unchanged unless a case study confirms they are
+    preprocessing artifacts rather than facial structure or real occlusion.
+
+### Border-connected black artifact ablation implementation
+
+- Added three border-connected black artifact input variants:
+  - `border_black_to_gray`
+  - `border_black_feather`
+  - `center_mask_black_to_gray`
+- Implementation location:
+  - `src/datasets/input_variants.py`
+- New configs:
+  - `configs/input_ablation/border_black_to_gray.yaml`
+  - `configs/input_ablation/border_black_feather.yaml`
+  - `configs/input_ablation/center_mask_black_to_gray.yaml`
+- Added focused tests in `tests/test_input_variants.py`:
+  - border-connected black pixels are replaced;
+  - center black pixels remain unchanged;
+  - feathering softens boundary-adjacent pixels;
+  - `center_mask_black_to_gray` uses a gray outside region rather than a hard
+    black outside region.
+- Local validation:
+  - `python -m compileall src/datasets/input_variants.py tests/test_input_variants.py` passed with the bundled Codex Python runtime.
+  - Local Python environment still lacks `pytest` and `torch`; run the focused
+    pytest command on the server environment.

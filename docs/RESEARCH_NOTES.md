@@ -166,6 +166,88 @@ quality summary + residual -> residual dependency report
 shortcut_audit_report.md
 ```
 
+## 2026-06-15 RGB 黑填充与硬边界伪迹假设
+
+第一轮 RGB 输入消融后，当前研究重点从“继续堆叠 behavior / late fusion 任务”调整为“解释 RGB 输入模型为什么过拟合”。这一调整更有论文研究价值，因为它直接面向当前模型失败机制，而不是在未解释 RGB 捷径的情况下叠加更多模块。
+
+### 观察
+
+OpenFace aligned face 并不是完全干净的面部行为输入。样例帧显示：
+
+- 脸部轮廓外由纯黑像素填充；
+- 遮挡面部的麦克风等区域也可能呈纯黑块；
+- 黑色填充与真实脸部区域之间存在硬像素突变；
+- 对 DeiT/ViT 这类 patch-based 模型来说，这类高对比边界可能成为稳定但不可泛化的视觉捷径。
+
+第一轮输入消融支持该怀疑：
+
+- `center_mask` 当前测试表现最好，MAE 约 `7.94`，RMSE 约 `10.16`，CCC 约 `0.48`；
+- 原始 `rgb` MAE 约 `8.91`，RMSE 约 `10.95`，CCC 约 `0.29`；
+- `boundary_erased` 接近或略优于 `rgb`，但不如 `center_mask`；
+- `grayscale` 和 `blur` 变差，说明颜色或高频身份纹理不是唯一主因。
+
+### 新假设
+
+```text
+OpenFace aligned face 中的黑填充、硬裁剪边界和黑色遮挡块
+  -> 被 RGB backbone 学成非行为捷径
+  -> 导致 subject-level 泛化不稳、prediction compression 和 case-level 错误
+```
+
+这个假设比“背景过拟合”更准确，因为当前输入已经经过 OpenFace 对齐，真正残留的风险是 aligned crop 自身的处理伪迹。
+
+### 下一轮验证
+
+新增输入变体用于验证黑填充和硬边界机制：
+
+- `black_to_gray`：近黑区域替换为中性灰；
+- `black_to_mean`：近黑区域替换为当前帧非黑像素均值；
+- `black_to_blur`：近黑区域替换为模糊估计；
+- `soft_center_mask`：用软边界替代硬 mask；
+- `inner_crop_resize`：裁掉外围黑边后 resize。
+
+新增离线审计：
+
+```text
+aligned frames + prediction CSV
+-> black_ratio / border_black_ratio / center_black_ratio / black_boundary_edge_ratio
+-> correlation with true_bdi / pred_bdi / residual / abs_error
+```
+
+### 判读规则
+
+- 如果 `black_to_gray`、`black_to_mean` 或 `black_to_blur` 明显优于 `rgb`，说明黑填充本身就是重要捷径。
+- 如果 `soft_center_mask` 优于 `center_mask`，说明原先 mask 的硬边界仍在制造新伪迹，后续应使用软 mask 或更自然的图像修复。
+- 如果 `inner_crop_resize` 明显改善，说明外围边界/黑边比中心行为区域更影响泛化。
+- 如果所有黑伪迹变体都不能改善，但 `center_mask` 仍最好，应检查中心区域选择、面部行为区域和 attention/occlusion 之间的关系。
+- 如果 severe 低估仍不改善，应把它作为独立问题继续分析，包括标签分布、loss/sampling、subject bias 和 depression severity 表达差异。
+
+论文表述建议：
+
+> OpenFace alignment removes much of the raw background, but it may introduce structured preprocessing artifacts such as black padding, hard crop boundaries, and black occlusion regions. These artifacts can become shortcuts for patch-based visual backbones. We therefore diagnose and ablate alignment artifacts before introducing additional behavior-fusion modules.
+
+### 诊断后的修正
+
+黑伪迹审计已完整匹配 100 个测试视频，结果显示黑区在 OpenFace aligned face 中非常普遍，但不是强线性解释变量。最大绝对相关约 `0.207`，说明不能把 RGB 过拟合简单归因于单一黑像素指标。
+
+更合理的解释是：
+
+- 边界黑区主要对应 OpenFace 对齐和裁剪填充，更适合作为 artifact 指标；
+- 中心近黑像素语义混杂，可能是鼻孔、嘴角阴影、胡须、自然面部阴影、麦克风遮挡或其他真实遮挡，不能直接视作预处理伪迹；
+- 高边界黑区四分位的测试误差明显高于低边界黑区四分位，约 `12.29` vs `7.45`，提示边界黑区是泛化风险因子；
+- 在 moderate/severe 样本中，边界黑区越多，预测越容易偏低，但样本量较小，应作为 case study 和后续消融的线索；
+- `black_to_gray` 优于 `rgb` 但弱于 `center_mask`，说明黑像素替换有帮助，但外围非行为区域、脸部轮廓、裁剪形状、尺度和姿态残留也可能共同造成过拟合。
+
+下一步不再粗暴替换全部近黑区域，而应只处理与图像边界连通的黑区：
+
+```text
+border_black_to_gray
+border_black_feather
+center_mask_black_to_gray
+```
+
+这些变体的目标是验证：保留鼻孔、嘴部阴影、麦克风等中心黑区语义信息时，仅中和 OpenFace 边界填充是否还能改善泛化。
+
 ## 2026-06-14 Behavior-only baseline 结果后的研究路线修订
 
 最新 behavior-only baseline 使用 OpenFace 结构化特征进行 BDI 回归，结果显示训练集拟合很强但泛化不足：test MAE 约 `9.93`，RMSE 约 `12.86`，CCC 约 `0.151`；best validation RMSE 约 `12.38`，但对应 train RMSE 只有约 `2.74`。这说明 OpenFace 行为表征路线仍然有研究价值，但不能直接把“所有 OpenFace 特征”视为可靠行为表征。

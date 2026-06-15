@@ -5,6 +5,53 @@ or experiment results. Keep entries concise, reproducible, and tied to files.
 
 ## Open Issues
 
+### RISK-002: OpenFace black-padding and hard-boundary artifacts may drive RGB overfitting
+
+- Status: open
+- Severity: high
+- Files:
+  - `src/datasets/input_variants.py`
+  - `src/diagnostics/black_artifacts.py`
+  - `scripts/audit_black_artifacts.py`
+  - `configs/input_ablation/*.yaml`
+- Evidence:
+  - OpenFace aligned face samples can contain pure black padding around the
+    face contour and black occluder regions such as microphones.
+  - The first RGB input ablation batch shows `center_mask` outperforming
+    original `rgb` on test metrics.
+  - `grayscale` and `blur` are worse than `rgb`, so color or fine texture alone
+    is unlikely to fully explain the overfitting.
+- Impact:
+  - Patch-based visual backbones may learn hard black boundaries and crop
+    artifacts instead of depression-related facial behavior.
+  - Improvements from `center_mask` may reflect artifact suppression rather
+    than a clean behavioral-region effect.
+  - Direct RGB + behavior late fusion could hide the root cause if this risk is
+    not diagnosed first.
+- Recommended fix:
+  - Run `black_to_gray`, `black_to_mean`, `black_to_blur`,
+    `soft_center_mask`, and `inner_crop_resize` under the same split, seed,
+    checkpoint strategy, and metrics as the original `rgb` run.
+  - Run `scripts/audit_black_artifacts.py` on the original RGB predictions and
+    aligned frame root.
+  - Compare black artifact statistics against `true_bdi`, `pred_bdi`,
+    `residual`, and `abs_error`.
+  - Use attention, occlusion, keyframe, and raw-frame case studies to verify
+    whether the model focuses on black padding, hard crop boundaries, or black
+    occluders.
+- Update after 2026-06-15 audit:
+  - The audit matched 100/100 prediction rows and found widespread black border
+    regions, but the maximum absolute correlation was only about `0.207`.
+  - `black_border_ratio_mean` is a useful artifact-risk signal, while
+    `black_center_ratio_mean` is semantically mixed and may include nostrils,
+    mouth shadows, beard, microphones, or true occlusions.
+  - High-border-black samples showed higher average absolute error than
+    low-border-black samples, but black artifacts should be treated as a risk
+    factor rather than a complete explanation.
+  - Next fixes should prioritize border-connected variants:
+    `border_black_to_gray`, `border_black_feather`, and
+    `center_mask_black_to_gray`.
+
 ### RISK-001: Behavior-only baseline strongly overfits full OpenFace feature set
 
 - Status: open

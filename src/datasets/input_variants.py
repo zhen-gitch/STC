@@ -13,6 +13,9 @@ SUPPORTED_INPUT_VARIANTS = {
     "black_to_blur",
     "soft_center_mask",
     "inner_crop_resize",
+    "border_black_to_gray",
+    "border_black_feather",
+    "center_mask_black_to_gray",
 }
 RESERVED_INPUT_VARIANTS = {"landmark_heatmap"}
 
@@ -30,6 +33,9 @@ def normalize_input_variant(variant):
         "black_fill_blur": "black_to_blur",
         "soft_mask": "soft_center_mask",
         "inner_crop": "inner_crop_resize",
+        "border_black_gray": "border_black_to_gray",
+        "border_black_soft": "border_black_feather",
+        "center_mask_gray_border": "center_mask_black_to_gray",
     }
     variant = aliases.get(variant, variant)
     if variant in RESERVED_INPUT_VARIANTS:
@@ -71,6 +77,13 @@ def apply_input_variant(video_tensor, variant):
         return _apply_soft_ellipse_mask(video_tensor, radius_y=0.52, radius_x=0.43)
     if variant == "inner_crop_resize":
         return _inner_crop_resize(video_tensor)
+    if variant == "border_black_to_gray":
+        return _replace_border_black_pixels(video_tensor, mode="gray")
+    if variant == "border_black_feather":
+        return _replace_border_black_pixels(video_tensor, mode="feather")
+    if variant == "center_mask_black_to_gray":
+        center_masked = _apply_ellipse_mask(video_tensor, radius_y=0.46, radius_x=0.38)
+        return _replace_border_black_pixels(center_masked, mode="gray")
     raise AssertionError(f"Unhandled input variant: {variant}")
 
 
@@ -126,6 +139,22 @@ def _black_pixel_mask(video_tensor, threshold=8):
     return (values <= float(threshold)).all(dim=1, keepdim=True)
 
 
+def _border_black_pixel_mask(video_tensor, threshold=8):
+    """Find near-black regions that touch an image border.
+
+    This is intentionally stricter than "all black pixels": center dark regions
+    such as nostrils, mouth shadows, or microphone occlusions are preserved
+    unless they are connected to an image border by uninterrupted near-black
+    pixels along a row or column.
+    """
+    black_mask = _black_pixel_mask(video_tensor, threshold=threshold).to(dtype=torch.int8)
+    top = black_mask.cumprod(dim=2).bool()
+    bottom = black_mask.flip(dims=(2,)).cumprod(dim=2).flip(dims=(2,)).bool()
+    left = black_mask.cumprod(dim=3).bool()
+    right = black_mask.flip(dims=(3,)).cumprod(dim=3).flip(dims=(3,)).bool()
+    return top | bottom | left | right
+
+
 def _replace_black_pixels(video_tensor, mode="gray", threshold=8):
     dtype = video_tensor.dtype
     values = video_tensor.to(dtype=torch.float32)
@@ -156,6 +185,27 @@ def _replace_black_pixels(video_tensor, mode="gray", threshold=8):
         raise ValueError(f"Unknown black pixel replacement mode: {mode}")
 
     return _restore_dtype(torch.where(black_mask.expand_as(values), fill, values), dtype)
+
+
+def _replace_border_black_pixels(video_tensor, mode="gray", threshold=8, fill_value=127.0):
+    dtype = video_tensor.dtype
+    values = video_tensor.to(dtype=torch.float32)
+    border_black_mask = _border_black_pixel_mask(values, threshold=threshold)
+    if not border_black_mask.any():
+        return video_tensor
+
+    fill = torch.full_like(values, float(fill_value))
+    expanded_mask = border_black_mask.expand_as(values)
+    if mode == "gray":
+        output = torch.where(expanded_mask, fill, values)
+    elif mode == "feather":
+        mask_float = border_black_mask.to(dtype=torch.float32)
+        local_alpha = F.avg_pool2d(mask_float, kernel_size=9, stride=1, padding=4, count_include_pad=False)
+        alpha = torch.maximum(mask_float, local_alpha).expand_as(values).clamp(0.0, 1.0)
+        output = values * (1.0 - alpha) + fill * alpha
+    else:
+        raise ValueError(f"Unknown border black replacement mode: {mode}")
+    return _restore_dtype(output, dtype)
 
 
 def _soft_ellipse_alpha(height, width, radius_y, radius_x, device, softness=0.10):

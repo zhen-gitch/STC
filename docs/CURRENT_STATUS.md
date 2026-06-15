@@ -2,7 +2,7 @@
 
 ## 状态日期
 
-2026-06-14
+2026-06-15
 
 ## 当前项目状态
 
@@ -57,6 +57,8 @@ src/diagnostics/        # 独立诊断与可视化系统
 ## 当前研究判断
 
 当前视频帧序列已经由 OpenFace 裁剪和对齐，所用 OpenFace 版本可能不是最新版。因此，近期实验中出现的泛化问题不应只解释为普通背景过拟合，而应重点检查 OpenFace aligned face 中仍然存在的非抑郁捷径，包括身份纹理、裁剪边界、对齐伪影、姿态残留、追踪质量、光照和视频质量。
+
+最新 RGB 输入消融进一步收窄了问题范围。`center_mask` 在测试集上明显优于原始 `rgb`，而 `grayscale` 和 `blur` 变差，说明当前主要风险不太像单纯颜色捷径或细粒度纹理捷径；更值得优先验证的是 OpenFace aligned face 中的黑色填充、硬裁剪边界、遮挡物黑块和对齐残留。用户检查的样例帧显示，脸部轮廓外和麦克风遮挡区域存在纯黑像素，这类硬像素突变可能被 DeiT/ViT 当作稳定但不可泛化的非行为线索。
 
 backbone 冻结与高层微调实验提示：仅调整 `FREEZE_BACKBONE` / `FINETUNE_LAST_N_BLOCKS` 不能充分解决泛化问题。下一阶段优先方向应转为 OpenFace 行为表征和诊断：
 
@@ -362,3 +364,78 @@ DATASET:
 - 当前支持 `quality_only`、`au_only`、`pose_gaze_only`、`raw_landmark_only`、`landmark_delta_only`、`au_landmark_delta`、`all_without_raw_landmarks`，用于后续服务器端批量消融。
 - 已新增 `scripts/compare_behavior_predictions.py`，可将 RGB/MTL-Lite prediction CSV 与 behavior-only prediction CSV 对齐比较。
 - 比较工具输出 `rgb_behavior_prediction_comparison.csv` 和 `rgb_behavior_prediction_summary.csv`，用于检查整体指标、severity 分组和逐样本谁更好。
+
+## 2026-06-15 RGB 黑填充伪迹方向更新
+
+已完成第一轮 RGB 输入消融复盘。各变体训练配置保持同一 split、seed、backbone、冻结策略、时序长度和主要训练入口，测试结果的核心结论如下：
+
+- `center_mask` 当前最好：MAE 约 `7.94`，RMSE 约 `10.16`，Pearson 约 `0.51`，CCC 约 `0.48`；
+- 原始 `rgb`：MAE 约 `8.91`，RMSE 约 `10.95`，Pearson 约 `0.35`，CCC 约 `0.29`，存在明显 prediction compression；
+- `boundary_erased` 接近或略优于 `rgb`，但不如 `center_mask` 稳定；
+- `blur` 和 `grayscale` 明显变差，说明“颜色”或“细粒度身份纹理”不是当前唯一主因；
+- severe 低估仍未根治，说明黑边/外围伪迹可能解释一部分泛化问题，但还不能解释全部失败模式。
+
+当前研究判断从“继续叠加 behavior / late fusion 任务”调整为“优先解释 RGB 输入模型为什么过拟合”。更具体的假设是：
+
+```text
+OpenFace aligned RGB
+-> 纯黑填充 / 黑色遮挡块 / 硬裁剪边界 / 对齐残留
+-> ViT 学到不可泛化的边界与像素突变捷径
+-> test prediction compression、case-level 错误和 task inconsistency
+```
+
+已为下一轮黑伪迹消融接入以下输入变体：
+
+- `black_to_gray`：将近黑区域替换为中性灰；
+- `black_to_mean`：将近黑区域替换为当前帧非黑区域均值；
+- `black_to_blur`：将近黑区域替换为模糊背景估计；
+- `soft_center_mask`：使用软椭圆 mask 平滑边界，而不是制造新的硬边界；
+- `inner_crop_resize`：裁掉外围黑边后再 resize，用于验证边界区域是否是主要捷径。
+
+已新增黑伪迹离线审计入口：
+
+```bash
+python scripts/audit_black_artifacts.py \
+  --predictions logs/rgb/test_predictions.csv \
+  --image-root /path/to/aligned/frame/root \
+  --output-dir logs/rgb/diagnostics/black_artifacts \
+  --sample-step 10
+```
+
+该脚本会输出每个视频的黑像素比例、边界黑像素比例、中心黑像素比例、黑边界边缘强度、帧间黑像素变化，并与 `true_bdi`、`pred_bdi`、`residual`、`abs_error` 做相关性分析。
+
+下一阶段优先级：
+
+1. 运行更精确的边界黑区消融，优先只处理与图像边界连通的黑色区域，而不是替换全部中心近黑像素。
+2. 对 `rgb`、`center_mask`、`black_to_gray`、`soft_center_mask` 和新边界黑区变体生成统一 summary，比较整体指标、severity bias、prediction std 和 Freeform/Northwind 一致性。
+3. 对高黑边高误差、高黑边低误差、低黑边高误差三类 case 生成 aligned frame、attention、occlusion、keyframe 图组。
+4. 将 severe 低估继续作为独立问题保留，不能把它完全归因于黑边伪迹。
+5. 在完成上述证据前，暂不优先推进 RGB + behavior late fusion 或新的复杂辅助任务。
+
+## 2026-06-15 黑伪迹审计后的实验安排
+
+黑伪迹审计已完整匹配 100 个测试视频，`Missing videos = 0`，结果可以解释。审计显示 aligned frame 中黑区非常普遍：整体黑像素均值约 `0.24`，边界黑区均值约 `0.44`。但最大绝对相关只有约 `0.207`，说明黑区不是单独决定 BDI 或预测误差的强变量。
+
+当前更精确的判断：
+
+- `black_border_ratio_mean` 比 `black_center_ratio_mean` 更适合作为 OpenFace 对齐伪迹指标；
+- 中心黑像素语义混杂，可能来自鼻孔、自然阴影、胡须、嘴角、麦克风或其他真实遮挡，不能直接当作伪迹；
+- 高边界黑区四分位的平均误差明显高于低边界黑区四分位，约 `12.29` vs `7.45`；
+- 在 moderate/severe 组内，边界黑区越多，预测越容易偏低，但样本量较小，应作为风险线索而非定论；
+- `black_to_gray` 优于原始 `rgb`，但不如 `center_mask`，说明黑像素是因素之一，外围非行为区域、裁剪形状、脸部轮廓和姿态/尺度残留也可能共同作用。
+
+下一轮实验不应继续粗暴替换全部黑像素。推荐新增三类更精确输入变体：
+
+- `border_black_to_gray`：只替换与图像边界连通的近黑区域；
+- `border_black_feather`：对边界连通黑区做软过渡，降低硬边界；
+- `center_mask_black_to_gray`：在当前最优 `center_mask` 基础上，仅对残留边界连通黑区做中性化，验证二者是否互补。
+
+上述三个变体已接入 `src/datasets/input_variants.py`，对应配置已新增到 `configs/input_ablation/`。本地 compile 验证通过；由于本地 Python 缺少 `pytest` 和 `torch`，还需要在服务器运行聚焦 pytest 与三组训练消融。
+
+case study 优先集合：
+
+- 高黑边高误差：`359_1`、`315_2`、`245_1`；
+- 高黑边低误差：`247_3`；
+- 低黑边高误差：`237_1`；
+- `black_to_gray` 改善明显：`250_1`、`344_2`、`242_1`；
+- `black_to_gray` 恶化明显：`206_2`、`226_2`、`210_2`。

@@ -65,6 +65,46 @@ def test_black_replacement_variants_remove_near_black_pixels():
     assert torch.equal(gray[:, :, 7, 7], video[:, :, 7, 7])
 
 
+def test_border_black_to_gray_preserves_center_black_regions():
+    video = torch.full((1, 3, 10, 10), 200, dtype=torch.uint8)
+    video[:, :, 0, :] = 0
+    video[:, :, :, 0] = 0
+    video[:, :, 5, 5] = 0
+
+    output = apply_input_variant(video, "border_black_to_gray")
+
+    assert output.dtype == video.dtype
+    assert output.shape == video.shape
+    assert torch.equal(output[:, :, 0, 5], torch.full((1, 3), 127, dtype=torch.uint8))
+    assert torch.equal(output[:, :, 5, 0], torch.full((1, 3), 127, dtype=torch.uint8))
+    assert torch.equal(output[:, :, 5, 5], torch.zeros((1, 3), dtype=torch.uint8))
+    assert torch.equal(output[:, :, 8, 8], video[:, :, 8, 8])
+
+
+def test_border_black_feather_softens_boundary_without_touching_center_black():
+    video = torch.full((1, 3, 12, 12), 220, dtype=torch.uint8)
+    video[:, :, :2, :] = 0
+    video[:, :, 6, 6] = 0
+
+    output = apply_input_variant(video, "border_black_feather")
+
+    assert output.dtype == video.dtype
+    assert output.shape == video.shape
+    assert output[:, :, 0, 6].float().mean() > 100
+    assert 127 < output[:, :, 2, 6].float().mean() < 220
+    assert torch.equal(output[:, :, 6, 6], torch.zeros((1, 3), dtype=torch.uint8))
+
+
+def test_center_mask_black_to_gray_uses_gray_background():
+    video = torch.full((1, 3, 16, 16), 255, dtype=torch.uint8)
+    output = apply_input_variant(video, "center_mask_black_to_gray")
+
+    assert output.dtype == video.dtype
+    assert output.shape == video.shape
+    assert output[:, :, 8, 8].float().mean() > 240
+    assert torch.allclose(output[:, :, 0, 0].float(), torch.full((1, 3), 127.0), atol=1.0)
+
+
 def test_soft_center_mask_blends_boundaries_to_gray():
     video = torch.full((1, 3, 16, 16), 255, dtype=torch.uint8)
     output = apply_input_variant(video, "soft_center_mask")
@@ -90,6 +130,8 @@ def test_input_variant_aliases_and_reserved_values():
     assert normalize_input_variant("masked_face") == "center_mask"
     assert normalize_input_variant("black_fill_gray") == "black_to_gray"
     assert normalize_input_variant("soft_mask") == "soft_center_mask"
+    assert normalize_input_variant("border_black_gray") == "border_black_to_gray"
+    assert normalize_input_variant("center_mask_gray_border") == "center_mask_black_to_gray"
 
     with pytest.raises(ValueError, match="landmark_heatmap"):
         normalize_input_variant("landmark_heatmap")

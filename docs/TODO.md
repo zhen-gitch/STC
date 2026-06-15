@@ -99,7 +99,8 @@ src/diagnostics/        # 独立诊断与可视化系统
 - [ ] 运行 MTL-Lite baseline
 - [ ] 在相同 split、seed、backbone、时序编码器和指标下比较二者
 - [ ] 建立 OpenFace 质量、姿态、gaze、AU 与 BDI/误差的相关性诊断
-- [ ] 运行输入消融：aligned RGB、grayscale、masked face、landmark heatmap、landmark/AU/pose only
+- [x] 运行第一轮输入消融：aligned RGB、grayscale、blur、center_mask、boundary_erased
+- [ ] 运行第二轮黑伪迹输入消融：black_to_gray、black_to_mean、black_to_blur、soft_center_mask、inner_crop_resize
 - [ ] 建立 landmark-only temporal baseline
 - [ ] 建立 AU / pose / gaze-only temporal baseline
 - [ ] 建立 RGB + behavior late-fusion baseline
@@ -160,6 +161,8 @@ src/diagnostics/        # 独立诊断与可视化系统
 - [x] 在 shortcut-only predictor 中优先加入按 `subject_id` 分组的交叉验证，避免同一 subject 的 Freeform/Northwind 泄漏到不同折中
 - [x] 将 grouped CV shortcut-only predictor 写入正式诊断输出，至少报告 mean baseline、RGB 模型、ridge 多个 alpha 的 MAE/RMSE/Pearson
 - [x] 设计并接入输入消融配置 `DATASET.INPUT_VARIANT`，支持 `rgb`、`grayscale`、`blur`、`center_mask`、`boundary_erased`
+- [x] 扩展黑填充/硬边界伪迹输入消融，支持 `black_to_gray`、`black_to_mean`、`black_to_blur`、`soft_center_mask`、`inner_crop_resize`
+- [x] 新增 `scripts/audit_black_artifacts.py`，离线统计 aligned frame 中黑像素、黑边界和硬边缘与预测误差的关系
 - [ ] 将 `landmark_heatmap` 接入 OpenFace landmark CSV 或 behavior baseline 路径，不在 RGB dataset 中伪造 landmark 输入
 - [ ] 设计区域级 attention/occlusion 统计：eye、brow、mouth、face center、boundary、non-face
 
@@ -184,6 +187,12 @@ src/diagnostics/        # 独立诊断与可视化系统
 - [x] P0-2 判读重点：优先检查 `246_1`、`359_1`、`237_1`、`315_2` 等 severe 低估 subject，以及 `237_1`、`247_1`、`247_3`、`224_1`、`212_1` 等任务间高差异 subject；同时加入若干 low-error 样本作为对照。
 - [x] P0-3：设计输入消融协议，但暂不直接改训练超参数。目标是判断模型是否依赖 RGB 纹理、边界伪影、身份线索、裁剪黑边或局部区域，而不是稳定面部行为动态。
 - [x] P0-3 输入变体设计：`rgb` 作为当前 baseline；`grayscale` 弱化颜色线索；`blur` 弱化身份纹理；`center_mask` 保留面部中心；`boundary_erased` 弱化裁剪边界、头发、衣物残留和黑边。
+- [x] P0-3 第一轮结果判读：`center_mask` 当前优于 `rgb`，而 `grayscale` 和 `blur` 变差；下一步应优先验证 OpenFace aligned face 的纯黑填充、黑色遮挡块和硬裁剪边界，而不是继续堆叠 late fusion 或新辅助任务。
+- [x] P0-3 黑伪迹变体设计：`black_to_gray`、`black_to_mean`、`black_to_blur` 用于替换近黑像素；`soft_center_mask` 用于验证软边界是否优于硬 mask；`inner_crop_resize` 用于验证外围黑边是否为主要捷径。
+- [ ] P0-3 服务器运行黑伪迹 ablation：保持与 `rgb`、`center_mask` 完全相同 split、seed、checkpoint 选择策略和指标。
+- [ ] P0-3 汇总 `rgb`、`center_mask`、`boundary_erased` 与五个黑伪迹变体的整体 MAE/RMSE/Pearson/CCC、prediction mean/std、severity group error 和 task consistency。
+- [ ] P0-3 运行黑伪迹审计，统计 `black_ratio`、`black_border_ratio`、`black_center_ratio`、`black_boundary_edge_ratio` 与 `true_bdi`、`pred_bdi`、`residual`、`abs_error` 的相关性。
+- [ ] P0-3 对黑伪迹变体改善和恶化最明显的样本生成 case study 图组，重点检查麦克风黑块、脸部轮廓黑边、裁剪边界和模型关注区域。
 - [ ] P0-3 后续补充：`landmark_heatmap` 应由 OpenFace landmark 坐标生成，归入 landmark/behavior baseline 路线，不能在只有 RGB 帧时伪造。
 - [x] P0-3 评估约束：所有输入变体必须使用相同 split、seed、checkpoint 选择策略、训练入口和指标；优先记录 MAE、RMSE、Pearson、CCC、prediction mean/std、severe/minimal 分组误差和 Freeform/Northwind 一致性。
 - [x] P0-4：设计 AU/pose/gaze/landmark-only behavior baseline 接口。目标是建立不依赖 RGB 纹理的行为表征对照，用来判断当前 RGB 模型是否真正捕捉到可泛化的行为动态。
@@ -260,3 +269,59 @@ src/diagnostics/        # 独立诊断与可视化系统
 - [ ] 在存在稳定可泛化 behavior 特征子集后，再设计 RGB + behavior late fusion。
 - [ ] 在 behavior 特征子集稳定后，再设计 AU、landmark motion、pose/gaze 辅助任务的 MTL-Lite。
 - [ ] 在辅助任务稳定后，再考虑 GradNorm、PCGrad、uncertainty weighting、LDS 或 `loss_dist` 消融。
+
+## 2026-06-15 RGB 黑填充伪迹任务队列
+
+当前用户更希望解释 RGB 输入模型过拟合原因，而不是继续堆叠多个任务。该判断是合理的：第一轮输入消融已经显示 `center_mask` 明显改善，说明输入侧非行为线索值得优先研究；如果不先定位 RGB 捷径，直接做 late fusion 或多任务可能只会把过拟合路径复杂化。
+
+### P0：立即执行
+
+- [x] 将黑填充/硬边界伪迹假设写入项目文档。
+- [x] 接入黑伪迹输入变体配置和实现。
+- [x] 接入黑伪迹离线审计脚本。
+- [ ] 在服务器运行 `python -m pytest tests/test_input_variants.py`。
+- [x] 使用相同命令模板运行五个黑伪迹 ablation：
+  - `configs/input_ablation/black_to_gray.yaml`
+  - `configs/input_ablation/black_to_mean.yaml`
+  - `configs/input_ablation/black_to_blur.yaml`
+  - `configs/input_ablation/soft_center_mask.yaml`
+  - `configs/input_ablation/inner_crop_resize.yaml`
+- [x] 对五组新实验全部运行 `scripts/diagnose_mtl_lite.py --enable-regression`，生成 `test_predictions.csv`、case study manifest 和回归诊断图。
+- [x] 运行 `scripts/audit_black_artifacts.py`，至少先对原始 `rgb` 预测进行审计。
+
+### P1：完成第一轮证据闭环
+
+- [x] 建立人工分析 summary，汇总 `rgb`、`center_mask`、`boundary_erased` 和五个新变体。
+- [x] 统计黑伪迹审计指标与误差之间的相关性，并完成判读。
+- [x] 修正中心黑像素判读：中心近黑区域可能来自鼻孔、自然阴影、胡须、嘴角或麦克风遮挡，不能直接视为 OpenFace 伪迹。
+- [x] 初步确认：黑边是泛化风险因子之一，但不是单独强解释变量。
+- [ ] 将本轮 ablation 和黑伪迹审计整理成论文表格草稿。
+- [ ] 对 severe 低估仍不改善的情况，继续保留 severity-aware loss/sampling、标签分布和 subject-level bias 作为后续独立问题。
+
+### P1.5：下一轮精确边界黑区实验
+
+- [x] 实现 `border_black_to_gray`：只替换与图像边界连通的近黑区域，不处理中心近黑像素。
+- [x] 实现 `border_black_feather`：只对边界连通黑区做软过渡或 feather，降低硬边界突变。
+- [x] 实现 `center_mask_black_to_gray`：在 `center_mask` 基础上处理残留边界连通黑区，验证二者是否互补。
+- [x] 为上述三个变体新增 `configs/input_ablation/*.yaml`。
+- [x] 为边界连通黑区 mask 增加单元测试，确保鼻孔、嘴角和麦克风等中心黑块不会被默认替换。
+- [x] 本地完成 compile 验证：`src/datasets/input_variants.py` 与 `tests/test_input_variants.py` 语法检查通过。
+- [ ] 在服务器运行 `python -m pytest tests/test_input_variants.py`。
+- [ ] 在相同 split、seed、训练入口、checkpoint 策略下运行三组新 ablation。
+- [ ] 将三组新结果与 `rgb`、`center_mask`、`black_to_gray`、`soft_center_mask` 统一比较。
+
+### P1.6：case study 复核
+
+- [ ] 高黑边高误差 case：`359_1`、`315_2`、`245_1`。
+- [ ] 高黑边低误差 case：`247_3`。
+- [ ] 低黑边高误差 case：`237_1`。
+- [ ] `black_to_gray` 改善明显 case：`250_1`、`344_2`、`242_1`。
+- [ ] `black_to_gray` 恶化明显 case：`206_2`、`226_2`、`210_2`。
+- [ ] 对上述 case 生成 aligned frame montage、attention、spatial occlusion、keyframe 图组。
+- [ ] 比较模型关注区域是否落在边界黑区、麦克风遮挡、鼻孔/嘴部自然暗区或真实面部行为区域。
+
+### P2：暂缓
+
+- [ ] RGB + behavior late fusion。
+- [ ] AU / landmark / pose / gaze 辅助任务 MTL。
+- [ ] 动态任务权重、PCGrad、GradNorm、LDS 或 `loss_dist`。

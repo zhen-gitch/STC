@@ -83,6 +83,9 @@ logs/.../diagnostics/shortcut_audit/
     residual_dependency.csv
     shortcut_predictor_results.csv
     input_ablation_results.csv
+    black_artifact_summary.csv
+    black_artifact_merged.csv
+    black_artifact_correlation.csv
   figures/
     shortcut_correlation_heatmap.png
     residual_vs_confidence.png
@@ -91,6 +94,7 @@ logs/.../diagnostics/shortcut_audit/
     attention_region_summary.png
   reports/
     shortcut_audit_report.md
+    black_artifact_audit_report.md
 ```
 
 ## 4. 诊断模块设计
@@ -181,6 +185,11 @@ grayscale          # 去除颜色捷径
 blur               # 弱化身份纹理
 center_mask        # 保留面部中央区域
 boundary_erased    # 弱化裁剪边界、头发、衣服残留
+black_to_gray      # 将近黑填充/遮挡区域替换为中性灰
+black_to_mean      # 将近黑区域替换为当前帧非黑像素均值
+black_to_blur      # 将近黑区域替换为模糊估计
+soft_center_mask   # 使用软边界 mask，避免制造新的硬边界
+inner_crop_resize  # 裁掉外围黑边后 resize
 landmark_heatmap   # 使用 landmark 空间结构替代 RGB 纹理
 behavior_only      # landmark/AU/pose/gaze only
 ```
@@ -280,6 +289,11 @@ grayscale
 blur
 center_mask
 boundary_erased
+black_to_gray
+black_to_mean
+black_to_blur
+soft_center_mask
+inner_crop_resize
 landmark_heatmap
 ```
 
@@ -444,6 +458,11 @@ grayscale          # 弱化颜色和肤色捷径
 blur               # 弱化身份纹理、皱纹、皮肤细节
 center_mask        # 保留面部中心行为区域
 boundary_erased    # 弱化裁剪边界、黑边、头发、衣物残留
+black_to_gray      # 将近黑填充/遮挡区域替换为中性灰
+black_to_mean      # 将近黑区域替换为当前帧非黑像素均值
+black_to_blur      # 将近黑区域替换为模糊估计
+soft_center_mask   # 使用软边界 mask，避免制造新的硬边界
+inner_crop_resize  # 裁掉外围黑边后 resize
 landmark_heatmap   # 用几何结构替代 RGB 纹理
 ```
 
@@ -459,10 +478,86 @@ landmark_heatmap   # 用几何结构替代 RGB 纹理
 
 - 已新增 `src/datasets/input_variants.py`；
 - 已在 `AVECDataset` 中接入 `DATASET.INPUT_VARIANT`，默认值为 `rgb`，因此不改变既有训练行为；
-- 当前 RGB dataset 已支持 `rgb`、`grayscale`、`blur`、`center_mask`、`boundary_erased`；
+- 当前 RGB dataset 已支持 `rgb`、`grayscale`、`blur`、`center_mask`、`boundary_erased`、`black_to_gray`、`black_to_mean`、`black_to_blur`、`soft_center_mask`、`inner_crop_resize`；
 - `landmark_heatmap` 被显式保留为 OpenFace landmark/behavior baseline 路径，当前如果在 RGB dataset 中配置该值会报错，避免伪造 landmark 输入；
 - 已在 `configs/avec2014_base.yaml` 中加入 `DATASET.INPUT_VARIANT: "rgb"` 作为默认约定；
 - 已新增 `tests/test_input_variants.py`，用于验证输入变体的形状、dtype、alias 和保留值行为。
+
+### 10.2.1 黑填充与硬边界伪迹扩展
+
+第一轮输入消融显示 `center_mask` 明显优于原始 `rgb`，而 `grayscale` 和 `blur` 变差。结合样例帧中 OpenFace aligned face 的纯黑填充和黑色麦克风遮挡，当前 P0-3 需要进一步区分以下可能机制：
+
+1. 模型依赖外围黑边或裁剪边界；
+2. 模型依赖黑色遮挡块和面部之间的硬像素突变；
+3. `center_mask` 改善来自去除黑伪迹，而不一定来自保留面部中心行为；
+4. 硬 mask 本身可能制造新的边界，因此需要软 mask 对照。
+
+新增黑伪迹审计：
+
+```text
+src/diagnostics/black_artifacts.py
+scripts/audit_black_artifacts.py
+```
+
+审计输入：
+
+```text
+prediction CSV          # video_id, true_bdi, pred_bdi, residual, abs_error
+aligned frame root      # OpenFace aligned frame directories
+```
+
+审计输出：
+
+```text
+tables/black_artifact_summary.csv
+tables/black_artifact_merged.csv
+tables/black_artifact_correlation.csv
+reports/black_artifact_audit_report.md
+```
+
+每个视频统计：
+
+```text
+black_ratio_mean
+black_ratio_std
+black_border_ratio_mean
+black_center_ratio_mean
+black_boundary_edge_ratio_mean
+black_ratio_delta_mean
+sampled_frame_count
+total_jpg_frame_count
+```
+
+判读规则：
+
+- 如果 `black_to_gray`、`black_to_mean` 或 `black_to_blur` 明显改善，黑填充本身应作为 RGB 过拟合的重要原因报告；
+- 如果 `soft_center_mask` 优于 `center_mask`，说明边界平滑比单纯遮挡更关键；
+- 如果 `inner_crop_resize` 改善，说明外围黑边和裁剪区域是高风险捷径；
+- 如果黑伪迹统计与 `abs_error` 或 `residual` 相关，即使对应 ablation 改善有限，也应在论文中报告为 artifact risk factor；
+- 如果 severe 低估不随黑伪迹变体改善，应将 severe bias 作为独立失败模式继续研究。
+
+诊断后的修正规则：
+
+- `black_border_ratio_mean` 优先解释为 OpenFace 对齐/裁剪填充风险；
+- `black_center_ratio_mean` 不能直接解释为伪迹，因为中心近黑像素可能来自鼻孔、嘴角、自然阴影、胡须、麦克风或真实遮挡；
+- 粗暴替换全部黑像素可能破坏真实面部语义，因此后续变体应优先使用 border-connected black mask；
+- 如果边界连通黑区消融改善，而中心黑区保持不变，则更能支持 OpenFace 边界填充伪迹假设；
+- 如果边界连通黑区消融无效，而 `center_mask` 仍有效，则说明收益更可能来自去除外围非行为区域、脸部轮廓/发际线/姿态残留等混合线索。
+
+下一轮建议输入变体：
+
+```text
+border_black_to_gray       # 只替换与图像边界连通的近黑区域
+border_black_feather       # 对边界连通近黑区域做软过渡
+center_mask_black_to_gray  # 在 center_mask 基础上处理中边界连通黑区
+```
+
+实现要求：
+
+- 使用连通域或 flood fill 从图像四边出发构建近黑区域 mask；
+- 不默认替换与边界不连通的中心黑像素；
+- 单元测试必须覆盖鼻孔/嘴部暗区等中心黑块不被替换的情况；
+- 训练配置、split、seed、checkpoint 选择策略和指标必须与 `rgb`、`center_mask`、`black_to_gray` 保持一致。
 
 ### 10.3 P0-4：Behavior-only Baseline Interface
 

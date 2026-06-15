@@ -289,7 +289,11 @@ DATASET:
   INPUT_VARIANT: "rgb"
 ```
 
-当前 RGB dataset 支持 `rgb`、`grayscale`、`blur`、`center_mask`、`boundary_erased`。`landmark_heatmap` 需要真实 OpenFace landmark 坐标，应在后续 behavior baseline 或 OpenFace landmark dataset 中实现，不应由 RGB 帧伪造。
+当前 RGB dataset 支持 `rgb`、`grayscale`、`blur`、`center_mask`、`boundary_erased`、`black_to_gray`、`black_to_mean`、`black_to_blur`、`soft_center_mask`、`inner_crop_resize`。`landmark_heatmap` 需要真实 OpenFace landmark 坐标，应在后续 behavior baseline 或 OpenFace landmark dataset 中实现，不应由 RGB 帧伪造。
+
+2026-06-15 之后，输入消融的优先目标从泛泛验证“背景/纹理捷径”收窄到 OpenFace aligned face 的黑填充和硬边界伪迹。`center_mask` 优于 `rgb`，但它可能同时改变了面部区域和黑边伪迹，因此必须通过 `black_to_*`、`soft_center_mask` 和 `inner_crop_resize` 继续拆解原因。在该证据闭环完成前，RGB + behavior late fusion 和新的行为辅助任务不应作为最高优先级。
+
+黑伪迹审计后需要进一步收窄实现：中心近黑像素可能是鼻孔、嘴角阴影、胡须、麦克风或真实遮挡，不应默认替换。下一轮输入变体应优先实现 `border_black_to_gray`、`border_black_feather` 和 `center_mask_black_to_gray`，只处理中与图像边界连通的近黑区域，并保留中心近黑语义。
 
 为了避免破坏现有配置，新模型实现应对缺失字段提供默认值。
 
@@ -439,7 +443,7 @@ src/diagnostics/
 顺序：
 
 1. OpenFace 质量与预测误差相关性；
-2. 输入消融：RGB、grayscale、masked face、landmark heatmap、landmark/AU/pose only；
+2. 输入消融：RGB、grayscale、blur、center_mask、boundary_erased、black_to_gray、black_to_mean、black_to_blur、soft_center_mask、inner_crop_resize、landmark heatmap、landmark/AU/pose only；
 3. landmark-only temporal baseline；
 4. AU / pose / gaze-only temporal baseline；
 5. RGB + behavior late fusion；
@@ -485,7 +489,8 @@ configs/behavior_baseline.yaml
 4. 输出 shortcut-only BDI predictor baseline；
 5. 输出 attention/occlusion 区域级统计；
 6. 生成 `shortcut_audit_report.md`；
-7. 所有诊断必须离线运行，不改变训练、验证或测试结果。
+7. 新增黑填充/硬边界伪迹审计，输出 `black_artifact_audit_report.md`；
+8. 所有诊断必须离线运行，不改变训练、验证或测试结果。
 
 ## 12. 验证命令
 
