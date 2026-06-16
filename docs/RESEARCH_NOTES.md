@@ -284,12 +284,30 @@ center_mask_black_to_gray
 
 除了黑边，OpenFace aligned face 还可能保留或引入脸部尺度、裁剪位置、眼距、脸部中心偏移、插值模糊、头发/衣领/麦克风残留和轮廓形状等几何线索。这些变量可能和数据采集条件、subject 或任务相关。
 
+最新坐标尺度确认显示：当前 OpenFace CSV 中的 landmark `x_*` / `y_*` 不是模型输入的 112x112 aligned face 坐标，而是 OpenFace 原始检测坐标系。示例 CSV 的 `x` 范围约 `150-643`、`y` 范围约 `-11-582`，而实际输入 jpg 为 `112 x 112`。因此，该方向更准确的表述应是 **pre-alignment detection geometry confound**：原始检测阶段的 face scale、bbox、eye distance 和 landmark jitter 可能通过后续裁剪、对齐、缩放、黑边填充和插值过程间接影响 112x112 RGB 输入。
+
 建议验证：
 
 - 从 landmark 外接框统计 face scale、face center offset、eye distance、bbox aspect ratio；
 - 统计 aligned 后脸部是否偏上、偏下、偏左或偏右；
 - 将这些几何量与 `true_bdi`、`pred_bdi`、`residual`、`abs_error` 做相关性；
 - 对 high-error case 检查是否同时存在异常尺度、偏移或裁剪残留。
+
+当前 C 任务结果：
+
+- `300` 个 OpenFace CSV 视频汇总，`100/100` 个 test prediction row 成功匹配；
+- 最大绝对相关约 `0.3746`；
+- `landmark_bbox_height_mean` 与 `true_bdi` 相关约 `r = 0.375`；
+- `landmark_bbox_area_mean` 与 `true_bdi` 相关约 `r = 0.341`；
+- `landmark_bbox_width_mean` 与 `true_bdi` 相关约 `r = 0.304`；
+- `eye_distance_mean` 与 `true_bdi` 相关约 `r = 0.299`；
+- `landmark_bbox_height_mean` 与 `residual` 相关约 `r = -0.260`，提示较大的检测 bbox 与高 BDI 样本低估有关。
+
+论文表述边界：
+
+- 可以说 OpenFace 原始检测几何与 BDI/severity 和 residual 存在中等相关，是 RGB shortcut 的候选混杂因素；
+- 不应说模型直接看到了更大的 112x112 landmark scale，因为模型输入帧已经 resize 到 112x112；
+- `normalized_face_scale_mean` 和 `face_center_offset_*` 只有在使用真实原始 frame size 或相对几何指标后，才能解释其绝对数值。
 
 ### 3. 姿态、gaze 与追踪质量捷径
 

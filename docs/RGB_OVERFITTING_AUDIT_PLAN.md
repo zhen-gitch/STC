@@ -233,6 +233,36 @@ python scripts/audit_alignment_geometry.py \
 - 若 task inconsistency 与 face scale / center offset 差异相关，应把任务采集/对齐差异作为混杂因素报告。
 - 若 OpenFace landmark 坐标来自原始视频坐标而非 aligned 112x112 坐标，必须通过 `--frame-width` 和 `--frame-height` 使用对应坐标尺度，不能直接解释 normalized offset。
 
+当前真实运行结果：
+
+```text
+OpenFace videos summarized: 300
+Matched prediction rows: 100
+Missing prediction videos: 0
+Max absolute correlation: 0.3746
+```
+
+主要发现：
+
+```text
+landmark_bbox_height_mean  vs true_bdi:  r = 0.3746
+normalized_face_scale_mean vs true_bdi:  r = 0.3410
+landmark_bbox_area_mean    vs true_bdi:  r = 0.3410
+landmark_bbox_width_mean   vs true_bdi:  r = 0.3041
+eye_distance_mean          vs true_bdi:  r = 0.2991
+landmark_bbox_height_mean  vs residual:  r = -0.2605
+```
+
+坐标尺度修正：
+
+当前 OpenFace CSV landmark 坐标不是 112x112 aligned frame 坐标。示例 CSV 中 `x` 范围约 `150-643`，`y` 范围约 `-11-582`；而模型实际输入 jpg 为 `112 x 112`。因此，本节更准确的命名是 **pre-alignment detection geometry audit**：它量化的是 OpenFace 原始检测坐标系中的脸部尺度、bbox、眼距和 landmark 稳定性。这些因素可能通过裁剪、对齐、缩放、黑边填充和插值过程间接影响 112x112 RGB 输入。
+
+解释边界：
+
+- 可解释：`landmark_bbox_width/height/area/aspect`、`eye_distance`、`landmark_jitter` 的相关性。
+- 谨慎解释：`normalized_face_scale` 与 `face_center_offset_*` 的绝对数值，因为本次 `--frame-width 112 --frame-height 112` 与 CSV 坐标系不一致。
+- 后续增强：输出 `landmark_x_min/x_max/y_min/y_max`、`eye_distance_to_bbox_height_ratio` 等不依赖固定 frame size 的相对几何指标。
+
 ### P0-E Embedding Identity Retrieval
 
 目的：检查 RGB embedding 是否主要编码身份/静态外观。

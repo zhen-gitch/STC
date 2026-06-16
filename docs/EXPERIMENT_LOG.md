@@ -793,3 +793,56 @@ python scripts/audit_alignment_geometry.py \
   --frame-height 112 \
   --sample-step 1
 ```
+
+### P0-A/B/C server results and geometry scale correction
+
+Split integrity audit:
+
+- `status: PASS`
+- `300` videos, `150` subjects, `3` splits.
+- `overlapping_subjects = 0`, `duplicate_video_rows = 0`, `missing_labels = 0`,
+  `invalid_labels = 0`, `missing_image_dirs = 0`.
+- Prediction alignment matched `100/100` test prediction rows.
+- Interpretation: current RGB overfitting analysis is not explained by split
+  leakage, label missingness, duplicate video ids, or prediction alignment
+  mismatch.
+
+Training overfit summary:
+
+- RGB-family runs all reported `overfit_after_best_val=True`.
+- `rgb` best validation RMSE occurred early at epoch `6`; after that, train
+  RMSE kept improving while validation RMSE degraded.
+- `center_mask_black_to_gray` had the best validation RMSE among the compared
+  runs but still overfit after best validation.
+- Behavior baseline showed a very large train/val gap, supporting the concern
+  that full OpenFace behavior features contain strong subject/static geometry
+  memorization signals.
+
+Alignment geometry audit:
+
+- `300` OpenFace videos summarized.
+- `100/100` test prediction rows matched.
+- Max absolute correlation: about `0.3746`.
+- Top findings:
+  - `landmark_bbox_height_mean` vs `true_bdi`: `r = 0.3746`
+  - `landmark_bbox_area_mean` vs `true_bdi`: `r = 0.3410`
+  - `landmark_bbox_width_mean` vs `true_bdi`: `r = 0.3041`
+  - `eye_distance_mean` vs `true_bdi`: `r = 0.2991`
+  - `landmark_bbox_height_mean` vs `residual`: `r = -0.2605`
+
+Coordinate scale correction:
+
+- Current OpenFace CSV landmark coordinates are not `112 x 112` aligned-frame
+  coordinates.
+- Observed examples: `x` range approximately `150-643`, `y` range
+  approximately `-11-582`, while aligned jpg inputs are `112 x 112`.
+- Therefore, the current geometry result should be interpreted as
+  `pre-alignment detection geometry confound`, not as direct 112x112 input
+  landmark geometry.
+- Directly interpretable metrics: bbox width/height/area/aspect, eye distance,
+  and landmark jitter in the OpenFace detection coordinate system.
+- Metrics requiring caution: `normalized_face_scale_mean` and
+  `face_center_offset_*`, because they depend on the frame width/height used
+  for normalization.
+- Recommended follow-up implementation: add raw coordinate ranges and relative
+  geometry ratios such as `eye_distance_to_bbox_height_ratio`.

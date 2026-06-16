@@ -377,8 +377,10 @@ src/diagnostics/        # 独立诊断与可视化系统
 - [x] P0-C 新增 `src/diagnostics/alignment_geometry.py`、`scripts/audit_alignment_geometry.py`、`tests/test_alignment_geometry.py`。
 - [x] P0-C 输出 `alignment_geometry_summary.csv`、`alignment_geometry_merged.csv`、`alignment_geometry_correlation.csv`、`alignment_geometry_group_summary.csv`、`alignment_geometry_audit_report.md`。
 - [x] 本地完成 P0-C compile 和 direct smoke 验证；本地 Python 缺少 `pytest`。
+- [x] 在真实 OpenFace CSV root 和当前 `test_predictions.csv` 上运行 `scripts/audit_alignment_geometry.py`，匹配 100/100 test predictions。
+- [x] 确认当前 OpenFace CSV landmark 坐标不是 112x112 aligned frame 坐标，而是原始 OpenFace 检测坐标系；示例 `x` 范围约 150-643，`y` 范围约 -11-582，而 aligned jpg 为 112x112。
 - [ ] 在服务器运行 `python -m pytest tests/test_alignment_geometry.py`。
-- [ ] 在真实 OpenFace CSV root 和当前 `test_predictions.csv` 上运行 `scripts/audit_alignment_geometry.py`。
+- [ ] 后续增强 geometry 审计：显式输出 `landmark_x_min/x_max/y_min/y_max`、`eye_distance_to_bbox_height_ratio` 等不依赖固定 frame size 的相对几何指标。
 - [ ] P0-D embedding 身份信息审计：优先做 paired-task retrieval，检查同一 subject 的 Freeform/Northwind embedding 是否互为近邻；再考虑 subject proxy classifier。
 - [ ] P0-D 输出 `embedding_identity_retrieval.csv`、`embedding_identity_report.md`，报告 same-subject top-k retrieval、subject clustering 与 severity clustering。
 - [ ] P0-E severity calibration 验证：使用 val predictions 拟合 post-hoc linear calibration，再应用到 test，检查 severe 低估和 minimal 高估是否缓解。

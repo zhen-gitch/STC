@@ -738,3 +738,52 @@ python scripts/audit_alignment_geometry.py \
 - `alignment_geometry_group_summary.csv` 用于检查 severe 低估是否集中在异常 face scale、center offset 或 jitter；
 - 如果 OpenFace landmark 坐标不是 aligned 112x112 坐标，应改用对应坐标尺度运行 `--frame-width` 和 `--frame-height`；
 - 该脚本只读 OpenFace CSV 和 prediction CSV，不改变训练数据、split、loss、metric 或 checkpoint。
+
+## 2026-06-16 P0-C Alignment Geometry 结果与坐标尺度修正
+
+P0-C 已在真实 OpenFace CSV root 和当前 RGB `test_predictions.csv` 上运行，匹配质量正常：
+
+```text
+OpenFace videos summarized: 300
+Matched prediction rows: 100
+Missing prediction videos: 0
+Max absolute correlation: 0.3746
+```
+
+主要相关性：
+
+```text
+landmark_bbox_height_mean  vs true_bdi:  r = 0.3746
+normalized_face_scale_mean vs true_bdi:  r = 0.3410
+landmark_bbox_area_mean    vs true_bdi:  r = 0.3410
+landmark_bbox_width_mean   vs true_bdi:  r = 0.3041
+eye_distance_mean          vs true_bdi:  r = 0.2991
+landmark_bbox_height_mean  vs residual:  r = -0.2605
+```
+
+这说明 OpenFace landmark 检测几何与 BDI/severity 存在中等相关，并且更大的 bbox/scale 与更负 residual 相关，和 severe 低估方向一致。
+
+但是，坐标尺度检查确认：当前 OpenFace CSV 的 landmark 坐标不是 112x112 aligned face 坐标。示例 CSV 中 `x` 范围可达约 `150-643`，`y` 范围可达约 `-11-582`；而实际模型输入 jpg 为 `112 x 112`。因此，当前 C 任务应解释为 **pre-alignment detection geometry confound**，而不是模型直接看到的 112x112 landmark geometry。
+
+当前可解释指标：
+
+```text
+landmark_bbox_width_mean
+landmark_bbox_height_mean
+landmark_bbox_area_mean
+landmark_bbox_aspect_mean
+eye_distance_mean
+landmark_jitter_mean
+```
+
+这些指标反映 OpenFace 原始检测坐标系下的脸部尺度、检测几何和 landmark 稳定性。它们可能通过后续裁剪、对齐、缩放、黑边填充和插值过程间接影响 112x112 RGB 输入。
+
+当前不应直接解释绝对值的指标：
+
+```text
+normalized_face_scale_mean
+face_center_offset_x_mean
+face_center_offset_y_mean
+```
+
+这些字段依赖 `--frame-width` / `--frame-height`，本次使用 112 会导致绝对尺度不成立。后续应增强 geometry 审计，显式输出原始 `landmark_x_min/x_max/y_min/y_max` 和相对比例指标，如 `eye_distance_to_bbox_height_ratio`，减少对固定 frame size 的依赖。

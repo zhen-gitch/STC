@@ -485,6 +485,24 @@ python scripts/audit_alignment_geometry.py \
 
 若 OpenFace landmark 坐标不是 aligned 112x112 坐标，应使用实际坐标尺度设置 `--frame-width` 和 `--frame-height`，否则 normalized offset 和 scale 不能直接解释。
 
+P0-C 真实运行后的坐标尺度修正：
+
+- 当前 OpenFace CSV landmark 坐标已确认不是模型输入的 `112 x 112` aligned frame 坐标；
+- 示例范围：`x` 约 `150-643`，`y` 约 `-11-582`，而 aligned jpg 为 `112 x 112`；
+- 因此 C 任务结果应解释为 **pre-alignment detection geometry confound**，即 OpenFace 原始检测坐标系下的 face scale / bbox / eye distance / landmark jitter 与 BDI 和 residual 的关系；
+- 当前可解释的是 `landmark_bbox_width/height/area/aspect`、`eye_distance`、`landmark_jitter` 的相关性；
+- 不应直接解释 `normalized_face_scale_mean`、`face_center_offset_x_mean`、`face_center_offset_y_mean` 的绝对值，除非使用真实原始 frame size 重新运行或改为相对几何指标。
+
+当前 C 任务主要结果：
+
+```text
+Matched prediction rows: 100/100
+Max absolute correlation: 0.3746
+landmark_bbox_height_mean vs true_bdi: 0.3746
+landmark_bbox_area_mean   vs true_bdi: 0.3410
+landmark_bbox_height_mean vs residual: -0.2605
+```
+
 最新高优先级过拟合审查结论：
 
 - RGB 过拟合多因素审计的权威路线文档是 `docs/RGB_OVERFITTING_AUDIT_PLAN.md`；

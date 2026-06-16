@@ -984,6 +984,7 @@ status
 - 将黑边之外的 OpenFace 对齐几何显式量化；
 - 检查 face scale、bbox shape、face center offset 和 eye distance 是否与标签、预测或误差相关；
 - 判断 `center_mask` 改善是否可能来自弱化对齐几何和轮廓线索。
+- 当前数据中 OpenFace CSV landmark 坐标已确认不是 112x112 aligned frame 坐标，而是原始检测坐标系；因此本审计应优先解释为 pre-alignment detection geometry audit。
 
 输入：
 
@@ -1035,12 +1036,43 @@ confidence_mean
 success_ratio
 ```
 
+当前解释边界：
+
+```text
+可直接解释相关性：
+landmark_bbox_width_mean / height_mean / area_mean / aspect_mean
+eye_distance_mean
+landmark_jitter_mean
+
+需要真实 frame size 才能解释绝对值：
+normalized_face_scale_mean
+face_center_offset_x_mean
+face_center_offset_y_mean
+```
+
 判读：
 
 - 如果 geometry features 与 `abs_error` 或 `residual` 相关，应把 OpenFace alignment geometry 作为 shortcut risk；
 - 如果 severe 低估集中在异常 face scale、偏移或大姿态样本，应优先进行质量分层评估；
 - 如果 task inconsistency 与 face scale 或 center offset 差异相关，应把任务采集/对齐差异作为混杂因素报告。
 - 如果 OpenFace landmark 坐标来自原始视频坐标而非 aligned 112x112 坐标，应通过 `--frame-width` 和 `--frame-height` 使用对应坐标尺度。
+
+已运行结果摘要：
+
+- `300` 个 OpenFace 视频已汇总，`100/100` 个 test prediction row 成功匹配；
+- 最大绝对相关约 `0.3746`；
+- `landmark_bbox_height_mean`、`landmark_bbox_area_mean`、`landmark_bbox_width_mean`、`eye_distance_mean` 与 `true_bdi` 呈中等相关；
+- `landmark_bbox_height_mean` 与 `residual` 负相关，提示更大的检测 bbox 与更强低估有关；
+- 该结论应表述为 OpenFace 原始检测几何/预处理阶段混杂风险，而不是模型直接看见了 112x112 landmark 坐标。
+
+后续脚本增强建议：
+
+```text
+landmark_x_min / x_max / y_min / y_max
+eye_distance_to_bbox_height_ratio
+bbox_width_to_height_ratio
+relative_center_within_detected_bbox
+```
 
 ### 12.10 Embedding identity retrieval audit
 
