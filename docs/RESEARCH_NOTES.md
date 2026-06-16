@@ -132,7 +132,9 @@
 
 引入这些任务后，再考虑 uncertainty weighting、GradNorm、PCGrad 或简单任务权重网格搜索。
 
-## 推荐实验顺序
+## 历史推荐实验顺序
+
+以下顺序是项目早期在 behavior baseline 尚未完成、RGB 输入伪迹尚未充分诊断时的路线。当前已被 `docs/RGB_OVERFITTING_AUDIT_PLAN.md` 中的多因素过拟合审计路线取代，保留在此仅作为历史背景。
 
 1. `E0_openface_quality_correlation`：OpenFace 质量、姿态、gaze、AU 与 BDI/误差相关性。
 2. `E1_input_ablation`：RGB aligned、grayscale、masked face、landmark heatmap、landmark/AU/pose only 对照。
@@ -145,17 +147,21 @@
 
 ## 当前结论
 
-下一阶段不应继续主要押注 `FINETUNE_LAST_N_BLOCKS` 的层数搜索。更高价值的路线是：
+下一阶段不应继续主要押注 `FINETUNE_LAST_N_BLOCKS` 的层数搜索，也不应过早进入 RGB + behavior late fusion。更高价值的路线是先完成 RGB 过拟合多因素审计：
 
 ```text
-OpenFace aligned RGB baseline
--> OpenFace 质量与捷径诊断
--> landmark/AU/pose/gaze 行为 baseline
+split integrity audit
+-> temporal sampling audit / ablation
+-> training overfit curve summary
+-> alignment geometry audit
+-> embedding identity retrieval
+-> severity calibration verification
+-> task inconsistency mixed-factor audit
+-> stable behavior subset
 -> RGB + behavior late fusion
--> 面部行为辅助任务的 MTL-Lite
 ```
 
-这一路线更符合论文项目的可解释性、可消融性和长期扩展需求。
+这一路线更符合论文项目的可解释性、可消融性和长期扩展需求，也能避免把黑边、身份外观、OpenFace 对齐几何、时序采样和标签压缩混成一个笼统原因。
 
 Shortcut Audit 的最小可行版本应优先落地：
 
@@ -248,6 +254,139 @@ center_mask_black_to_gray
 
 这些变体的目标是验证：保留鼻孔、嘴部阴影、麦克风等中心黑区语义信息时，仅中和 OpenFace 边界填充是否还能改善泛化。
 
+## 2026-06-15 RGB 过拟合因素地图
+
+黑填充和硬边界伪迹只是 RGB 输入过拟合的一部分。结合当前实验、OpenFace aligned face 的数据形态、行为 baseline 结果和相关研究，后续应把 RGB 过拟合拆成以下可验证因素，而不是继续寻找单一原因。
+
+### 1. 身份与静态外观捷径
+
+人脸 RGB 图像天然包含强身份信息，包括脸型、年龄、性别、肤色、皱纹、眼袋、胡须、发际线、眼镜、皮肤纹理和面部胖瘦。小样本 subject-independent 任务中，视觉 backbone 很容易学习这些稳定外观，而不是学习跨 subject 的面部行为动态。
+
+相关研究线索：
+
+- Shortcut Learning in Deep Neural Networks: https://arxiv.org/abs/2004.07780
+- IDEnNet / Identity-Enhanced Network for Facial Expression Recognition: https://arxiv.org/abs/1812.04207
+- FacialPulse: https://arxiv.org/abs/2408.03499
+
+本项目证据：
+
+- `center_mask` 优于 `rgb`，说明去除外围区域和部分静态外观后泛化改善；
+- `blur` 变差，说明不是所有细节都是坏信息，模型仍需要局部面部线索；
+- behavior-only full OpenFace 特征强过拟合，说明 raw landmark 和 static geometry 也可能携带身份信息。
+
+建议验证：
+
+- 设计 `face_contour_erased`、`eye_mouth_only`、`upper_face_only`、`lower_face_only` 等区域消融；
+- 检查 embedding 是否按 subject、脸型或外观聚类，而不是按 BDI 聚类；
+- 训练 subject/identity proxy classifier，测试当前 RGB embedding 是否容易预测 subject。
+
+### 2. OpenFace 对齐几何与裁剪伪迹
+
+除了黑边，OpenFace aligned face 还可能保留或引入脸部尺度、裁剪位置、眼距、脸部中心偏移、插值模糊、头发/衣领/麦克风残留和轮廓形状等几何线索。这些变量可能和数据采集条件、subject 或任务相关。
+
+建议验证：
+
+- 从 landmark 外接框统计 face scale、face center offset、eye distance、bbox aspect ratio；
+- 统计 aligned 后脸部是否偏上、偏下、偏左或偏右；
+- 将这些几何量与 `true_bdi`、`pred_bdi`、`residual`、`abs_error` 做相关性；
+- 对 high-error case 检查是否同时存在异常尺度、偏移或裁剪残留。
+
+### 3. 姿态、gaze 与追踪质量捷径
+
+OpenFace 的 `confidence`、`success`、pose、gaze、landmark jitter 既可能是真实行为线索，也可能是追踪质量或采集条件混杂变量。抑郁相关行为可能包括低头、凝视减少和面部动作减少，但模型也可能只是学到了低质量追踪或特定姿态。
+
+相关研究线索：
+
+- OpenFace / OpenFace 3.0: https://arxiv.org/abs/2506.02891
+- LibreFace: https://arxiv.org/abs/2308.10713
+- Action Unit depression biomarkers: https://arxiv.org/abs/2407.13753
+
+建议验证：
+
+- 扩展 Shortcut Audit，加入 pose/gaze mean/std、confidence mean/std、failed frame ratio 和 landmark jitter；
+- 使用 grouped-CV shortcut-only predictor 判断质量/姿态变量能否预测误差；
+- 对 severe 低估 case 检查是否伴随低 confidence、大姿态或高 jitter。
+
+### 4. 视频长度、采样与 padding 捷径
+
+黑伪迹审计中最高相关项是 `frame_count` / `sampled_frame_count` 与 `pred_bdi`，约 `r = -0.207`。这提示模型预测可能受视频长度、有效帧数、采样覆盖或 padding/mask 影响。
+
+可能机制：
+
+- 不同任务视频长度不同；
+- 长视频包含更多中性片段，稀释抑郁相关行为；
+- `MAX_SEQ_LEN` 截断导致长视频关键片段丢失；
+- chunk sampling 或均匀采样方式影响关键表情/动作覆盖；
+- 有效帧比例影响 temporal pooling。
+
+建议验证：
+
+- 统计 `frame_count`、`sampled_frame_count`、`valid_ratio` 与预测和误差的相关性；
+- 对比固定帧数均匀采样，例如 256 / 512 / 1024；
+- 对比 first / middle / uniform / random temporal crop；
+- 用 temporal occlusion 检查模型是否依赖少数片段。
+
+### 5. Freeform/Northwind 任务语境差异
+
+同一 subject 在 Freeform 和 Northwind 中可能表现出不同的说话内容、眼神方向、头部运动、朗读节奏、表情强度、遮挡和视频长度。若模型对任务语境敏感，它学到的可能是 task-specific visual pattern，而不是稳定 depression trait。
+
+建议验证：
+
+- 分任务报告 MAE/RMSE/Pearson/CCC；
+- 对同一 subject 的 Freeform/Northwind 预测差异排名；
+- 检查 task inconsistency 是否与视频长度、pose、gaze、黑边或追踪质量相关；
+- task name 只作为诊断变量，不应在当前阶段直接作为训练输入。
+
+### 6. 标签分布与 prediction compression
+
+当前 RGB 模型存在明显预测压缩：真实 BDI 标准差约 `11.5`，而 `rgb` 预测标准差约 `6.1`。这会导致 minimal 高估、severe 低估。该问题不一定由输入伪迹造成，也可能来自 MSE/MAE 在小样本长尾标签分布下向均值收缩。
+
+建议验证：
+
+- 每个实验都报告 prediction mean/std 与 true mean/std；
+- 做 severity group calibration；
+- 尝试 severity-balanced sampler 或 label-bin balanced sampler；
+- 尝试加权 MSE / Huber / CCC loss，但必须和输入捷径诊断分开做。
+
+### 7. ViT/DeiT patch 级捷径
+
+DeiT/ViT 这类 patch-based backbone 可能对局部高对比 patch、边界 patch、麦克风黑块、眼镜反光和裁剪残留非常敏感。黑边的全局相关性弱，不代表 patch-level attention 中没有局部捷径。
+
+建议验证：
+
+- 使用 attention rollout、Grad-CAM 或 input-gradient 诊断；
+- 做 patch occlusion sensitivity；
+- 分区域统计 eye、brow、mouth、lower face、face contour、boundary patch 的遮挡影响；
+- 将高误差和低误差 case 都纳入可视化，避免只看失败样本。
+
+### 8. 数据增强与鲁棒性不足
+
+如果训练增强不能覆盖 test 中的 crop、黑边、光照、姿态和尺度变化，模型会记住固定预处理风格。后续增强应面向 artifact robustness，而不是一次性加入强增强。
+
+建议优先级：
+
+1. border fill randomization；
+2. small affine jitter；
+3. mild brightness/contrast jitter；
+4. temporal random crop 或 uniform sampling；
+5. 只在完成诊断后，再考虑更强的数据增强组合。
+
+### 推荐排查顺序
+
+```text
+border-connected black/crop artifact
+-> frame_count / temporal sampling audit
+-> face scale / alignment offset / landmark bbox audit
+-> identity/static appearance audit
+-> task inconsistency audit
+-> severity calibration and prediction compression
+-> targeted robustness augmentation
+```
+
+当前研究表述应避免说“RGB 过拟合由黑边导致”。更准确的表述是：
+
+> RGB 过拟合可能来自身份静态外观、OpenFace 对齐几何、边界填充、姿态/追踪质量、视频长度/采样、任务语境差异和标签分布压缩的共同作用。黑边是可见且可操作的风险入口，但不是单一充分解释。
+
 ## 2026-06-14 Behavior-only baseline 结果后的研究路线修订
 
 最新 behavior-only baseline 使用 OpenFace 结构化特征进行 BDI 回归，结果显示训练集拟合很强但泛化不足：test MAE 约 `9.93`，RMSE 约 `12.86`，CCC 约 `0.151`；best validation RMSE 约 `12.38`，但对应 train RMSE 只有约 `2.74`。这说明 OpenFace 行为表征路线仍然有研究价值，但不能直接把“所有 OpenFace 特征”视为可靠行为表征。
@@ -277,3 +416,111 @@ behavior prediction export
 ```
 
 论文表述上，当前 behavior-only baseline 可作为一个重要诊断结论：直接使用完整 OpenFace CSV 特征并不会自动获得可泛化抑郁表征，必须通过特征组消融、去身份化和行为动态约束来筛选可靠线索。
+
+## 2026-06-15 高优先级过拟合验证路线
+
+权威路线文档：`docs/RGB_OVERFITTING_AUDIT_PLAN.md`。本节记录研究动机与论文表述，具体执行清单以 `docs/TODO.md` 为准，具体输出规格以 `docs/SHORTCUT_AUDIT_DESIGN.md` 为准。
+
+在完成第一轮 RGB 输入消融、黑伪迹审计、边界连通黑区消融和统一 prediction summary 后，当前研究重点应从“继续尝试更多输入 mask”转向“验证 RGB 过拟合的关键机制”。原因是现有结果已经说明：
+
+- `center_mask_black_to_gray`、`center_mask`、`border_black_feather` 均能不同程度改善原始 `rgb`；
+- 但这些变体仍未解决 prediction compression；
+- `center_mask_black_to_gray` 虽然整体 MAE 最好，却加重 severe 低估；
+- `gray_scale`、`blur`、`inner_crop_resize`、`black_to_mean` 不支持颜色、纹理或外围区域任一单因素解释；
+- 因此继续做相似 mask 的边际论文价值下降。
+
+更值得优先验证的高价值问题如下。
+
+### 1. Split / subject integrity
+
+所有 subject-independent 泛化结论都依赖 split 正确性。必须确认：
+
+- train/val/test 是否 subject-disjoint；
+- 同一 subject 的 Freeform/Northwind 是否被放入同一 split；
+- video_id 规范化是否导致误匹配；
+- 是否存在重复视频目录、重复标签、标签文件与视频目录前缀不一致。
+
+该审计不直接证明过拟合来源，但它是所有后续结论的有效性前提。
+
+### 2. Temporal sampling and sequence coverage
+
+当前黑伪迹审计中，`frame_count` / `sampled_frame_count` 与 `pred_bdi` 的相关性最强，提示模型可能对视频长度、采样位置、截断和有效帧比例敏感。高优先级验证包括：
+
+- 真实数据上运行 temporal sampling audit；
+- 对比 `uniform_256`、`uniform_512`、`uniform_1024`；
+- 对比 `first_crop`、`middle_crop`、`random_crop`；
+- 将每组结果接入 prediction run summary，报告 prediction std、severity bias 和 task consistency。
+
+如果固定帧数采样显著缓解 prediction compression 或 task inconsistency，则当前均值池化/截断策略可能是主要过拟合入口之一。
+
+### 3. Training curve overfit gap
+
+仅看 test MAE 不足以解释过拟合。应跨实验统计：
+
+- best validation epoch；
+- train RMSE / MAE 与 val RMSE / MAE 的 gap；
+- val 最优后 train 是否继续下降但 val/test 不改善；
+- behavior baseline、RGB baseline 和各输入消融的 gap 是否一致。
+
+该分析可以区分两类情况：输入变体真正改善泛化，或只是改变预测分布和测试集偏置。
+
+### 4. OpenFace alignment geometry
+
+OpenFace aligned face 不只包含黑边，还包含 face scale、bbox shape、face center offset、eye distance、轮廓形状和插值痕迹。建议把 alignment geometry audit 提升到 P0：
+
+- 从 OpenFace landmark 坐标计算 bbox area/width/height/aspect；
+- 计算 face center offset、eye distance、normalized face scale；
+- 与 `true_bdi`、`pred_bdi`、`residual`、`abs_error` 做相关；
+- 与 severe 低估、minimal 高估和 task inconsistency 做分组比较。
+
+如果几何变量能解释误差或任务不一致，则 RGB 模型可能利用了对齐几何和静态人脸尺度，而不是抑郁相关行为。
+
+### 5. Embedding identity retrieval
+
+身份信息不建议首先用 subject classifier 验证，因为 subject-independent split 中 test subject 未在 train 出现。更适合先做 paired-task retrieval：
+
+- 提取同一模型的 test embedding；
+- 对每个 Freeform 样本查找最近邻，看 Northwind paired sample 是否排在 top-k；
+- 反向从 Northwind 查 Freeform；
+- 同时比较 embedding 是否按 BDI severity 聚类。
+
+如果同 subject 的两个任务 embedding 高度互为近邻，而 severity 聚类弱，说明 RGB backbone 更强地编码了身份/静态外观。
+
+### 6. Severity calibration verification
+
+当前所有较好输入变体仍存在 `pred_std < true_std`。应使用 val set 拟合简单 post-hoc calibration，并只在 test 上评估：
+
+```text
+pred_calibrated = a * pred + b
+```
+
+目的不是调出最终模型，而是验证 severe 低估和 minimal 高估是否主要来自 prediction compression。如果 calibration 明显改善 severe/minimal 但不改变排序相关性，则后续应单独研究 severity-aware sampler、weighted loss、Huber/CCC loss。
+
+### 7. Task inconsistency mixed-factor audit
+
+Freeform/Northwind 同 subject prediction diff 需要与多因素关联：
+
+- frame_count / sampled_frame_count；
+- black_border_ratio；
+- confidence / success；
+- pose / gaze；
+- alignment geometry；
+- prediction severity bias。
+
+如果 task inconsistency 能被这些变量解释，论文中应把任务语境作为混杂因素，而不是把两个任务简单视作同分布重复样本。
+
+### 更新后的论文主线
+
+推荐将论文实验路线组织为：
+
+```text
+1. Baseline failure: prediction compression, severe underestimate, task inconsistency
+2. RGB input artifact ablation: center mask and border artifact evidence
+3. Multi-factor shortcut audit: temporal, geometry, identity, quality, task context
+4. Calibration analysis: separate shortcut mitigation from severity compression
+5. Behavior feature baseline: evaluate whether structured facial dynamics generalize
+```
+
+核心表述应保持克制：
+
+> 黑边和硬边界伪迹是 RGB 过拟合的重要可见入口，但不是唯一原因。当前证据更支持一个多因素解释：RGB 模型同时受到 OpenFace 对齐几何、身份静态外观、时序采样、任务语境和标签分布压缩的影响。

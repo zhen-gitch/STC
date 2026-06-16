@@ -31,7 +31,7 @@
 
 有序严重程度预测为连续 BDI 回归提供结构化辅助监督；轻量、可解释、可消融的多任务结构比继续堆叠复杂模块更适合作为当前论文主线。
 
-### 研究路线修订：OpenFace 行为表征优先
+### 研究路线修订：RGB 过拟合多因素审计优先
 
 当前视频帧序列已经由 OpenFace 裁剪和对齐，所用 OpenFace 版本可能不是最新版。后续分析不应简单描述为“背景过拟合”，而应关注 OpenFace aligned face 中仍然存在的非抑郁捷径：
 
@@ -41,19 +41,23 @@
 - 视频质量：模糊、压缩、光照和分辨率；
 - subject-level bias：模型可能记住身份或采集条件，而不是稳定面部行为。
 
-2026-06-15 的 RGB 输入消融和样例帧检查进一步说明：当前最值得优先验证的不是泛泛的背景过拟合，而是 OpenFace aligned face 中的纯黑填充和硬边界伪迹。样例帧中脸部轮廓外区域为纯黑，遮挡面部的麦克风也呈黑色块，这会在脸部边界和遮挡处产生强像素突变。`center_mask` 明显优于原始 `rgb`，而 `grayscale`、`blur` 变差，说明应优先排查黑填充、裁剪边界和对齐残留，而不是继续堆叠 late fusion 或新的辅助任务。
+2026-06-15 的 RGB 输入消融和样例帧检查说明：OpenFace aligned face 中的黑填充、硬边界和遮挡黑块是重要的 input artifact 子证据。`center_mask` 明显优于原始 `rgb`，而 `grayscale`、`blur` 变差，说明输入侧非行为线索确实值得研究。但最新黑伪迹审计与边界连通黑区消融也说明，黑边/黑填充不能单独解释 severe 低估、task inconsistency 和 prediction compression。
 
-因此，下一阶段优先级从继续搜索 `FINETUNE_LAST_N_BLOCKS` 转向：
+因此，下一阶段优先级从继续搜索 `FINETUNE_LAST_N_BLOCKS`、继续增加 RGB mask 或提前进入 late fusion，转向 RGB 过拟合多因素审计：
 
 ```text
-OpenFace aligned RGB baseline
--> OpenFace 质量与捷径诊断
--> landmark/AU/pose/gaze 行为 baseline
+split integrity audit
+-> temporal sampling audit / ablation
+-> training overfit curve summary
+-> alignment geometry audit
+-> embedding identity retrieval
+-> severity calibration verification
+-> task inconsistency mixed-factor audit
+-> stable behavior subset
 -> RGB + behavior late fusion
--> 面部行为辅助任务的 MTL-Lite
 ```
 
-相关研究和实验路线归档在 `docs/RESEARCH_NOTES.md`。后续 Codex 在设计实验或修改模型前，应优先阅读该文档。
+权威研究路线归档在 `docs/RGB_OVERFITTING_AUDIT_PLAN.md`。相关研究背景在 `docs/RESEARCH_NOTES.md`。后续 Codex 在设计实验或修改模型前，应优先阅读这两个文档。
 
 非抑郁捷径验证框架归档在 `docs/SHORTCUT_AUDIT_DESIGN.md`。后续若用户要求实现 OpenFace 质量诊断、输入消融、shortcut-only baseline 或行为表征 baseline，应先阅读该文档，并优先采用离线诊断方式，避免改动训练主流程。
 
@@ -370,6 +374,98 @@ python scripts/audit_black_artifacts.py \
 - 已实现 `border_black_to_gray`、`border_black_feather`、`center_mask_black_to_gray`，下一步是在服务器运行 pytest 和三组训练消融。
 - 新的边界黑区 mask 应只处理与图像边界连通的近黑区域，默认保留中心近黑区域。
 - case study 必须对照高黑边高误差、高黑边低误差、低黑边高误差三类样本，避免把黑边风险过度泛化。
+
+RGB 过拟合的后续解释必须采用多因素框架。除黑边外，优先考虑：
+
+- 身份与静态外观：脸型、年龄、肤色、胡须、发际线、眼镜、皮肤纹理；
+- OpenFace 对齐几何：face scale、landmark bbox、face center offset、eye distance；
+- 姿态和追踪质量：confidence、success、pose、gaze、landmark jitter；
+- 视频长度与采样：frame_count、sampled_frame_count、valid_ratio、padding_ratio、temporal crop；
+- 任务语境差异：Freeform/Northwind 同 subject prediction inconsistency；
+- 标签分布和校准：prediction compression、minimal overestimate、severe underestimate。
+
+后续 Codex 在设计新实验时，应优先把这些因素做成离线 audit 或单因素消融，不要直接进入 RGB + behavior late fusion。当前建议顺序以 `docs/RGB_OVERFITTING_AUDIT_PLAN.md` 为准：split integrity -> temporal sampling -> training overfit curves -> alignment geometry -> embedding identity retrieval -> severity calibration -> task inconsistency mixed-factor audit。
+
+P0 temporal sampling audit 已实现：
+
+- `src/diagnostics/temporal_sampling.py`
+- `scripts/audit_temporal_sampling.py`
+- `tests/test_temporal_sampling_audit.py`
+
+该审计按 `AVECDataset` 的真实规则计算 `sampled_frame_count`、`model_max_len`、`selected_frame_count`、`padding_ratio`、`truncated_ratio` 和 `valid_ratio`。使用时必须让 `--sample-step`、`--max-seq-len` 与对应实验的 `resolved_config.yaml` 保持一致。
+
+P0 temporal sampling ablation 也已实现：
+
+- `src/datasets/temporal_sampling.py`
+- `PROCESS_TEMPORAL.SAMPLING_STRATEGY`
+- `configs/temporal_sampling/uniform_256.yaml`
+- `configs/temporal_sampling/uniform_512.yaml`
+- `configs/temporal_sampling/uniform_1024.yaml`
+- `configs/temporal_sampling/first_crop.yaml`
+- `configs/temporal_sampling/middle_crop.yaml`
+- `configs/temporal_sampling/random_crop.yaml`
+
+默认策略 `stride_head` 复现旧行为：`frames[::SAMPLE_STEP][:MAX_SEQ_LEN // SAMPLE_STEP]`。新策略仅在 override 中显式设置时生效。`uniform_512` 和 `uniform_1024` 可能增加显存压力，若 OOM，应优先降低 batch/chunk，不要同时改变其他训练因素。
+
+边界连通黑区消融最新结论：
+
+- `center_mask_black_to_gray` 当前 MAE/RMSE/Pearson 最好，但 severe 低估更严重；
+- `center_mask` 仍是更均衡的输入变体，CCC 最高；
+- `border_black_feather` 支持边界软化假设，明显优于 raw RGB 和 `black_to_gray`；
+- `border_black_to_gray` 不应继续扩展为主线。
+
+P0 prediction run summary 已实现：
+
+- `src/diagnostics/prediction_runs.py`
+- `scripts/summarize_prediction_runs.py`
+- `tests/test_prediction_runs.py`
+
+已对当前可用 RGB input ablation 预测文件完成一次统一汇总，覆盖 `rgb`、第一轮输入变体、第二轮黑伪迹变体和最新边界连通黑区变体。后续所有输入消融和 temporal sampling 消融都应使用该工具统一输出 overall metrics、prediction std、severity bias、task consistency 和 pairwise improvement，再进行解释。
+
+当前 RGB 输入消融的整体排序仍应谨慎判读：`center_mask_black_to_gray` 的 MAE/RMSE/Pearson 最好，但 severe 低估更严重；`center_mask` 的 CCC 和任务一致性更稳；`border_black_feather` 支持边界软化假设，但不是完整解决方案。不要把任一输入变体直接当作最终模型，应先进入 temporal sampling、alignment geometry、identity/static appearance 和 calibration 审计。
+
+P0-A split / subject integrity audit 已实现：
+
+- `src/diagnostics/split_integrity.py`
+- `scripts/audit_split_integrity.py`
+- `tests/test_split_integrity.py`
+
+该审计用于在解释任何 RGB 过拟合实验之前确认 train/val/test subject-disjoint、Freeform/Northwind 未跨 split、video_id 未重复、label 可唯一匹配、prediction row 可唯一回连到 split manifest。若输出报告不是 `status: PASS`，应先修复 split 或明确报告数据污染风险，再解释后续实验。
+
+服务器运行示例：
+
+```bash
+python scripts/audit_split_integrity.py \
+  --split-file /path/to/dataset_split.json \
+  --label-dir /path/to/labels \
+  --image-root /path/to/aligned/frame/root \
+  --predictions logs/rgb/test_predictions.csv \
+  --output-dir logs/rgb/diagnostics/split_integrity
+```
+
+最新高优先级过拟合审查结论：
+
+- RGB 过拟合多因素审计的权威路线文档是 `docs/RGB_OVERFITTING_AUDIT_PLAN.md`；
+- 不再优先继续增加新的 RGB mask 变体；
+- 下一批 P0 是 split / subject integrity、temporal sampling 真实运行、training overfit curve summary、OpenFace alignment geometry、embedding identity paired-task retrieval、severity calibration verification 和 task inconsistency mixed-factor audit；
+- alignment geometry 已从 P1 提升到 P0，因为 `center_mask` 有效但 `inner_crop_resize` 变差，提示 face scale、bbox、center offset、eye distance 等几何因素可能是重要捷径；
+- embedding 身份审计优先做 Freeform/Northwind paired retrieval，不先做 subject classifier；
+- severity calibration 只作为机制验证，不能和输入消融混为最终模型调参；
+- RGB + behavior late fusion 和行为辅助 MTL 继续暂缓，必须等上述过拟合机制审计和稳定 behavior 特征子集完成后再进入。
+
+新的主线顺序：
+
+```text
+split integrity audit
+-> temporal sampling audit / ablation
+-> training overfit curve summary
+-> alignment geometry audit
+-> embedding identity retrieval
+-> severity calibration verification
+-> task inconsistency mixed-factor audit
+-> behavior stable subset
+-> RGB + behavior late fusion
+```
 
 P0-4 当前实现位置：
 

@@ -1,0 +1,7 @@
+MODEL:
+  NAME: "rgb_temporal_uniform_1024"
+
+PROCESS_TEMPORAL:
+  SAMPLING_STRATEGY: "uniform"
+  SAMPLE_STEP: 1
+  MAX_SEQ_LEN: 1024

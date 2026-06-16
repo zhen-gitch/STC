@@ -478,3 +478,243 @@ python -m pytest tests/test_input_variants.py
   - `python -m compileall src/datasets/input_variants.py tests/test_input_variants.py` passed with the bundled Codex Python runtime.
   - Local Python environment still lacks `pytest` and `torch`; run the focused
     pytest command on the server environment.
+
+### RGB overfitting factor map documentation
+
+- Consolidated the broader RGB overfitting hypothesis beyond black artifacts.
+- Added a multi-factor research map to `docs/RESEARCH_NOTES.md`, covering:
+  - identity and static appearance shortcuts;
+  - OpenFace alignment geometry and crop artifacts;
+  - pose, gaze, confidence, success, and tracking quality;
+  - video length, temporal sampling, and padding;
+  - Freeform/Northwind task-context differences;
+  - prediction compression and severity calibration;
+  - ViT/DeiT patch-level shortcut sensitivity;
+  - targeted robustness augmentation.
+- Expanded `docs/SHORTCUT_AUDIT_DESIGN.md` with audit modules for:
+  - identity/static appearance;
+  - alignment geometry;
+  - pose/gaze/tracking quality;
+  - temporal sampling;
+  - task consistency;
+  - severity calibration.
+- Added follow-up task queues to `docs/TODO.md`.
+- Updated `docs/CURRENT_STATUS.md` and `docs/CODEX_CONTEXT.md` so future work
+  treats black borders as one risk factor rather than a complete explanation.
+
+### P0 temporal sampling audit implementation
+
+- Implemented the first P0 multi-factor audit for video length, temporal
+  sampling, truncation, and padding.
+- New module:
+  - `src/diagnostics/temporal_sampling.py`
+- New CLI:
+  - `scripts/audit_temporal_sampling.py`
+- New tests:
+  - `tests/test_temporal_sampling_audit.py`
+- The audit follows the actual `AVECDataset` selection rule:
+  - `sampled_frame_count = len(frames[::SAMPLE_STEP])`
+  - `model_max_len = MAX_SEQ_LEN // SAMPLE_STEP`
+  - `selected_frame_count = min(sampled_frame_count, model_max_len)`
+  - padding and truncation are computed from the model-visible temporal length.
+- Outputs:
+  - `tables/temporal_sampling_summary.csv`
+  - `tables/temporal_sampling_merged.csv`
+  - `tables/temporal_sampling_correlation.csv`
+  - `tables/temporal_sampling_group_summary.csv`
+  - `reports/temporal_sampling_audit_report.md`
+- Local validation:
+  - `python -m compileall src/diagnostics/temporal_sampling.py scripts/audit_temporal_sampling.py tests/test_temporal_sampling_audit.py` passed with the bundled Codex Python runtime.
+  - Direct smoke test generated all expected outputs.
+  - Local Python still lacks `pytest`; run focused pytest on the server.
+
+### P0 temporal sampling ablation implementation
+
+- Added configurable temporal sampling strategies while preserving the
+  historical default behavior.
+- New module:
+  - `src/datasets/temporal_sampling.py`
+- Updated dataset:
+  - `src/datasets/dataset.py`
+- New config key:
+  - `PROCESS_TEMPORAL.SAMPLING_STRATEGY`
+- Supported strategies:
+  - `stride_head`: historical `frames[::SAMPLE_STEP][:MAX_SEQ_LEN // SAMPLE_STEP]`;
+  - `uniform`: uniformly sample model-visible frames across the whole video;
+  - `first`: contiguous first crop;
+  - `middle`: contiguous middle crop;
+  - `random`: deterministic random contiguous crop keyed by video path.
+- New training overrides:
+  - `configs/temporal_sampling/uniform_256.yaml`
+  - `configs/temporal_sampling/uniform_512.yaml`
+  - `configs/temporal_sampling/uniform_1024.yaml`
+  - `configs/temporal_sampling/first_crop.yaml`
+  - `configs/temporal_sampling/middle_crop.yaml`
+  - `configs/temporal_sampling/random_crop.yaml`
+- New tests:
+  - `tests/test_temporal_sampling.py`
+  - extended `tests/test_temporal_sampling_audit.py`
+- Local validation:
+  - Compile validation passed.
+  - Direct strategy smoke passed.
+  - Direct uniform temporal audit smoke passed.
+  - Server still needs focused pytest and actual training ablations.
+
+### Border-connected black ablation result review
+
+- Reviewed:
+  - `rgb_ablation_border_black_to_gray`
+  - `rgb_ablation_border_black_feather`
+  - `rgb_ablation_center_mask_black_to_gray`
+- All three runs are comparable to previous RGB ablations in core settings.
+- Main results:
+  - `center_mask_black_to_gray`: MAE about `7.73`, RMSE about `10.02`,
+    Pearson about `0.52`, CCC about `0.45`.
+  - `center_mask`: MAE about `7.94`, RMSE about `10.16`, Pearson about
+    `0.51`, CCC about `0.48`.
+  - `border_black_feather`: MAE about `8.04`, RMSE about `10.13`, Pearson
+    about `0.50`, CCC about `0.41`.
+  - `border_black_to_gray`: weaker than feathering, MAE about `8.69`.
+- Interpretation:
+  - `center_mask_black_to_gray` is currently best by MAE/RMSE/Pearson, but it
+    mainly improves minimal/mild samples and worsens severe underestimation.
+  - `center_mask` remains more balanced and retains the best CCC.
+  - `border_black_feather` supports the boundary-softening hypothesis better
+    than hard gray replacement.
+  - Input artifact mitigation and severity calibration must be treated as
+    separate problems.
+
+### P0 prediction run summary implementation
+
+- Added reusable multi-run prediction summary diagnostics:
+  - `src/diagnostics/prediction_runs.py`
+  - `scripts/summarize_prediction_runs.py`
+  - `tests/test_prediction_runs.py`
+- Outputs:
+  - `tables/prediction_run_summary.csv`
+  - `tables/severity_bias_summary.csv`
+  - `tables/task_consistency_summary.csv`
+  - `tables/pairwise_baseline_improvement.csv`
+  - `reports/prediction_runs_report.md`
+- The tool records true/pred mean/std, overall MAE/RMSE/Pearson/CCC,
+  severity bias, Freeform/Northwind task consistency, and pairwise improvement
+  against an optional baseline run.
+
+### P0 RGB input ablation unified summary
+
+- Ran `scripts/summarize_prediction_runs.py` on all currently available RGB
+  input ablation prediction CSV files.
+- Included runs:
+  - `rgb`
+  - `gray_scale`
+  - `blur`
+  - `boundary_erased`
+  - `center_mask`
+  - `black_to_gray`
+  - `black_to_mean`
+  - `black_to_blur`
+  - `soft_center_mask`
+  - `inner_crop_resize`
+  - `border_black_feather`
+  - `border_black_to_gray`
+  - `center_mask_black_to_gray`
+- Generated unified tables:
+  - `prediction_run_summary.csv`
+  - `severity_bias_summary.csv`
+  - `task_consistency_summary.csv`
+  - `pairwise_baseline_improvement.csv`
+  - `prediction_runs_report.md`
+- Current ranking by test MAE:
+  `center_mask_black_to_gray` < `center_mask` < `border_black_feather` <
+  `black_to_gray` < `soft_center_mask` < `border_black_to_gray` < `rgb`.
+- Interpretation remains conservative:
+  - `center_mask_black_to_gray` is best overall by MAE/RMSE/Pearson, but
+    worsens severe underestimation.
+  - `center_mask` remains the most balanced candidate by CCC and task
+    consistency.
+  - `gray_scale`, `blur`, `inner_crop_resize`, and `black_to_mean` do not
+    support a single-factor explanation based only on color, texture, or
+    peripheral cropping.
+  - Severity calibration remains a separate P0/P2 issue from input artifact
+    mitigation.
+
+### High-priority overfitting audit review
+
+- Reviewed the remaining overfitting-related ablation and validation queue.
+- Decision: do not keep prioritizing additional RGB mask variants. The black
+  artifact line has enough evidence to support a bounded sub-conclusion, but
+  it cannot explain prediction compression or severe underestimation alone.
+- Promoted the following items to the next high-priority queue:
+  - split / subject integrity audit;
+  - temporal sampling audit and fixed-frame / temporal-crop ablations;
+  - training overfit curve summary across runs;
+  - OpenFace alignment geometry audit;
+  - embedding identity paired-task retrieval;
+  - severity calibration verification;
+  - task inconsistency mixed-factor audit.
+- Updated `docs/TODO.md`, `docs/CURRENT_STATUS.md`,
+  `docs/RESEARCH_NOTES.md`, `docs/SHORTCUT_AUDIT_DESIGN.md`, and
+  `docs/CODEX_CONTEXT.md` with purpose, outputs, interpretation rules, and
+  recommended execution order.
+- Key interpretation:
+  RGB overfitting should now be treated as a multi-factor mechanism involving
+  OpenFace alignment geometry, identity/static appearance, temporal sampling,
+  task context, and label-distribution compression. Border artifacts remain an
+  important visible entry point, not a sufficient explanation.
+
+### RGB overfitting audit plan consolidation
+
+- Added canonical plan document:
+  - `docs/RGB_OVERFITTING_AUDIT_PLAN.md`
+- Reorganized related documentation roles:
+  - `RGB_OVERFITTING_AUDIT_PLAN.md`: authoritative research plan and
+    experiment ordering;
+  - `CURRENT_STATUS.md`: current status summary;
+  - `TODO.md`: executable task checklist;
+  - `SHORTCUT_AUDIT_DESIGN.md`: audit input/output/field specification;
+  - `RESEARCH_NOTES.md`: paper background and research rationale;
+  - `CODEX_CONTEXT.md`: handoff context for future Codex sessions.
+- Clarified that black border / black padding is one possible overfitting
+  factor, not the main thesis.
+- Updated the current execution order to:
+  split integrity -> temporal sampling -> training overfit curves ->
+  alignment geometry -> embedding identity retrieval -> severity calibration ->
+  task inconsistency mixed-factor audit.
+
+### P0-A split integrity audit implementation
+
+- Implemented offline split / subject integrity audit:
+  - `src/diagnostics/split_integrity.py`
+  - `scripts/audit_split_integrity.py`
+  - `tests/test_split_integrity.py`
+- The audit checks subject overlap across train/val/test, duplicate video ids,
+  missing or invalid BDI label files, optional aligned image directory
+  existence, and optional prediction-to-split alignment.
+- Expected outputs:
+  - `tables/split_video_manifest.csv`
+  - `tables/split_subject_overlap.csv`
+  - `tables/split_label_distribution.csv`
+  - `tables/split_prediction_alignment.csv`
+  - `reports/split_integrity_report.md`
+- Interpretation rule:
+  `split_integrity_report.md` should report `status: PASS` before later RGB
+  overfitting diagnostics are interpreted as valid subject-disjoint
+  generalization evidence.
+- Local validation:
+  compileall passed for `src/diagnostics/split_integrity.py`,
+  `scripts/audit_split_integrity.py`, and `tests/test_split_integrity.py`;
+  direct smoke passed on synthetic split/label/image/prediction data. Local
+  bundled Python does not include `pytest`, so formal pytest remains
+  server-side.
+- Next server-side commands:
+
+```bash
+python -m pytest tests/test_split_integrity.py
+
+python scripts/audit_split_integrity.py \
+  --split-file /path/to/dataset_split.json \
+  --label-dir /path/to/labels \
+  --image-root /path/to/aligned/frame/root \
+  --predictions logs/rgb/test_predictions.csv \
+  --output-dir logs/rgb/diagnostics/split_integrity
+```

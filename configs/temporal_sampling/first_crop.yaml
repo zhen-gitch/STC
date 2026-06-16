@@ -1,0 +1,5 @@
+MODEL:
+  NAME: "rgb_temporal_first_crop"
+
+PROCESS_TEMPORAL:
+  SAMPLING_STRATEGY: "first"

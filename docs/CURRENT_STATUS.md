@@ -58,23 +58,26 @@ src/diagnostics/        # 独立诊断与可视化系统
 
 当前视频帧序列已经由 OpenFace 裁剪和对齐，所用 OpenFace 版本可能不是最新版。因此，近期实验中出现的泛化问题不应只解释为普通背景过拟合，而应重点检查 OpenFace aligned face 中仍然存在的非抑郁捷径，包括身份纹理、裁剪边界、对齐伪影、姿态残留、追踪质量、光照和视频质量。
 
-最新 RGB 输入消融进一步收窄了问题范围。`center_mask` 在测试集上明显优于原始 `rgb`，而 `grayscale` 和 `blur` 变差，说明当前主要风险不太像单纯颜色捷径或细粒度纹理捷径；更值得优先验证的是 OpenFace aligned face 中的黑色填充、硬裁剪边界、遮挡物黑块和对齐残留。用户检查的样例帧显示，脸部轮廓外和麦克风遮挡区域存在纯黑像素，这类硬像素突变可能被 DeiT/ViT 当作稳定但不可泛化的非行为线索。
+最新 RGB 输入消融进一步说明输入侧非行为线索值得研究。`center_mask` 在测试集上明显优于原始 `rgb`，而 `grayscale` 和 `blur` 变差；样例帧也显示 OpenFace aligned face 中存在黑色填充、硬裁剪边界、遮挡物黑块和对齐残留。这些现象支持“input artifact 是风险入口”的判断，但不能把 RGB 过拟合单独归因于黑边或黑填充。后续应同时审计 split/subject、时序采样、训练曲线泛化缺口、OpenFace 对齐几何、身份静态外观、姿态/追踪质量、任务语境和 severity calibration。
 
-backbone 冻结与高层微调实验提示：仅调整 `FREEZE_BACKBONE` / `FINETUNE_LAST_N_BLOCKS` 不能充分解决泛化问题。下一阶段优先方向应转为 OpenFace 行为表征和诊断：
+backbone 冻结与高层微调实验提示：仅调整 `FREEZE_BACKBONE` / `FINETUNE_LAST_N_BLOCKS` 不能充分解决泛化问题。下一阶段优先方向应转为 RGB 过拟合多因素审计：
 
 ```text
-OpenFace aligned RGB baseline
--> OpenFace 质量与捷径诊断
--> landmark/AU/pose/gaze 行为 baseline
--> RGB + behavior late fusion
--> 面部行为辅助任务的 MTL-Lite
+split integrity audit
+-> temporal sampling audit / ablation
+-> training overfit curve summary
+-> alignment geometry audit
+-> embedding identity retrieval
+-> severity calibration verification
+-> task inconsistency mixed-factor audit
 ```
 
-相关论文线索和实验路线记录在 `docs/RESEARCH_NOTES.md`。非抑郁捷径验证框架的具体实施方案记录在 `docs/SHORTCUT_AUDIT_DESIGN.md`。
+权威路线记录在 `docs/RGB_OVERFITTING_AUDIT_PLAN.md`。相关论文线索记录在 `docs/RESEARCH_NOTES.md`。非抑郁捷径验证框架的具体实施方案记录在 `docs/SHORTCUT_AUDIT_DESIGN.md`。
 
 ## 重要文件
 
 - `docs/MTL_LITE_DESIGN.md`：新架构、模块边界、接口定义和实施路线。
+- `docs/RGB_OVERFITTING_AUDIT_PLAN.md`：RGB 过拟合多因素审计权威路线。
 - `docs/CODEX_CONTEXT.md`：Codex 长期上下文。
 - `docs/RESEARCH_NOTES.md`：OpenFace 行为表征、相关论文和后续实验路线。
 - `docs/SHORTCUT_AUDIT_DESIGN.md`：非抑郁捷径验证框架和实施方案。
@@ -439,3 +442,219 @@ case study 优先集合：
 - 低黑边高误差：`237_1`；
 - `black_to_gray` 改善明显：`250_1`、`344_2`、`242_1`；
 - `black_to_gray` 恶化明显：`206_2`、`226_2`、`210_2`。
+
+## 2026-06-15 RGB 过拟合多因素判断
+
+当前不应把 RGB 过拟合单独归因于黑边。更合理的论文判断是：RGB 模型可能同时利用身份静态外观、OpenFace 对齐几何、边界填充、姿态/追踪质量、视频长度/采样、任务语境差异和标签分布造成的 prediction compression。
+
+权威路线文档：`docs/RGB_OVERFITTING_AUDIT_PLAN.md`。后续关于 RGB 过拟合机制、论文实验顺序和 P0/P1 审计优先级的判断，以该文档为准。当前文档只记录状态摘要。
+
+下一阶段推荐排查顺序已更新为：
+
+```text
+split integrity audit
+-> temporal sampling audit / ablation
+-> training overfit curve summary
+-> alignment geometry audit
+-> embedding identity retrieval
+-> severity calibration verification
+-> task inconsistency mixed-factor audit
+```
+
+黑边/黑填充方向保留为 input artifact 子证据，而不是总解释。其中 `frame_count` / `sampled_frame_count` 在黑伪迹审计中与 `pred_bdi` 的相关性最高，约 `r = -0.207`，因此时序采样、视频长度和 padding 需要优先验证。severe 低估和 minimal 高估继续作为独立校准问题跟踪，不能仅靠输入伪迹解释。
+
+P0 temporal sampling audit 已落地：
+
+```text
+src/diagnostics/temporal_sampling.py
+scripts/audit_temporal_sampling.py
+tests/test_temporal_sampling_audit.py
+```
+
+服务器运行示例：
+
+```bash
+python scripts/audit_temporal_sampling.py \
+  --predictions logs/rgb/rgb_test_predictions.csv \
+  --image-root /path/to/AVEC2014/face_images \
+  --output-dir logs/rgb/diagnostics/temporal_sampling \
+  --sample-step 10 \
+  --max-seq-len 2000
+```
+
+注意：`--sample-step` 和 `--max-seq-len` 应与对应实验的 `resolved_config.yaml` 保持一致。
+
+P0 temporal sampling ablation 已接入：
+
+```text
+src/datasets/temporal_sampling.py
+PROCESS_TEMPORAL.SAMPLING_STRATEGY
+configs/temporal_sampling/
+```
+
+默认 `stride_head` 保持旧行为不变。服务器训练示例：
+
+```bash
+python scripts/train_mtl_lite.py \
+  --override configs/regression_only_baseline.yaml \
+  --override configs/input_ablation/rgb.yaml \
+  --override configs/temporal_sampling/uniform_256.yaml
+
+python scripts/train_mtl_lite.py \
+  --override configs/regression_only_baseline.yaml \
+  --override configs/input_ablation/rgb.yaml \
+  --override configs/temporal_sampling/uniform_512.yaml
+
+python scripts/train_mtl_lite.py \
+  --override configs/regression_only_baseline.yaml \
+  --override configs/input_ablation/rgb.yaml \
+  --override configs/temporal_sampling/uniform_1024.yaml
+```
+
+temporal crop 对照：
+
+```bash
+python scripts/train_mtl_lite.py \
+  --override configs/regression_only_baseline.yaml \
+  --override configs/input_ablation/rgb.yaml \
+  --override configs/temporal_sampling/first_crop.yaml
+
+python scripts/train_mtl_lite.py \
+  --override configs/regression_only_baseline.yaml \
+  --override configs/input_ablation/rgb.yaml \
+  --override configs/temporal_sampling/middle_crop.yaml
+
+python scripts/train_mtl_lite.py \
+  --override configs/regression_only_baseline.yaml \
+  --override configs/input_ablation/rgb.yaml \
+  --override configs/temporal_sampling/random_crop.yaml
+```
+
+若 `uniform_512` 或 `uniform_1024` 触发 OOM，应先降低 `EXTRACT_FEATURE.BATCH_SIZE` 或 `EXTRACT_FEATURE.CHUNK_SIZE`，不要同时改动其他训练超参数。
+
+## 2026-06-15 边界连通黑区消融结果
+
+三组更精确的边界连通黑区消融已经完成，配置与前序 RGB 消融可比，区别仅在 `DATASET.INPUT_VARIANT`。
+
+核心结果：
+
+- `center_mask_black_to_gray` 当前整体 MAE/RMSE/Pearson 最好：MAE 约 `7.73`，RMSE 约 `10.02`，Pearson 约 `0.52`，CCC 约 `0.45`；
+- `center_mask` 仍保持最高 CCC，约 `0.48`，且对 moderate/severe 更均衡；
+- `border_black_feather` 明显优于原始 `rgb` 和 `black_to_gray`，MAE 约 `8.04`，RMSE 约 `10.13`，说明边界软化有效；
+- `border_black_to_gray` 表现较弱，说明硬替换边界黑区不如 feather，也不如 center mask。
+
+重要判读：
+
+- `center_mask_black_to_gray` 的总体提升主要来自 minimal/mild，minimal MAE 从 `center_mask` 的约 `7.68` 降至约 `6.13`；
+- 但它加重 severe 低估，severe MAE 约 `17.46`，比 `rgb` 和 `center_mask` 更差；
+- 因此它不是全面更优，而是更偏低预测、更保守的校准版本；
+- `border_black_feather` 对 severe 比 `center_mask` 更好，但 task consistency 比 `rgb` / `center_mask` 差；
+- 后续必须将输入伪迹处理和 severity calibration 分开研究。
+
+P0 prediction run summary 工具已新增：
+
+```text
+src/diagnostics/prediction_runs.py
+scripts/summarize_prediction_runs.py
+tests/test_prediction_runs.py
+```
+
+该工具用于统一输出 `prediction_run_summary.csv`、`severity_bias_summary.csv`、`task_consistency_summary.csv`、`pairwise_baseline_improvement.csv` 和 `prediction_runs_report.md`，避免后续每轮消融手工计算 prediction std、severity bias 和 task consistency。
+
+已使用该工具对当前可用的 RGB input ablation 预测文件完成统一汇总。包含 `rgb`、`gray_scale`、`blur`、`boundary_erased`、`center_mask`、`black_to_gray`、`black_to_mean`、`black_to_blur`、`soft_center_mask`、`inner_crop_resize`、`border_black_feather`、`border_black_to_gray` 和 `center_mask_black_to_gray`。
+
+推荐服务器复现命令：
+
+```bash
+python scripts/summarize_prediction_runs.py \
+  --baseline rgb \
+  --output-dir analysis_outputs/rgb_input_ablation_summary \
+  --run rgb=logs/rgb/rgb_test_predictions.csv \
+  --run gray_scale=logs/gray_scale/test_predictions.csv \
+  --run blur=logs/blur/test_predictions.csv \
+  --run boundary_erased=logs/boundary_erased/test_predictions.csv \
+  --run center_mask=logs/center_mask/test_predictions.csv \
+  --run black_to_gray=logs/rgb_ablation_black_to_gray/test_predictions.csv \
+  --run black_to_mean=logs/rgb_ablation_black_to_mean/test_predictions.csv \
+  --run black_to_blur=logs/rgb_ablation_black_to_blur/test_predictions.csv \
+  --run soft_center_mask=logs/rgb_ablation_soft_center_mask/test_predictions.csv \
+  --run inner_crop_resize=logs/rgb_ablation_inner_crop_resize/test_predictions.csv \
+  --run border_black_feather=logs/rgb_ablation_border_black_feather/test_predictions.csv \
+  --run border_black_to_gray=logs/rgb_ablation_border_black_to_gray/test_predictions.csv \
+  --run center_mask_black_to_gray=logs/rgb_ablation_center_mask_black_to_gray/test_predictions.csv
+```
+
+统一表格的当前排序进一步支持以下判断：
+
+- 整体 MAE 排名前三为 `center_mask_black_to_gray`、`center_mask`、`border_black_feather`；
+- `center_mask` 仍保持最高 CCC 和接近原始 `rgb` 的 task consistency；
+- `gray_scale`、`blur`、`inner_crop_resize` 和 `black_to_mean` 未能改善整体结果，说明过拟合不能简单解释为颜色、纹理或外围区域单因素；
+- 所有较好变体的 `pred_std` 仍低于 `true_std`，severe 低估仍需作为 calibration / severity imbalance 问题单独处理。
+
+## 2026-06-15 高优先级过拟合验证审查
+
+当前不建议继续把主要精力放在新增 RGB mask 变体上。黑边/黑填充已被证明是可见风险入口，但不是单一充分解释；继续增加局部 mask 容易变成经验试错，论文价值不如系统审计过拟合机制。
+
+下一批更高优先级任务如下：
+
+1. **Split / subject integrity audit**：确认 train/val/test subject-disjoint，同一 subject 的 Freeform/Northwind 不跨 split，不存在重复视频目录、重复标签或 video_id 规范化错配。该项优先级最高，因为 split 一旦有问题，所有泛化结论都会被污染。
+2. **Temporal sampling audit / ablation**：已接入实现，待服务器运行真实审计和六组训练消融。当前 `frame_count` / `sampled_frame_count` 与预测的相关性提示时序长度、截断或采样覆盖可能是隐藏捷径。
+3. **Training overfit curve summary**：跨 run 汇总 best epoch、train/val RMSE gap、train/val MAE gap、val 最优后是否继续过拟合。该项可解释 behavior baseline 的 train-test gap，也可比较各 RGB 输入变体是否只是改变预测偏置。
+4. **OpenFace alignment geometry audit**：统计 landmark bbox area/width/height/aspect、face center offset、eye distance 和 face scale，与标签、预测、残差和绝对误差相关。该项应从 P1 提到 P0，因为 `center_mask` 有效而 `inner_crop_resize` 变差，说明几何和尺度因素可能比单纯外围裁剪更关键。
+5. **Embedding identity retrieval audit**：优先做同 subject Freeform/Northwind embedding paired retrieval，而不是直接训练 subject classifier。若同 subject embedding 高度互为近邻，说明 RGB backbone 编码了强身份/静态外观信息。
+6. **Severity calibration verification**：使用 val predictions 拟合 post-hoc linear calibration，再应用到 test，检查 severe 低估和 minimal 高估是否缓解。该项用于区分输入捷径与 loss/标签分布导致的 prediction compression。
+7. **Task inconsistency mixed-factor audit**：将 Freeform/Northwind prediction diff 与 frame_count、black-border、confidence、pose/gaze、alignment geometry 关联，判断任务不一致是否由可观测混杂变量驱动。
+
+推荐执行顺序：
+
+```text
+split integrity audit
+-> temporal sampling audit / ablation
+-> training overfit curve summary
+-> alignment geometry audit
+-> embedding identity retrieval
+-> severity calibration verification
+-> task inconsistency mixed-factor audit
+```
+
+当前实验主线应写作“RGB 过拟合的多因素机制审计”，而不是“黑边导致过拟合”。黑边方向已足以支撑一个子结论：边界硬伪迹会影响泛化，但输入伪迹处理无法单独解决 severe 低估和 prediction compression。
+
+## 2026-06-16 P0-A Split Integrity Audit 实现
+
+P0-A split / subject integrity audit 已作为离线诊断能力落地。该任务优先级最高，因为如果 train/val/test 存在 subject 泄漏、同一 subject 的 Freeform/Northwind 跨 split、重复 video_id、label 错配或 prediction 与 split 无法唯一对齐，后续关于 RGB 过拟合、黑边、时序采样和 identity shortcut 的解释都会被污染。
+
+新增实现：
+
+```text
+src/diagnostics/split_integrity.py
+scripts/audit_split_integrity.py
+tests/test_split_integrity.py
+```
+
+输出：
+
+```text
+tables/split_video_manifest.csv
+tables/split_subject_overlap.csv
+tables/split_label_distribution.csv
+tables/split_prediction_alignment.csv  # 仅在提供 --predictions 时生成
+reports/split_integrity_report.md
+```
+
+服务器运行示例：
+
+```bash
+python scripts/audit_split_integrity.py \
+  --split-file /path/to/dataset_split.json \
+  --label-dir /path/to/labels \
+  --image-root /path/to/aligned/frame/root \
+  --predictions logs/rgb/test_predictions.csv \
+  --output-dir logs/rgb/diagnostics/split_integrity
+```
+
+判读约束：
+
+- `split_integrity_report.md` 中 `status: PASS` 才能继续把后续测试结果当作 subject-disjoint 泛化结果解释；
+- 若存在 `subject_split_overlap`，必须先修复 split 或单独报告污染风险；
+- 若 prediction alignment 出现 `missing_in_split` 或 `ambiguous`，不能继续解释对应 prediction-level 诊断；
+- 该脚本只读 split、label、image root 和 prediction CSV，不改变训练 forward、loss、metric 或 checkpoint。

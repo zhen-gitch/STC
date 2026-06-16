@@ -100,7 +100,7 @@ src/diagnostics/        # 独立诊断与可视化系统
 - [ ] 在相同 split、seed、backbone、时序编码器和指标下比较二者
 - [ ] 建立 OpenFace 质量、姿态、gaze、AU 与 BDI/误差的相关性诊断
 - [x] 运行第一轮输入消融：aligned RGB、grayscale、blur、center_mask、boundary_erased
-- [ ] 运行第二轮黑伪迹输入消融：black_to_gray、black_to_mean、black_to_blur、soft_center_mask、inner_crop_resize
+- [x] 运行第二轮黑伪迹输入消融：black_to_gray、black_to_mean、black_to_blur、soft_center_mask、inner_crop_resize
 - [ ] 建立 landmark-only temporal baseline
 - [ ] 建立 AU / pose / gaze-only temporal baseline
 - [ ] 建立 RGB + behavior late-fusion baseline
@@ -189,9 +189,9 @@ src/diagnostics/        # 独立诊断与可视化系统
 - [x] P0-3 输入变体设计：`rgb` 作为当前 baseline；`grayscale` 弱化颜色线索；`blur` 弱化身份纹理；`center_mask` 保留面部中心；`boundary_erased` 弱化裁剪边界、头发、衣物残留和黑边。
 - [x] P0-3 第一轮结果判读：`center_mask` 当前优于 `rgb`，而 `grayscale` 和 `blur` 变差；下一步应优先验证 OpenFace aligned face 的纯黑填充、黑色遮挡块和硬裁剪边界，而不是继续堆叠 late fusion 或新辅助任务。
 - [x] P0-3 黑伪迹变体设计：`black_to_gray`、`black_to_mean`、`black_to_blur` 用于替换近黑像素；`soft_center_mask` 用于验证软边界是否优于硬 mask；`inner_crop_resize` 用于验证外围黑边是否为主要捷径。
-- [ ] P0-3 服务器运行黑伪迹 ablation：保持与 `rgb`、`center_mask` 完全相同 split、seed、checkpoint 选择策略和指标。
-- [ ] P0-3 汇总 `rgb`、`center_mask`、`boundary_erased` 与五个黑伪迹变体的整体 MAE/RMSE/Pearson/CCC、prediction mean/std、severity group error 和 task consistency。
-- [ ] P0-3 运行黑伪迹审计，统计 `black_ratio`、`black_border_ratio`、`black_center_ratio`、`black_boundary_edge_ratio` 与 `true_bdi`、`pred_bdi`、`residual`、`abs_error` 的相关性。
+- [x] P0-3 服务器运行黑伪迹 ablation：保持与 `rgb`、`center_mask` 完全相同 split、seed、checkpoint 选择策略和指标。
+- [x] P0-3 汇总 `rgb`、`center_mask`、`boundary_erased` 与五个黑伪迹变体的整体 MAE/RMSE/Pearson/CCC、prediction mean/std、severity group error 和 task consistency。
+- [x] P0-3 运行黑伪迹审计，统计 `black_ratio`、`black_border_ratio`、`black_center_ratio`、`black_boundary_edge_ratio` 与 `true_bdi`、`pred_bdi`、`residual`、`abs_error` 的相关性。
 - [ ] P0-3 对黑伪迹变体改善和恶化最明显的样本生成 case study 图组，重点检查麦克风黑块、脸部轮廓黑边、裁剪边界和模型关注区域。
 - [ ] P0-3 后续补充：`landmark_heatmap` 应由 OpenFace landmark 坐标生成，归入 landmark/behavior baseline 路线，不能在只有 RGB 帧时伪造。
 - [x] P0-3 评估约束：所有输入变体必须使用相同 split、seed、checkpoint 选择策略、训练入口和指标；优先记录 MAE、RMSE、Pearson、CCC、prediction mean/std、severe/minimal 分组误差和 Freeform/Northwind 一致性。
@@ -272,7 +272,7 @@ src/diagnostics/        # 独立诊断与可视化系统
 
 ## 2026-06-15 RGB 黑填充伪迹任务队列
 
-当前用户更希望解释 RGB 输入模型过拟合原因，而不是继续堆叠多个任务。该判断是合理的：第一轮输入消融已经显示 `center_mask` 明显改善，说明输入侧非行为线索值得优先研究；如果不先定位 RGB 捷径，直接做 late fusion 或多任务可能只会把过拟合路径复杂化。
+本节为已完成或基本完成的 input artifact 子证据队列。黑边/黑填充是 RGB 过拟合的可能原因之一，但不是唯一主因。当前主线已迁移到 `docs/RGB_OVERFITTING_AUDIT_PLAN.md` 中定义的多因素过拟合审计；后续不再优先继续堆叠相似 RGB mask 变体。
 
 ### P0：立即执行
 
@@ -307,8 +307,8 @@ src/diagnostics/        # 独立诊断与可视化系统
 - [x] 为边界连通黑区 mask 增加单元测试，确保鼻孔、嘴角和麦克风等中心黑块不会被默认替换。
 - [x] 本地完成 compile 验证：`src/datasets/input_variants.py` 与 `tests/test_input_variants.py` 语法检查通过。
 - [ ] 在服务器运行 `python -m pytest tests/test_input_variants.py`。
-- [ ] 在相同 split、seed、训练入口、checkpoint 策略下运行三组新 ablation。
-- [ ] 将三组新结果与 `rgb`、`center_mask`、`black_to_gray`、`soft_center_mask` 统一比较。
+- [x] 在相同 split、seed、训练入口、checkpoint 策略下运行三组新 ablation。
+- [x] 将三组新结果与 `rgb`、`center_mask`、`black_to_gray`、`soft_center_mask` 统一比较。
 
 ### P1.6：case study 复核
 
@@ -325,3 +325,94 @@ src/diagnostics/        # 独立诊断与可视化系统
 - [ ] RGB + behavior late fusion。
 - [ ] AU / landmark / pose / gaze 辅助任务 MTL。
 - [ ] 动态任务权重、PCGrad、GradNorm、LDS 或 `loss_dist`。
+
+## 2026-06-15 RGB 过拟合多因素审计队列
+
+当前权威路线见 `docs/RGB_OVERFITTING_AUDIT_PLAN.md`。核心结论：黑边/黑填充是 RGB 过拟合的可见风险入口，但不是单一充分解释。下一阶段应把 RGB 过拟合拆成多因素审计，逐项验证 split/subject integrity、时序采样、训练曲线泛化缺口、OpenFace 对齐几何、身份静态外观、姿态/追踪质量、任务语境和 severity prediction compression。
+
+### P0：已接入的 temporal / prediction summary 能力
+
+- [x] 视频长度与采样审计：统计 `frame_count`、`sampled_frame_count`、`valid_ratio`、`padding_ratio` 与 `true_bdi`、`pred_bdi`、`residual`、`abs_error` 的关系。
+- [x] 新增 `src/diagnostics/temporal_sampling.py` 与 `scripts/audit_temporal_sampling.py`。
+- [x] 新增 `tests/test_temporal_sampling_audit.py`。
+- [x] 本地完成 compile 和 direct smoke 验证。
+- [ ] 在服务器运行 `python -m pytest tests/test_temporal_sampling_audit.py`。
+- [ ] 在真实 RGB/MTL-Lite prediction CSV 和 aligned frame root 上运行 `scripts/audit_temporal_sampling.py`。
+- [x] 实现固定帧数采样策略：256 / 512 / 1024 uniform frames。
+- [x] 实现 temporal crop 策略：first / middle / random。
+- [x] 新增 temporal sampling override 配置：
+  `configs/temporal_sampling/uniform_256.yaml`、
+  `uniform_512.yaml`、`uniform_1024.yaml`、
+  `first_crop.yaml`、`middle_crop.yaml`、`random_crop.yaml`。
+- [x] 新增 `src/datasets/temporal_sampling.py`，并在 `AVECDataset` 中接入 `PROCESS_TEMPORAL.SAMPLING_STRATEGY`。
+- [x] 新增 `tests/test_temporal_sampling.py`。
+- [ ] 在服务器运行 `python -m pytest tests/test_temporal_sampling.py tests/test_temporal_sampling_audit.py`。
+- [ ] 运行 256 / 512 / 1024 uniform frame 三组训练消融。
+- [ ] 运行 first / middle / random temporal crop 三组训练消融。
+- [ ] 输出 `temporal_sampling_audit_report.md`。
+- [x] 新增 prediction run summary 工具，自动记录 `true_mean/std`、`pred_mean/std`、severity group bias、task consistency 和 pairwise baseline improvement。
+- [x] 新增 `src/diagnostics/prediction_runs.py`、`scripts/summarize_prediction_runs.py`、`tests/test_prediction_runs.py`。
+- [ ] 在服务器运行 `python -m pytest tests/test_prediction_runs.py`。
+- [x] 对已有 RGB input ablation 全部运行 `scripts/summarize_prediction_runs.py`，生成统一论文表格底稿。
+- [x] 当前统一汇总包含 `rgb`、`gray_scale`、`blur`、`boundary_erased`、`center_mask`、`black_to_gray`、`black_to_mean`、`black_to_blur`、`soft_center_mask`、`inner_crop_resize`、`border_black_feather`、`border_black_to_gray` 和 `center_mask_black_to_gray`。
+- [ ] 将统一汇总表整理为论文正文/附录表格，明确区分 input artifact mitigation 与 severity calibration。
+
+### P0：当前高优先级过拟合验证
+
+当前审查结论：不建议继续优先堆叠新的 RGB mask 变体。黑边/黑填充方向已经形成阶段性证据闭环，后续更高价值的问题是验证 split/subject、时序采样、训练曲线过拟合缺口、OpenFace 对齐几何、embedding 身份信息、severity calibration 和 task inconsistency mixed factors。
+
+- [x] P0-A split / subject 泄漏审计实现：确认 train/val/test subject-disjoint，同一 subject 的 Freeform/Northwind 不跨 split，且不存在重复视频目录、重复标签或 video_id 规范化错配。
+- [x] P0-A 新增 `src/diagnostics/split_integrity.py`、`scripts/audit_split_integrity.py`、`tests/test_split_integrity.py`。
+- [x] P0-A 输出 `split_integrity_report.md`、`split_video_manifest.csv`、`split_subject_overlap.csv`、`split_label_distribution.csv`，可选输出 `split_prediction_alignment.csv`。
+- [x] 本地完成 P0-A compile 和 direct smoke 验证；本地 Python 缺少 `pytest`。
+- [ ] 在服务器运行 `python -m pytest tests/test_split_integrity.py`。
+- [ ] 在真实 split、label、aligned image root 和当前 `test_predictions.csv` 上运行 `scripts/audit_split_integrity.py`。
+- [ ] P0-B 训练曲线过拟合审计：跨 run 汇总 best epoch、train/val RMSE gap、train/val MAE gap、val 最优后是否继续过拟合。
+- [ ] P0-B 输出 `training_overfit_summary.csv`、`training_overfit_report.md`，并对 RGB、center_mask、center_mask_black_to_gray、border_black_feather、behavior baseline 做统一比较。
+- [ ] P0-C OpenFace 对齐几何审计：统计 landmark bbox area/width/height/aspect、face center offset、eye distance、face scale，并与 `true_bdi`、`pred_bdi`、`residual`、`abs_error` 相关。
+- [ ] P0-C 输出 `alignment_geometry_summary.csv`、`alignment_geometry_correlation.csv`、`alignment_geometry_audit_report.md`。
+- [ ] P0-D embedding 身份信息审计：优先做 paired-task retrieval，检查同一 subject 的 Freeform/Northwind embedding 是否互为近邻；再考虑 subject proxy classifier。
+- [ ] P0-D 输出 `embedding_identity_retrieval.csv`、`embedding_identity_report.md`，报告 same-subject top-k retrieval、subject clustering 与 severity clustering。
+- [ ] P0-E severity calibration 验证：使用 val predictions 拟合 post-hoc linear calibration，再应用到 test，检查 severe 低估和 minimal 高估是否缓解。
+- [ ] P0-E 输出 `severity_calibration_report.md`，并明确该实验只用于验证 prediction compression，不作为最终模型调参结论。
+- [ ] P0-F task inconsistency 混杂审计：将 Freeform/Northwind 差异与 frame_count、black-border、confidence、pose/gaze、alignment geometry 相关联。
+- [ ] P0-F 输出 `task_artifact_correlation.csv` 与 `task_inconsistency_manifest.csv`。
+
+执行顺序建议：
+
+```text
+split integrity audit
+-> temporal sampling audit / ablation
+-> training overfit curve summary
+-> alignment geometry audit
+-> embedding identity retrieval
+-> severity calibration
+-> task inconsistency mixed-factor audit
+```
+
+完成 P0 后，再考虑 P1 的区域输入变体、patch/attention case study 和 targeted robustness augmentation。
+
+### P1：输入几何与质量审计
+
+- [ ] 若 P0-C 已完成，则本节转为扩展分析：增加插值模糊、亮度/对比度、边界 patch 统计和脸部轮廓残留。
+- [ ] 姿态/追踪质量审计：统计 confidence、success、pose、gaze、landmark jitter。
+- [ ] 检查 severe 低估是否集中在低 confidence、大姿态、高 jitter 或异常 face scale 样本。
+
+### P1：身份与静态外观审计
+
+- [ ] 设计 `face_contour_erased` 输入变体，弱化脸型、发际线和轮廓捷径。
+- [ ] 设计 `eye_mouth_only` 或 `upper_lower_face` 区域变体，验证有效信号是否集中于行为区域。
+- [ ] 在 P0-D paired-task retrieval 完成后，再决定是否训练 frozen RGB embedding subject proxy classifier。
+- [ ] 对 embedding 做 subject-level 聚类或可视化，检查是否按 subject/外观而非 BDI 聚类。
+
+### P1：任务语境审计
+
+- [ ] 分 Freeform / Northwind 报告整体指标和 severity bias。
+- [ ] 生成 task inconsistency manifest。
+- [ ] 检查 task inconsistency 是否与 frame_count、pose/gaze、black-border、confidence 或 face scale 相关。
+
+### P2：校准与损失实验
+
+- [ ] 在输入捷径审计之后，再单独测试 severity-balanced sampler。
+- [ ] 在输入捷径审计之后，再单独测试 weighted MSE / Huber / CCC loss。
+- [ ] 输出 severity calibration report，避免把整体抬高预测误判为真正泛化提升。

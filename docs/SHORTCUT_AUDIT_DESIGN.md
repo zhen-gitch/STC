@@ -2,6 +2,8 @@
 
 本文档定义“非抑郁捷径验证框架”（Shortcut Audit Framework）的研究目标、数据需求、诊断模块、实验矩阵和实施路线。该框架用于验证模型是否依赖身份、OpenFace 追踪质量、裁剪伪影、姿态、光照、视频质量等非抑郁线索，而不是稳定的面部行为动态。
 
+当前 RGB 过拟合多因素审计的权威路线见 `docs/RGB_OVERFITTING_AUDIT_PLAN.md`。本文档负责定义各类 audit 的输入、输出、字段和判读标准；黑边/黑填充只作为 input artifact 子证据之一，不作为唯一或主要解释。
+
 该框架只做诊断和消融，不应改变训练、验证或测试标签，也不应污染 validation/test 统计。
 
 ## 1. 核心问题
@@ -660,3 +662,406 @@ all_without_raw_landmarks
 - 如果 behavior-only 能修正 RGB 的 severe 低估或 task inconsistency，才有必要优先进入 late fusion。
 
 在这些审计完成前，RGB + behavior late fusion 只应作为 P2 计划，不应提前作为主要模型改进。
+
+## 12. RGB 过拟合多因素审计扩展
+
+黑边和黑填充审计之后，Shortcut Audit 不应只围绕单一 artifact。当前 RGB 过拟合需要拆成输入图像、OpenFace 对齐几何、时序序列、身份/静态外观、姿态/追踪质量、任务语境和标签分布等因素逐项验证。完整路线以 `docs/RGB_OVERFITTING_AUDIT_PLAN.md` 为准。
+
+### 12.1 身份与静态外观审计
+
+目标：
+
+- 判断 RGB/MTL-Lite embedding 是否主要编码 subject 身份、脸型或静态外观；
+- 判断去除脸部轮廓、头发、眼镜、胡须等静态区域是否提升泛化。
+
+建议输出：
+
+```text
+identity_proxy_results.csv
+embedding_subject_cluster_report.md
+region_ablation_summary.csv
+```
+
+建议实验：
+
+- `face_contour_erased`
+- `eye_mouth_only`
+- `upper_face_only`
+- `lower_face_only`
+- subject proxy classifier on frozen RGB embeddings
+
+判读：
+
+- 如果 subject proxy accuracy 高，说明 embedding 中身份信号强；
+- 如果 `face_contour_erased` 改善，说明脸型/轮廓/发际线等静态外观可能是捷径；
+- 如果只保留眼嘴区域仍能接近 `center_mask`，说明模型有效信号可能集中在行为区域。
+
+### 12.2 OpenFace 对齐几何审计
+
+目标：
+
+- 检查 aligned face 的尺度、中心偏移、眼距和 landmark 外接框是否影响预测；
+- 区分黑边风险和更一般的 crop/alignment geometry risk。
+
+建议特征：
+
+```text
+landmark_bbox_area
+landmark_bbox_width
+landmark_bbox_height
+landmark_bbox_aspect
+face_center_x
+face_center_y
+face_center_offset
+eye_distance
+mouth_to_eye_distance
+```
+
+输出：
+
+```text
+alignment_geometry_summary.csv
+alignment_geometry_correlation.csv
+alignment_geometry_audit_report.md
+```
+
+判读：
+
+- 如果 face scale 或 center offset 与 `abs_error` 相关，应将 OpenFace alignment geometry 作为独立风险报告；
+- 如果 geometry predictor 能在 grouped-CV 中预测误差，说明它是泛化风险因子；
+- 如果 geometry 变量与 black-border 变量共同解释高误差，应优先做 crop/scale normalization ablation。
+
+### 12.3 姿态、gaze 与追踪质量审计
+
+目标：
+
+- 判断 `confidence`、`success`、pose、gaze、landmark jitter 是否与标签、预测或误差相关；
+- 区分真实面部行为与追踪质量混杂。
+
+建议特征：
+
+```text
+confidence_mean / std / low_confidence_ratio
+success_ratio / failed_frame_ratio
+pose_rx / pose_ry / pose_rz mean/std/abs_mean
+gaze mean/std
+landmark_jitter_mean/std
+```
+
+判读：
+
+- 若 quality 与 `abs_error` 相关，应作为数据质量风险，而不是行为 biomarker；
+- 若 pose/gaze 与 `pred_bdi` 相关但 grouped-CV 不稳定，应避免直接作为辅助任务；
+- 若 severe 低估集中在低 confidence 或大姿态样本，应优先做质量分层评估。
+
+### 12.4 视频长度、采样与 padding 审计
+
+黑伪迹审计已经显示 `frame_count` / `sampled_frame_count` 与 `pred_bdi` 的相关性最高，约 `r = -0.207`。因此时序采样是下一批 P0/P1 诊断重点。
+
+建议特征：
+
+```text
+frame_count
+sampled_frame_count
+valid_ratio
+padding_ratio
+effective_sequence_length
+clip_count
+```
+
+建议实验：
+
+- fixed 256-frame uniform sampling；
+- fixed 512-frame uniform sampling；
+- first / middle / uniform temporal crop 对照；
+- temporal occlusion by segment；
+- 比较 `MAX_SEQ_LEN` 截断前后的 prediction stability。
+
+当前实现状态：
+
+- 已新增 `src/diagnostics/temporal_sampling.py`；
+- 已新增 `scripts/audit_temporal_sampling.py`；
+- 已新增 `tests/test_temporal_sampling_audit.py`；
+- 当前离线审计会输出 temporal summary、merged table、correlation table、group summary 和 markdown report；
+- 已新增 `src/datasets/temporal_sampling.py` 并在 `AVECDataset` 中接入 `PROCESS_TEMPORAL.SAMPLING_STRATEGY`；
+- 已新增 fixed uniform 与 temporal crop override 配置，训练结果仍待服务器运行。
+
+判读：
+
+- 如果固定帧数采样显著改变预测压缩，说明当前时序覆盖或截断策略影响泛化；
+- 如果长视频更容易被预测偏低，应检查中性片段稀释和 keyframe pooling；
+- 如果同 subject task inconsistency 与 frame_count 差异相关，应把任务长度作为混杂变量报告。
+
+### 12.5 任务语境差异审计
+
+目标：
+
+- 量化 Freeform/Northwind 同 subject 预测不一致；
+- 判断 task-specific 行为、说话内容、遮挡、姿态和长度是否影响预测。
+
+建议输出：
+
+```text
+task_consistency_summary.csv
+task_inconsistency_manifest.csv
+task_artifact_correlation.csv
+```
+
+判读：
+
+- task name 仅作为诊断变量，不应直接作为当前训练输入；
+- 如果 task inconsistency 与 pose/gaze/frame_count/black-border 相关，应优先修正对应输入或采样因素；
+- 如果同 subject 两个任务都错，说明更可能是 subject-level bias 或 severity compression。
+
+### 12.6 Prediction compression 与 severity calibration
+
+目标：
+
+- 将输入捷径问题与标签分布/损失导致的向均值收缩区分开；
+- 解释 minimal 高估和 severe 低估。
+
+建议输出：
+
+```text
+prediction_distribution_summary.csv
+severity_calibration.csv
+severity_bias_report.md
+```
+
+每个实验必须报告：
+
+```text
+true_mean / true_std
+pred_mean / pred_std
+minimal_bias
+mild_bias
+moderate_bias
+severe_bias
+```
+
+当前实现状态：
+
+- 已新增 `src/diagnostics/prediction_runs.py`；
+- 已新增 `scripts/summarize_prediction_runs.py`；
+- 已新增 `tests/test_prediction_runs.py`；
+- 该工具会输出整体指标、prediction distribution、severity bias、task consistency 和 pairwise baseline improvement；
+- 已对当前可用 RGB input ablation 预测文件生成统一汇总表；
+- 后续所有输入消融、黑边消融和 temporal sampling 消融都应先用该工具生成统一表格，再进入论文解释。
+
+推荐输出目录不要放在原始 `logs/` 下，避免混淆训练产物和二次分析产物：
+
+```bash
+python scripts/summarize_prediction_runs.py \
+  --baseline rgb \
+  --output-dir analysis_outputs/rgb_input_ablation_summary \
+  --run rgb=logs/rgb/rgb_test_predictions.csv \
+  --run center_mask=logs/center_mask/test_predictions.csv \
+  --run border_black_feather=logs/rgb_ablation_border_black_feather/test_predictions.csv \
+  --run center_mask_black_to_gray=logs/rgb_ablation_center_mask_black_to_gray/test_predictions.csv
+```
+
+论文判读时应至少同时报告 `prediction_run_summary.csv`、`severity_bias_summary.csv`、`task_consistency_summary.csv` 和 `pairwise_baseline_improvement.csv`。单看整体 MAE 会高估 `center_mask_black_to_gray` 的稳定性，因为该变体改善 minimal/mild 的同时加重 severe 低估。
+
+判读：
+
+- 如果输入消融改善整体 MAE 但 prediction std 仍远低于 true std，则 severe 低估不能只靠输入处理解决；
+- 如果某个变体通过整体抬高预测改善 severe 但伤害 minimal，应报告为 calibration trade-off，而不是泛化提升；
+- severity-balanced sampler、weighted loss、Huber/CCC loss 应作为单独实验，不与输入消融混在一起。
+
+### 12.7 Split 与 subject integrity audit
+
+目标：
+
+- 确认当前 train/val/test split 的 subject-level 独立性；
+- 确认同一 subject 的 Freeform/Northwind 不跨 split；
+- 检查 video_id、subject_id、label file 和 OpenFace CSV 之间是否存在规范化错配；
+- 检查重复视频目录、重复标签和缺失标签。
+
+建议输出：
+
+```text
+tables/split_video_manifest.csv
+tables/split_subject_overlap.csv
+tables/split_label_distribution.csv
+tables/split_prediction_alignment.csv  # optional, when --predictions is provided
+reports/split_integrity_report.md
+```
+
+实现状态：
+
+```text
+src/diagnostics/split_integrity.py
+scripts/audit_split_integrity.py
+tests/test_split_integrity.py
+```
+
+运行示例：
+
+```bash
+python scripts/audit_split_integrity.py \
+  --split-file /path/to/dataset_split.json \
+  --label-dir /path/to/labels \
+  --image-root /path/to/aligned/frame/root \
+  --predictions logs/rgb/test_predictions.csv \
+  --output-dir logs/rgb/diagnostics/split_integrity
+```
+
+最低判读标准：
+
+- 任意 subject 不得同时出现在多个 split；
+- 同一 subject 的多个 task video 应进入同一 split；
+- 每个 video 必须能匹配唯一 label；
+- 每个 prediction row 必须能回连到唯一 video directory 和 label source。
+- `split_integrity_report.md` 中 `status: PASS` 才能继续把后续测试结果当作 subject-disjoint 泛化结果解释。
+
+该项应放在所有新实验解释之前。如果发现 split 或 label 问题，应暂停现有 test 结果解释，先修正数据划分或重新生成预测。
+
+### 12.8 Training overfit curve summary
+
+目标：
+
+- 量化不同 run 的 train/val 泛化缺口；
+- 判断某个输入变体是否真正改善泛化，而不是只改变 test prediction bias；
+- 解释 behavior baseline 中 train RMSE 极低但 test 结果较差的问题。
+
+建议输出：
+
+```text
+training_overfit_summary.csv
+training_overfit_report.md
+training_curve_gap_by_run.csv
+```
+
+建议字段：
+
+```text
+run_name
+best_val_epoch
+best_val_rmse
+train_rmse_at_best_val
+train_val_rmse_gap
+best_val_mae
+train_mae_at_best_val
+train_val_mae_gap
+last_train_rmse
+last_val_rmse
+overfit_after_best_val
+```
+
+判读：
+
+- 如果某个变体 test MAE 改善但 train/val gap 仍扩大，应谨慎解释为泛化提升；
+- 如果 behavior feature ablation 的 train/val gap 远大于 RGB，说明结构化特征仍携带身份或静态几何捷径；
+- 如果 `center_mask` 同时降低 test MAE 和 train/val gap，才更适合作为稳定输入处理证据。
+
+### 12.9 Alignment geometry audit
+
+目标：
+
+- 将黑边之外的 OpenFace 对齐几何显式量化；
+- 检查 face scale、bbox shape、face center offset 和 eye distance 是否与标签、预测或误差相关；
+- 判断 `center_mask` 改善是否可能来自弱化对齐几何和轮廓线索。
+
+建议输入：
+
+```text
+OpenFace CSV root
+prediction CSV
+split file
+```
+
+建议输出：
+
+```text
+alignment_geometry_summary.csv
+alignment_geometry_correlation.csv
+alignment_geometry_group_summary.csv
+alignment_geometry_audit_report.md
+```
+
+建议特征：
+
+```text
+landmark_bbox_x_min / x_max / y_min / y_max
+landmark_bbox_width / height / area / aspect
+face_center_x / face_center_y
+face_center_offset_x / face_center_offset_y
+eye_distance
+normalized_face_scale
+landmark_jitter
+```
+
+判读：
+
+- 如果 geometry features 与 `abs_error` 或 `residual` 相关，应把 OpenFace alignment geometry 作为 shortcut risk；
+- 如果 severe 低估集中在异常 face scale、偏移或大姿态样本，应优先进行质量分层评估；
+- 如果 task inconsistency 与 face scale 或 center offset 差异相关，应把任务采集/对齐差异作为混杂因素报告。
+
+### 12.10 Embedding identity retrieval audit
+
+目标：
+
+- 检查 RGB/MTL-Lite learned embedding 是否更接近身份/静态外观，而不是 BDI severity；
+- 避免一开始训练 subject classifier，因为 subject-independent split 下 test subject 未在 train 出现。
+
+建议输入：
+
+```text
+diagnostics/embeddings/test_features.npz
+prediction CSV
+```
+
+建议输出：
+
+```text
+embedding_identity_retrieval.csv
+embedding_identity_report.md
+embedding_similarity_matrix.png
+```
+
+建议指标：
+
+```text
+same_subject_top1_rate
+same_subject_top3_rate
+paired_task_rank_mean
+paired_task_rank_median
+severity_neighbor_agreement
+task_neighbor_agreement
+```
+
+判读：
+
+- 如果 Freeform 的最近邻常常是同 subject 的 Northwind，说明 embedding 强身份化；
+- 如果 same-subject retrieval 强而 severity neighbor agreement 弱，说明模型表征更像身份/外观空间；
+- 如果 `center_mask` 降低 same-subject retrieval，同时保持或提升 BDI 指标，可作为去身份化输入处理证据。
+
+### 12.11 Severity calibration verification
+
+目标：
+
+- 区分输入捷径缓解和 prediction compression；
+- 验证 severe 低估 / minimal 高估是否能被简单线性校准缓解。
+
+建议流程：
+
+```text
+fit calibration on validation predictions only
+pred_calibrated = a * pred + b
+apply fixed a,b to test predictions
+compare original vs calibrated metrics and severity bias
+```
+
+建议输出：
+
+```text
+severity_calibration_fit.csv
+severity_calibration_test_summary.csv
+severity_calibration_report.md
+```
+
+判读：
+
+- 如果 calibration 明显改善 severe/minimal bias 但 Pearson 基本不变，说明排序信息存在但尺度被压缩；
+- 如果 calibration 伤害整体 MAE 或 mild/moderate，应报告 trade-off；
+- calibration 只作为机制验证，不能与输入消融混为最终模型优化。

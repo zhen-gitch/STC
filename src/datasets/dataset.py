@@ -19,6 +19,7 @@ from torchvision.io import read_image, ImageReadMode
 from torchvision.transforms import v2  # 视频级的图像增强
 
 from src.datasets.input_variants import apply_input_variant, normalize_input_variant
+from src.datasets.temporal_sampling import normalize_temporal_sampling_strategy, select_temporal_indices
 
 
 def _get_config_value(configs, section_name, key, default):
@@ -90,6 +91,10 @@ class AVECDataset(Dataset):
         self.class_step = configs.PROCESS_TEMPORAL.CLASS_STEP
         self.sample_step = configs.PROCESS_TEMPORAL.SAMPLE_STEP
         self.max_len = int(configs.PROCESS_TEMPORAL.MAX_SEQ_LEN // self.sample_step)
+        self.max_seq_len = int(configs.PROCESS_TEMPORAL.MAX_SEQ_LEN)
+        self.sampling_strategy = normalize_temporal_sampling_strategy(
+            _get_config_value(configs, "PROCESS_TEMPORAL", "SAMPLING_STRATEGY", "stride_head")
+        )
         self.dataset_name = dataset
         self.return_multi_view_train = bool(
             _get_config_value(configs, "DATASET", "RETURN_MULTI_VIEW_TRAIN", True)
@@ -127,7 +132,14 @@ class AVECDataset(Dataset):
 
     def _select_frame_paths(self, video_dir):
         frame_paths = sorted(video_dir.glob('*.jpg'))
-        frame_paths = frame_paths[::self.sample_step]
+        indices = select_temporal_indices(
+            len(frame_paths),
+            sample_step=self.sample_step,
+            max_seq_len=self.max_seq_len,
+            strategy=self.sampling_strategy,
+            seed=str(video_dir),
+        )
+        frame_paths = [frame_paths[index] for index in indices]
         actual_len = min(len(frame_paths), self.max_len)
         frame_paths = frame_paths[:self.max_len]
 
