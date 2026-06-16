@@ -697,3 +697,44 @@ python scripts/summarize_training_overfit.py \
 - gap 定义为 `validation - train`，正值越大表示泛化缺口越大；
 - `overfit_after_best_val=True` 表示 best val epoch 之后 validation 变差而 train 指标继续改善；
 - 该脚本只读取 Lightning `metrics.csv`，不读取 test prediction，不改变训练或 checkpoint。
+
+## 2026-06-16 P0-C Alignment Geometry Audit 实现
+
+P0-C OpenFace alignment geometry audit 已作为离线诊断能力落地。该任务用于把黑边之外的 OpenFace 对齐几何显式量化，检查 face scale、landmark bbox、face center offset、eye distance 和 landmark jitter 是否与 BDI、预测残差或绝对误差相关。
+
+新增实现：
+
+```text
+src/diagnostics/alignment_geometry.py
+scripts/audit_alignment_geometry.py
+tests/test_alignment_geometry.py
+```
+
+输出：
+
+```text
+tables/alignment_geometry_summary.csv
+tables/alignment_geometry_merged.csv
+tables/alignment_geometry_correlation.csv
+tables/alignment_geometry_group_summary.csv
+reports/alignment_geometry_audit_report.md
+```
+
+服务器运行示例：
+
+```bash
+python scripts/audit_alignment_geometry.py \
+  --predictions logs/rgb/test_predictions.csv \
+  --openface-root /path/to/openface_csv_root \
+  --output-dir logs/rgb/diagnostics/alignment_geometry \
+  --frame-width 112 \
+  --frame-height 112 \
+  --sample-step 1
+```
+
+判读约束：
+
+- `alignment_geometry_correlation.csv` 用于检查几何变量与 `true_bdi`、`pred_bdi`、`residual`、`abs_error` 的线性关系；
+- `alignment_geometry_group_summary.csv` 用于检查 severe 低估是否集中在异常 face scale、center offset 或 jitter；
+- 如果 OpenFace landmark 坐标不是 aligned 112x112 坐标，应改用对应坐标尺度运行 `--frame-width` 和 `--frame-height`；
+- 该脚本只读 OpenFace CSV 和 prediction CSV，不改变训练数据、split、loss、metric 或 checkpoint。

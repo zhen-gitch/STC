@@ -463,6 +463,28 @@ python scripts/summarize_training_overfit.py \
   --run behavior=/path/to/behavior_baseline/metrics.csv
 ```
 
+P0-C alignment geometry audit 已实现：
+
+- `src/diagnostics/alignment_geometry.py`
+- `scripts/audit_alignment_geometry.py`
+- `tests/test_alignment_geometry.py`
+
+该审计读取 OpenFace CSV 的 `x_*` / `y_*` landmark 坐标，统计 landmark bbox、face center offset、eye distance、normalized face scale 和 landmark jitter，并与 prediction CSV 中的 `true_bdi`、`pred_bdi`、`residual`、`abs_error` 做相关分析。它用于验证 `center_mask` 有效是否可能来自弱化对齐几何、脸部尺度、中心偏移或静态轮廓线索。
+
+服务器运行示例：
+
+```bash
+python scripts/audit_alignment_geometry.py \
+  --predictions logs/rgb/test_predictions.csv \
+  --openface-root /path/to/openface_csv_root \
+  --output-dir logs/rgb/diagnostics/alignment_geometry \
+  --frame-width 112 \
+  --frame-height 112 \
+  --sample-step 1
+```
+
+若 OpenFace landmark 坐标不是 aligned 112x112 坐标，应使用实际坐标尺度设置 `--frame-width` 和 `--frame-height`，否则 normalized offset 和 scale 不能直接解释。
+
 最新高优先级过拟合审查结论：
 
 - RGB 过拟合多因素审计的权威路线文档是 `docs/RGB_OVERFITTING_AUDIT_PLAN.md`；

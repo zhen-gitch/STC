@@ -185,10 +185,19 @@ behavior feature-group ablations
 
 目的：把黑边之外的 OpenFace 对齐几何显式量化。
 
+当前状态：已实现离线审计入口。
+
+```text
+src/diagnostics/alignment_geometry.py
+scripts/audit_alignment_geometry.py
+tests/test_alignment_geometry.py
+```
+
 输出：
 
 ```text
 alignment_geometry_summary.csv
+alignment_geometry_merged.csv
 alignment_geometry_correlation.csv
 alignment_geometry_group_summary.csv
 alignment_geometry_audit_report.md
@@ -205,11 +214,24 @@ normalized_face_scale
 landmark_jitter
 ```
 
+运行示例：
+
+```bash
+python scripts/audit_alignment_geometry.py \
+  --predictions logs/rgb/test_predictions.csv \
+  --openface-root /path/to/openface_csv_root \
+  --output-dir logs/rgb/diagnostics/alignment_geometry \
+  --frame-width 112 \
+  --frame-height 112 \
+  --sample-step 1
+```
+
 判读：
 
 - 若 geometry features 与 `abs_error` 或 `residual` 相关，应作为 shortcut risk。
 - 若 severe 低估集中在异常 face scale、偏移或大姿态样本，应进行质量分层评估。
 - 若 task inconsistency 与 face scale / center offset 差异相关，应把任务采集/对齐差异作为混杂因素报告。
+- 若 OpenFace landmark 坐标来自原始视频坐标而非 aligned 112x112 坐标，必须通过 `--frame-width` 和 `--frame-height` 使用对应坐标尺度，不能直接解释 normalized offset。
 
 ### P0-E Embedding Identity Retrieval
 

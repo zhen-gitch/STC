@@ -754,3 +754,42 @@ python scripts/summarize_training_overfit.py \
   --run border_black_feather=/path/to/border_black_feather/metrics.csv \
   --run behavior=/path/to/behavior_baseline/metrics.csv
 ```
+
+### P0-C alignment geometry audit implementation
+
+- Implemented offline OpenFace alignment geometry audit:
+  - `src/diagnostics/alignment_geometry.py`
+  - `scripts/audit_alignment_geometry.py`
+  - `tests/test_alignment_geometry.py`
+- The audit reads OpenFace landmark columns `x_*` and `y_*`, computes landmark
+  bbox width/height/area/aspect, face center offset, eye distance,
+  normalized face scale, confidence/success summary, and landmark jitter.
+- Expected outputs:
+  - `tables/alignment_geometry_summary.csv`
+  - `tables/alignment_geometry_merged.csv`
+  - `tables/alignment_geometry_correlation.csv`
+  - `tables/alignment_geometry_group_summary.csv`
+  - `reports/alignment_geometry_audit_report.md`
+- Interpretation rule:
+  if geometry variables correlate with `residual` or `abs_error`, treat
+  OpenFace alignment geometry as a shortcut or mixed-factor risk rather than
+  attributing RGB overfitting only to black padding artifacts.
+- Local validation:
+  compileall passed for `src/diagnostics/alignment_geometry.py`,
+  `scripts/audit_alignment_geometry.py`, and `tests/test_alignment_geometry.py`;
+  direct smoke passed on synthetic OpenFace CSV and prediction rows. Local
+  bundled Python does not include `pytest`, so formal pytest remains
+  server-side.
+- Next server-side commands:
+
+```bash
+python -m pytest tests/test_alignment_geometry.py
+
+python scripts/audit_alignment_geometry.py \
+  --predictions logs/rgb/test_predictions.csv \
+  --openface-root /path/to/openface_csv_root \
+  --output-dir logs/rgb/diagnostics/alignment_geometry \
+  --frame-width 112 \
+  --frame-height 112 \
+  --sample-step 1
+```

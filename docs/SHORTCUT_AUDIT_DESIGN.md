@@ -985,33 +985,54 @@ status
 - 检查 face scale、bbox shape、face center offset 和 eye distance 是否与标签、预测或误差相关；
 - 判断 `center_mask` 改善是否可能来自弱化对齐几何和轮廓线索。
 
-建议输入：
+输入：
 
 ```text
 OpenFace CSV root
 prediction CSV
-split file
 ```
 
-建议输出：
+输出：
 
 ```text
-alignment_geometry_summary.csv
-alignment_geometry_correlation.csv
-alignment_geometry_group_summary.csv
-alignment_geometry_audit_report.md
+tables/alignment_geometry_summary.csv
+tables/alignment_geometry_merged.csv
+tables/alignment_geometry_correlation.csv
+tables/alignment_geometry_group_summary.csv
+reports/alignment_geometry_audit_report.md
 ```
 
-建议特征：
+实现状态：
 
 ```text
-landmark_bbox_x_min / x_max / y_min / y_max
-landmark_bbox_width / height / area / aspect
-face_center_x / face_center_y
-face_center_offset_x / face_center_offset_y
+src/diagnostics/alignment_geometry.py
+scripts/audit_alignment_geometry.py
+tests/test_alignment_geometry.py
+```
+
+运行示例：
+
+```bash
+python scripts/audit_alignment_geometry.py \
+  --predictions logs/rgb/test_predictions.csv \
+  --openface-root /path/to/openface_csv_root \
+  --output-dir logs/rgb/diagnostics/alignment_geometry \
+  --frame-width 112 \
+  --frame-height 112 \
+  --sample-step 1
+```
+
+核心特征：
+
+```text
+landmark_bbox_width_mean / height_mean / area_mean / aspect_mean
+face_center_x_mean / face_center_y_mean
+face_center_offset_x_mean / face_center_offset_y_mean
 eye_distance
 normalized_face_scale
 landmark_jitter
+confidence_mean
+success_ratio
 ```
 
 判读：
@@ -1019,6 +1040,7 @@ landmark_jitter
 - 如果 geometry features 与 `abs_error` 或 `residual` 相关，应把 OpenFace alignment geometry 作为 shortcut risk；
 - 如果 severe 低估集中在异常 face scale、偏移或大姿态样本，应优先进行质量分层评估；
 - 如果 task inconsistency 与 face scale 或 center offset 差异相关，应把任务采集/对齐差异作为混杂因素报告。
+- 如果 OpenFace landmark 坐标来自原始视频坐标而非 aligned 112x112 坐标，应通过 `--frame-width` 和 `--frame-height` 使用对应坐标尺度。
 
 ### 12.10 Embedding identity retrieval audit
 

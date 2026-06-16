@@ -373,8 +373,12 @@ src/diagnostics/        # 独立诊断与可视化系统
 - [x] 本地完成 P0-B compile 和 direct smoke 验证；本地 Python 缺少 `pytest`。
 - [ ] 在服务器运行 `python -m pytest tests/test_training_overfit.py`。
 - [ ] 对 RGB、center_mask、center_mask_black_to_gray、border_black_feather、behavior baseline 的真实 `metrics.csv` 运行 `scripts/summarize_training_overfit.py`。
-- [ ] P0-C OpenFace 对齐几何审计：统计 landmark bbox area/width/height/aspect、face center offset、eye distance、face scale，并与 `true_bdi`、`pred_bdi`、`residual`、`abs_error` 相关。
-- [ ] P0-C 输出 `alignment_geometry_summary.csv`、`alignment_geometry_correlation.csv`、`alignment_geometry_audit_report.md`。
+- [x] P0-C OpenFace 对齐几何审计实现：统计 landmark bbox area/width/height/aspect、face center offset、eye distance、face scale、landmark jitter，并与 `true_bdi`、`pred_bdi`、`residual`、`abs_error` 相关。
+- [x] P0-C 新增 `src/diagnostics/alignment_geometry.py`、`scripts/audit_alignment_geometry.py`、`tests/test_alignment_geometry.py`。
+- [x] P0-C 输出 `alignment_geometry_summary.csv`、`alignment_geometry_merged.csv`、`alignment_geometry_correlation.csv`、`alignment_geometry_group_summary.csv`、`alignment_geometry_audit_report.md`。
+- [x] 本地完成 P0-C compile 和 direct smoke 验证；本地 Python 缺少 `pytest`。
+- [ ] 在服务器运行 `python -m pytest tests/test_alignment_geometry.py`。
+- [ ] 在真实 OpenFace CSV root 和当前 `test_predictions.csv` 上运行 `scripts/audit_alignment_geometry.py`。
 - [ ] P0-D embedding 身份信息审计：优先做 paired-task retrieval，检查同一 subject 的 Freeform/Northwind embedding 是否互为近邻；再考虑 subject proxy classifier。
 - [ ] P0-D 输出 `embedding_identity_retrieval.csv`、`embedding_identity_report.md`，报告 same-subject top-k retrieval、subject clustering 与 severity clustering。
 - [ ] P0-E severity calibration 验证：使用 val predictions 拟合 post-hoc linear calibration，再应用到 test，检查 severe 低估和 minimal 高估是否缓解。
