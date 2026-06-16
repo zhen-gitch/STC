@@ -367,8 +367,12 @@ src/diagnostics/        # 独立诊断与可视化系统
 - [x] 本地完成 P0-A compile 和 direct smoke 验证；本地 Python 缺少 `pytest`。
 - [ ] 在服务器运行 `python -m pytest tests/test_split_integrity.py`。
 - [ ] 在真实 split、label、aligned image root 和当前 `test_predictions.csv` 上运行 `scripts/audit_split_integrity.py`。
-- [ ] P0-B 训练曲线过拟合审计：跨 run 汇总 best epoch、train/val RMSE gap、train/val MAE gap、val 最优后是否继续过拟合。
-- [ ] P0-B 输出 `training_overfit_summary.csv`、`training_overfit_report.md`，并对 RGB、center_mask、center_mask_black_to_gray、border_black_feather、behavior baseline 做统一比较。
+- [x] P0-B 训练曲线过拟合审计实现：跨 run 汇总 best epoch、train/val RMSE gap、train/val MAE gap、val 最优后是否继续过拟合。
+- [x] P0-B 新增 `src/diagnostics/training_overfit.py`、`scripts/summarize_training_overfit.py`、`tests/test_training_overfit.py`。
+- [x] P0-B 输出 `training_overfit_summary.csv`、`training_curve_gap_by_run.csv`、`training_overfit_report.md`。
+- [x] 本地完成 P0-B compile 和 direct smoke 验证；本地 Python 缺少 `pytest`。
+- [ ] 在服务器运行 `python -m pytest tests/test_training_overfit.py`。
+- [ ] 对 RGB、center_mask、center_mask_black_to_gray、border_black_feather、behavior baseline 的真实 `metrics.csv` 运行 `scripts/summarize_training_overfit.py`。
 - [ ] P0-C OpenFace 对齐几何审计：统计 landmark bbox area/width/height/aspect、face center offset、eye distance、face scale，并与 `true_bdi`、`pred_bdi`、`residual`、`abs_error` 相关。
 - [ ] P0-C 输出 `alignment_geometry_summary.csv`、`alignment_geometry_correlation.csv`、`alignment_geometry_audit_report.md`。
 - [ ] P0-D embedding 身份信息审计：优先做 paired-task retrieval，检查同一 subject 的 Freeform/Northwind embedding 是否互为近邻；再考虑 subject proxy classifier。

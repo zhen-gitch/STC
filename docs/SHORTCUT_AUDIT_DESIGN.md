@@ -924,28 +924,51 @@ python scripts/audit_split_integrity.py \
 - 判断某个输入变体是否真正改善泛化，而不是只改变 test prediction bias；
 - 解释 behavior baseline 中 train RMSE 极低但 test 结果较差的问题。
 
-建议输出：
+输出：
 
 ```text
-training_overfit_summary.csv
-training_overfit_report.md
-training_curve_gap_by_run.csv
+tables/training_overfit_summary.csv
+tables/training_curve_gap_by_run.csv
+reports/training_overfit_report.md
 ```
 
-建议字段：
+实现状态：
 
 ```text
-run_name
+src/diagnostics/training_overfit.py
+scripts/summarize_training_overfit.py
+tests/test_training_overfit.py
+```
+
+运行示例：
+
+```bash
+python scripts/summarize_training_overfit.py \
+  --output-dir analysis_outputs/training_overfit_summary \
+  --run rgb=/path/to/rgb/metrics.csv \
+  --run center_mask=/path/to/center_mask/metrics.csv \
+  --run center_mask_black_to_gray=/path/to/center_mask_black_to_gray/metrics.csv \
+  --run border_black_feather=/path/to/border_black_feather/metrics.csv \
+  --run behavior=/path/to/behavior_baseline/metrics.csv
+```
+
+核心字段：
+
+```text
+run
+best_monitor
 best_val_epoch
-best_val_rmse
-train_rmse_at_best_val
-train_val_rmse_gap
-best_val_mae
-train_mae_at_best_val
-train_val_mae_gap
+best_val_value
+train_value_at_best_val
+train_val_gap_at_best
+best_val_rmse / train_rmse_at_best_val / train_val_rmse_gap
+best_val_mae / train_mae_at_best_val / train_val_mae_gap
 last_train_rmse
 last_val_rmse
+val_degradation_after_best
+train_improvement_after_best
 overfit_after_best_val
+status
 ```
 
 判读：

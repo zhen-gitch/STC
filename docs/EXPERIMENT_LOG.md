@@ -718,3 +718,39 @@ python scripts/audit_split_integrity.py \
   --predictions logs/rgb/test_predictions.csv \
   --output-dir logs/rgb/diagnostics/split_integrity
 ```
+
+### P0-B training overfit summary implementation
+
+- Implemented offline training overfit summary:
+  - `src/diagnostics/training_overfit.py`
+  - `scripts/summarize_training_overfit.py`
+  - `tests/test_training_overfit.py`
+- The audit reads Lightning-style `metrics.csv`, aggregates sparse metric rows
+  by epoch, selects the best validation epoch by `val_RMSE_epoch` when
+  available, then falls back to `val_MAE_epoch` and `val_loss`.
+- Expected outputs:
+  - `tables/training_overfit_summary.csv`
+  - `tables/training_curve_gap_by_run.csv`
+  - `reports/training_overfit_report.md`
+- Interpretation rule:
+  if a run improves test MAE but has a larger train/val gap or
+  `overfit_after_best_val=True`, treat the result as possible prediction bias
+  or checkpoint behavior rather than direct evidence of better generalization.
+- Local validation:
+  compileall passed for `src/diagnostics/training_overfit.py`,
+  `scripts/summarize_training_overfit.py`, and `tests/test_training_overfit.py`;
+  direct smoke passed on synthetic Lightning-style metrics rows. Local bundled
+  Python does not include `pytest`, so formal pytest remains server-side.
+- Next server-side commands:
+
+```bash
+python -m pytest tests/test_training_overfit.py
+
+python scripts/summarize_training_overfit.py \
+  --output-dir analysis_outputs/training_overfit_summary \
+  --run rgb=/path/to/rgb/metrics.csv \
+  --run center_mask=/path/to/center_mask/metrics.csv \
+  --run center_mask_black_to_gray=/path/to/center_mask_black_to_gray/metrics.csv \
+  --run border_black_feather=/path/to/border_black_feather/metrics.csv \
+  --run behavior=/path/to/behavior_baseline/metrics.csv
+```

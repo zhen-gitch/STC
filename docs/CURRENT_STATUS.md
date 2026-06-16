@@ -658,3 +658,42 @@ python scripts/audit_split_integrity.py \
 - 若存在 `subject_split_overlap`，必须先修复 split 或单独报告污染风险；
 - 若 prediction alignment 出现 `missing_in_split` 或 `ambiguous`，不能继续解释对应 prediction-level 诊断；
 - 该脚本只读 split、label、image root 和 prediction CSV，不改变训练 forward、loss、metric 或 checkpoint。
+
+## 2026-06-16 P0-B Training Overfit Summary 实现
+
+P0-B training overfit curve summary 已作为跨 run 离线审计能力落地。该任务用于判断输入变体或 behavior baseline 的表观提升是否伴随更大的 train/val gap，避免把测试预测偏置变化误解释为真正泛化提升。
+
+新增实现：
+
+```text
+src/diagnostics/training_overfit.py
+scripts/summarize_training_overfit.py
+tests/test_training_overfit.py
+```
+
+输出：
+
+```text
+tables/training_overfit_summary.csv
+tables/training_curve_gap_by_run.csv
+reports/training_overfit_report.md
+```
+
+服务器运行示例：
+
+```bash
+python scripts/summarize_training_overfit.py \
+  --output-dir analysis_outputs/training_overfit_summary \
+  --run rgb=/path/to/rgb/metrics.csv \
+  --run center_mask=/path/to/center_mask/metrics.csv \
+  --run center_mask_black_to_gray=/path/to/center_mask_black_to_gray/metrics.csv \
+  --run border_black_feather=/path/to/border_black_feather/metrics.csv \
+  --run behavior=/path/to/behavior_baseline/metrics.csv
+```
+
+判读约束：
+
+- best epoch 优先按 `val_RMSE_epoch` 选择；若缺失则回退到 `val_MAE_epoch`，再回退到 `val_loss`；
+- gap 定义为 `validation - train`，正值越大表示泛化缺口越大；
+- `overfit_after_best_val=True` 表示 best val epoch 之后 validation 变差而 train 指标继续改善；
+- 该脚本只读取 Lightning `metrics.csv`，不读取 test prediction，不改变训练或 checkpoint。

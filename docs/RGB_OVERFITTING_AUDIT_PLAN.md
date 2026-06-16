@@ -122,6 +122,14 @@ random_crop
 
 目的：区分真正泛化提升和测试预测偏置变化。
 
+当前状态：已实现跨 run 训练曲线过拟合汇总入口。
+
+```text
+src/diagnostics/training_overfit.py
+scripts/summarize_training_overfit.py
+tests/test_training_overfit.py
+```
+
 输出：
 
 ```text
@@ -146,6 +154,17 @@ last_val_rmse
 overfit_after_best_val
 ```
 
+运行示例：
+
+```bash
+python scripts/summarize_training_overfit.py \
+  --output-dir analysis_outputs/training_overfit_summary \
+  --run rgb=experiments/mtllite/baseline/logs/mtl_lite_csv/rgb/metrics.csv \
+  --run center_mask=experiments/mtllite/baseline/logs/mtl_lite_csv/center_mask/metrics.csv \
+  --run center_mask_black_to_gray=experiments/mtllite/baseline/logs/mtl_lite_csv/center_mask_black_to_gray/metrics.csv \
+  --run border_black_feather=experiments/mtllite/baseline/logs/mtl_lite_csv/border_black_feather/metrics.csv
+```
+
 优先比较：
 
 ```text
@@ -156,6 +175,11 @@ border_black_feather
 behavior baseline
 behavior feature-group ablations
 ```
+
+判读：
+
+- 若某个输入变体 test MAE 改善，但 train/val gap 更大或 `overfit_after_best_val=True`，应谨慎解释为 prediction bias 改变，而不直接当作泛化提升。
+- 若 behavior baseline 或 raw-landmark 特征组 train/val gap 显著大于 AU/pose/gaze 动态特征组，支持其含有更强身份/静态几何记忆风险。
 
 ### P0-D Alignment Geometry Audit
 

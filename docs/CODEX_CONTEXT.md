@@ -443,6 +443,26 @@ python scripts/audit_split_integrity.py \
   --output-dir logs/rgb/diagnostics/split_integrity
 ```
 
+P0-B training overfit summary 已实现：
+
+- `src/diagnostics/training_overfit.py`
+- `scripts/summarize_training_overfit.py`
+- `tests/test_training_overfit.py`
+
+该审计读取 Lightning `metrics.csv`，跨 run 汇总 best validation epoch、train/val RMSE gap、train/val MAE gap、val 最优后是否继续过拟合。它用于区分“输入变体真正改善泛化”和“只改变预测偏置或 checkpoint 选择表象”。
+
+服务器运行示例：
+
+```bash
+python scripts/summarize_training_overfit.py \
+  --output-dir analysis_outputs/training_overfit_summary \
+  --run rgb=/path/to/rgb/metrics.csv \
+  --run center_mask=/path/to/center_mask/metrics.csv \
+  --run center_mask_black_to_gray=/path/to/center_mask_black_to_gray/metrics.csv \
+  --run border_black_feather=/path/to/border_black_feather/metrics.csv \
+  --run behavior=/path/to/behavior_baseline/metrics.csv
+```
+
 最新高优先级过拟合审查结论：
 
 - RGB 过拟合多因素审计的权威路线文档是 `docs/RGB_OVERFITTING_AUDIT_PLAN.md`；
