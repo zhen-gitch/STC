@@ -483,15 +483,16 @@ python scripts/audit_alignment_geometry.py \
   --sample-step 1
 ```
 
-若 OpenFace landmark 坐标不是 aligned 112x112 坐标，应使用实际坐标尺度设置 `--frame-width` 和 `--frame-height`，否则 normalized offset 和 scale 不能直接解释。
+若 OpenFace landmark 坐标不是 aligned 112x112 坐标，应使用实际坐标尺度设置 `--frame-width` 和 `--frame-height`。本项目已根据 OpenFace camera parameters 使用 `640 x 480` 重跑，因此 normalized offset 和 scale 可作为原始检测坐标系下的相对几何指标解释。
 
 P0-C 真实运行后的坐标尺度修正：
 
 - 当前 OpenFace CSV landmark 坐标已确认不是模型输入的 `112 x 112` aligned frame 坐标；
 - 示例范围：`x` 约 `150-643`，`y` 约 `-11-582`，而 aligned jpg 为 `112 x 112`；
+- OpenFace 日志中的 camera parameters `500,500,320,240` 提示源坐标系约为 `640 x 480`，因此 geometry audit 已按 `--frame-width 640 --frame-height 480` 重跑；
 - 因此 C 任务结果应解释为 **pre-alignment detection geometry confound**，即 OpenFace 原始检测坐标系下的 face scale / bbox / eye distance / landmark jitter 与 BDI 和 residual 的关系；
-- 当前可解释的是 `landmark_bbox_width/height/area/aspect`、`eye_distance`、`landmark_jitter` 的相关性；
-- 不应直接解释 `normalized_face_scale_mean`、`face_center_offset_x_mean`、`face_center_offset_y_mean` 的绝对值，除非使用真实原始 frame size 重新运行或改为相对几何指标。
+- 当前可解释的是 `landmark_bbox_width/height/area/aspect`、`eye_distance`、`landmark_jitter` 的相关性，以及基于 `640 x 480` 源坐标尺度的 `normalized_face_scale_mean` 和 `face_center_offset_*` 相对值；
+- 仍不应把这些变量解释为模型直接看到的 112x112 landmark 坐标。
 
 当前 C 任务主要结果：
 
@@ -501,6 +502,7 @@ Max absolute correlation: 0.3746
 landmark_bbox_height_mean vs true_bdi: 0.3746
 landmark_bbox_area_mean   vs true_bdi: 0.3410
 landmark_bbox_height_mean vs residual: -0.2605
+normalized_face_scale_mean vs true_bdi: 0.3410
 ```
 
 最新高优先级过拟合审查结论：

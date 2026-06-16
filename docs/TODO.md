@@ -379,6 +379,7 @@ src/diagnostics/        # 独立诊断与可视化系统
 - [x] 本地完成 P0-C compile 和 direct smoke 验证；本地 Python 缺少 `pytest`。
 - [x] 在真实 OpenFace CSV root 和当前 `test_predictions.csv` 上运行 `scripts/audit_alignment_geometry.py`，匹配 100/100 test predictions。
 - [x] 确认当前 OpenFace CSV landmark 坐标不是 112x112 aligned frame 坐标，而是原始 OpenFace 检测坐标系；示例 `x` 范围约 150-643，`y` 范围约 -11-582，而 aligned jpg 为 112x112。
+- [x] 根据 OpenFace camera parameters `500,500,320,240` 推断源坐标系约 640x480，并使用 `--frame-width 640 --frame-height 480` 重跑 geometry audit。
 - [ ] 在服务器运行 `python -m pytest tests/test_alignment_geometry.py`。
 - [ ] 后续增强 geometry 审计：显式输出 `landmark_x_min/x_max/y_min/y_max`、`eye_distance_to_bbox_height_ratio` 等不依赖固定 frame size 的相对几何指标。
 - [ ] P0-D embedding 身份信息审计：优先做 paired-task retrieval，检查同一 subject 的 Freeform/Northwind embedding 是否互为近邻；再考虑 subject proxy classifier。

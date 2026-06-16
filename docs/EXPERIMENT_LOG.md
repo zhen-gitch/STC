@@ -836,13 +836,23 @@ Coordinate scale correction:
   coordinates.
 - Observed examples: `x` range approximately `150-643`, `y` range
   approximately `-11-582`, while aligned jpg inputs are `112 x 112`.
+- OpenFace run metadata reported camera parameters `500,500,320,240`, which
+  indicates a likely source coordinate frame of approximately `640 x 480`.
+- The alignment geometry audit was rerun with `--frame-width 640` and
+  `--frame-height 480`.
 - Therefore, the current geometry result should be interpreted as
   `pre-alignment detection geometry confound`, not as direct 112x112 input
   landmark geometry.
 - Directly interpretable metrics: bbox width/height/area/aspect, eye distance,
   and landmark jitter in the OpenFace detection coordinate system.
-- Metrics requiring caution: `normalized_face_scale_mean` and
-  `face_center_offset_*`, because they depend on the frame width/height used
-  for normalization.
+- After the `640 x 480` rerun, `normalized_face_scale_mean` and
+  `face_center_offset_*` are interpretable as relative pre-alignment detection
+  geometry metrics. They still must not be described as 112x112 input-space
+  landmark coordinates.
+- Severity group means after the `640 x 480` rerun:
+  - minimal: `scale=0.319`, `residual=+6.89`
+  - mild: `scale=0.337`, `residual=-1.86`
+  - moderate: `scale=0.399`, `residual=-7.66`
+  - severe: `scale=0.364`, `residual=-16.50`
 - Recommended follow-up implementation: add raw coordinate ranges and relative
   geometry ratios such as `eye_distance_to_bbox_height_ratio`.

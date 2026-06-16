@@ -231,7 +231,7 @@ python scripts/audit_alignment_geometry.py \
 - 若 geometry features 与 `abs_error` 或 `residual` 相关，应作为 shortcut risk。
 - 若 severe 低估集中在异常 face scale、偏移或大姿态样本，应进行质量分层评估。
 - 若 task inconsistency 与 face scale / center offset 差异相关，应把任务采集/对齐差异作为混杂因素报告。
-- 若 OpenFace landmark 坐标来自原始视频坐标而非 aligned 112x112 坐标，必须通过 `--frame-width` 和 `--frame-height` 使用对应坐标尺度，不能直接解释 normalized offset。
+- 若 OpenFace landmark 坐标来自原始视频坐标而非 aligned 112x112 坐标，必须通过 `--frame-width` 和 `--frame-height` 使用对应坐标尺度；本项目已根据 OpenFace camera parameters 使用 `640 x 480` 重跑，因此 normalized scale / offset 可作为原始检测坐标系下的相对几何指标解释。
 
 当前真实运行结果：
 
@@ -253,15 +253,27 @@ eye_distance_mean          vs true_bdi:  r = 0.2991
 landmark_bbox_height_mean  vs residual:  r = -0.2605
 ```
 
-坐标尺度修正：
+坐标尺度修正与 640x480 重跑：
 
-当前 OpenFace CSV landmark 坐标不是 112x112 aligned frame 坐标。示例 CSV 中 `x` 范围约 `150-643`，`y` 范围约 `-11-582`；而模型实际输入 jpg 为 `112 x 112`。因此，本节更准确的命名是 **pre-alignment detection geometry audit**：它量化的是 OpenFace 原始检测坐标系中的脸部尺度、bbox、眼距和 landmark 稳定性。这些因素可能通过裁剪、对齐、缩放、黑边填充和插值过程间接影响 112x112 RGB 输入。
+当前 OpenFace CSV landmark 坐标不是 112x112 aligned frame 坐标。示例 CSV 中 `x` 范围约 `150-643`，`y` 范围约 `-11-582`；而模型实际输入 jpg 为 `112 x 112`。OpenFace 日志中的 camera parameters `500,500,320,240` 提示源坐标系约为 `640 x 480`。因此，本节更准确的命名是 **pre-alignment detection geometry audit**：它量化的是 OpenFace 原始检测坐标系中的脸部尺度、bbox、眼距和 landmark 稳定性。这些因素可能通过裁剪、对齐、缩放、黑边填充和插值过程间接影响 112x112 RGB 输入。
 
 解释边界：
 
 - 可解释：`landmark_bbox_width/height/area/aspect`、`eye_distance`、`landmark_jitter` 的相关性。
-- 谨慎解释：`normalized_face_scale` 与 `face_center_offset_*` 的绝对数值，因为本次 `--frame-width 112 --frame-height 112` 与 CSV 坐标系不一致。
+- 在使用 `--frame-width 640 --frame-height 480` 重跑后可解释：`normalized_face_scale` 与 `face_center_offset_*` 的相对尺度。
+- 仍需避免的误读：这些变量不是模型直接看到的 112x112 landmark 坐标，而是 OpenFace 原始检测/预处理阶段的几何混杂。
 - 后续增强：输出 `landmark_x_min/x_max/y_min/y_max`、`eye_distance_to_bbox_height_ratio` 等不依赖固定 frame size 的相对几何指标。
+
+640x480 重跑后的分组均值：
+
+```text
+minimal:  scale=0.319, residual=+6.89
+mild:     scale=0.337, residual=-1.86
+moderate: scale=0.399, residual=-7.66
+severe:   scale=0.364, residual=-16.50
+```
+
+moderate / severe 的检测尺度更大，但预测没有同步上升，支持“检测几何混杂 + prediction compression”共同作用的解释。
 
 ### P0-E Embedding Identity Retrieval
 

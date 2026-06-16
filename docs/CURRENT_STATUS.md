@@ -763,9 +763,9 @@ landmark_bbox_height_mean  vs residual:  r = -0.2605
 
 这说明 OpenFace landmark 检测几何与 BDI/severity 存在中等相关，并且更大的 bbox/scale 与更负 residual 相关，和 severe 低估方向一致。
 
-但是，坐标尺度检查确认：当前 OpenFace CSV 的 landmark 坐标不是 112x112 aligned face 坐标。示例 CSV 中 `x` 范围可达约 `150-643`，`y` 范围可达约 `-11-582`；而实际模型输入 jpg 为 `112 x 112`。因此，当前 C 任务应解释为 **pre-alignment detection geometry confound**，而不是模型直接看到的 112x112 landmark geometry。
+坐标尺度检查确认：当前 OpenFace CSV 的 landmark 坐标不是 112x112 aligned face 坐标。示例 CSV 中 `x` 范围可达约 `150-643`，`y` 范围可达约 `-11-582`；而实际模型输入 jpg 为 `112 x 112`。OpenFace 日志中的 camera parameters `500,500,320,240` 提示源坐标系约为 `640 x 480`。因此，C 任务应解释为 **pre-alignment detection geometry confound**，而不是模型直接看到的 112x112 landmark geometry。
 
-当前可解释指标：
+在使用 `--frame-width 640 --frame-height 480` 重跑后，当前可解释指标：
 
 ```text
 landmark_bbox_width_mean
@@ -774,16 +774,20 @@ landmark_bbox_area_mean
 landmark_bbox_aspect_mean
 eye_distance_mean
 landmark_jitter_mean
-```
-
-这些指标反映 OpenFace 原始检测坐标系下的脸部尺度、检测几何和 landmark 稳定性。它们可能通过后续裁剪、对齐、缩放、黑边填充和插值过程间接影响 112x112 RGB 输入。
-
-当前不应直接解释绝对值的指标：
-
-```text
 normalized_face_scale_mean
 face_center_offset_x_mean
 face_center_offset_y_mean
 ```
 
-这些字段依赖 `--frame-width` / `--frame-height`，本次使用 112 会导致绝对尺度不成立。后续应增强 geometry 审计，显式输出原始 `landmark_x_min/x_max/y_min/y_max` 和相对比例指标，如 `eye_distance_to_bbox_height_ratio`，减少对固定 frame size 的依赖。
+这些指标反映 OpenFace 原始检测坐标系下的脸部尺度、检测几何和 landmark 稳定性。它们可能通过后续裁剪、对齐、缩放、黑边填充和插值过程间接影响 112x112 RGB 输入。
+
+640x480 重跑后的 severity 分组显示：
+
+```text
+minimal:  true=4.96,  pred=11.85, residual=+6.89, scale=0.319
+mild:     true=16.20, pred=14.34, residual=-1.86, scale=0.337
+moderate: true=25.00, pred=17.34, residual=-7.66, scale=0.399
+severe:   true=34.14, pred=17.64, residual=-16.50, scale=0.364
+```
+
+moderate / severe 的检测尺度明显大于 minimal，而模型预测没有随真实 BDI 同步上升，支持 prediction compression 与检测几何混杂并存的解释。后续仍建议增强 geometry 审计，显式输出原始 `landmark_x_min/x_max/y_min/y_max` 和相对比例指标，如 `eye_distance_to_bbox_height_ratio`，减少对固定 frame size 的依赖。

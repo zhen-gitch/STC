@@ -1044,7 +1044,7 @@ landmark_bbox_width_mean / height_mean / area_mean / aspect_mean
 eye_distance_mean
 landmark_jitter_mean
 
-需要真实 frame size 才能解释绝对值：
+在使用 640x480 源坐标尺度重跑后可解释相对尺度：
 normalized_face_scale_mean
 face_center_offset_x_mean
 face_center_offset_y_mean
@@ -1064,6 +1064,7 @@ face_center_offset_y_mean
 - `landmark_bbox_height_mean`、`landmark_bbox_area_mean`、`landmark_bbox_width_mean`、`eye_distance_mean` 与 `true_bdi` 呈中等相关；
 - `landmark_bbox_height_mean` 与 `residual` 负相关，提示更大的检测 bbox 与更强低估有关；
 - 该结论应表述为 OpenFace 原始检测几何/预处理阶段混杂风险，而不是模型直接看见了 112x112 landmark 坐标。
+- 使用 OpenFace 日志推断的 `640 x 480` 源坐标尺度重跑后，`normalized_face_scale_mean` 约在 `0.30-0.40`，可以作为原始检测坐标系下的相对 face scale 指标解释。
 
 后续脚本增强建议：
 
