@@ -58,6 +58,7 @@ split integrity audit
 ```
 
 权威研究路线归档在 `docs/RGB_OVERFITTING_AUDIT_PLAN.md`。相关研究背景在 `docs/RESEARCH_NOTES.md`。后续 Codex 在设计实验或修改模型前，应优先阅读这两个文档。
+更高层的系统机制路线图位于 `docs/OVERFITTING_MECHANISM_ROADMAP.md`。后续不要把单个 artifact 当作总解释，应按该文档的 Layer 0-6 逐层验证：数据有效性、prediction compression、input/local occlusion、identity/static appearance、OpenFace geometry/quality、temporal/task context、model optimization。
 
 非抑郁捷径验证框架归档在 `docs/SHORTCUT_AUDIT_DESIGN.md`。后续若用户要求实现 OpenFace 质量诊断、输入消融、shortcut-only baseline 或行为表征 baseline，应先阅读该文档，并优先采用离线诊断方式，避免改动训练主流程。
 
@@ -385,6 +386,12 @@ RGB 过拟合的后续解释必须采用多因素框架。除黑边外，优先�
 - 标签分布和校准：prediction compression、minimal overestimate、severe underestimate。
 
 后续 Codex 在设计新实验时，应优先把这些因素做成离线 audit 或单因素消融，不要直接进入 RGB + behavior late fusion。当前建议顺序以 `docs/RGB_OVERFITTING_AUDIT_PLAN.md` 为准：split integrity -> temporal sampling -> training overfit curves -> alignment geometry -> embedding identity retrieval -> severity calibration -> task inconsistency mixed-factor audit。
+眼镜、麦克风、胡须等因素应归入 identity/static appearance 与 local occlusion artifact 审计，而不是作为新的单一主因。处理原则：
+
+- 先做 case-study、attention、spatial occlusion 和 embedding retrieval 复核；
+- 优先检查 severe 低估、minimal 高估、高 task diff、以及 temporal `middle_crop` 改善/恶化样本；
+- 不要默认把中心近黑区域全部删除，因为鼻孔、嘴角阴影、麦克风、胡须和真实遮挡语义混杂；
+- 若局部遮挡确实影响大，再考虑 `glasses_region_erased`、`mouth_occluder_erased`、`beard_lower_face_erased` 等区域消融。
 
 P0 temporal sampling audit 已实现：
 
@@ -393,6 +400,17 @@ P0 temporal sampling audit 已实现：
 - `tests/test_temporal_sampling_audit.py`
 
 该审计按 `AVECDataset` 的真实规则计算 `sampled_frame_count`、`model_max_len`、`selected_frame_count`、`padding_ratio`、`truncated_ratio` 和 `valid_ratio`。使用时必须让 `--sample-step`、`--max-seq-len` 与对应实验的 `resolved_config.yaml` 保持一致。
+
+P0 temporal sampling audit 已在当前 RGB test prediction 上真实运行并匹配成功：
+
+```text
+Videos summarized: 100
+Matched prediction rows: 100
+Missing videos: 0
+Max absolute correlation: 0.2197
+```
+
+主要发现是 temporal/truncation 指标与 `pred_bdi` 存在弱到中等相关：`truncated_frame_count` vs `pred_bdi` 约 `r = -0.2197`，`truncated_ratio` vs `pred_bdi` 约 `r = -0.2090`，`frame_count` / `sampled_frame_count` vs `pred_bdi` 约 `r = -0.2073`。长视频四分位预测更低、误差更高且无 padding，因此后续应优先验证长视频截断、首段采样偏置和关键片段覆盖不足，而不是只解释为 padding。该结果弱于 alignment geometry，但足以支撑 temporal sampling 训练消融。
 
 P0 temporal sampling ablation 也已实现：
 

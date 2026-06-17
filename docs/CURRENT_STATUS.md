@@ -73,6 +73,7 @@ split integrity audit
 ```
 
 权威路线记录在 `docs/RGB_OVERFITTING_AUDIT_PLAN.md`。相关论文线索记录在 `docs/RESEARCH_NOTES.md`。非抑郁捷径验证框架的具体实施方案记录在 `docs/SHORTCUT_AUDIT_DESIGN.md`。
+系统机制路线图已整理到 `docs/OVERFITTING_MECHANISM_ROADMAP.md`，用于把现有黑边、geometry、temporal、identity、局部遮挡、calibration 和 behavior baseline 结果组织成统一研究路线。
 
 ## 重要文件
 
@@ -791,3 +792,39 @@ severe:   true=34.14, pred=17.64, residual=-16.50, scale=0.364
 ```
 
 moderate / severe 的检测尺度明显大于 minimal，而模型预测没有随真实 BDI 同步上升，支持 prediction compression 与检测几何混杂并存的解释。后续仍建议增强 geometry 审计，显式输出原始 `landmark_x_min/x_max/y_min/y_max` 和相对比例指标，如 `eye_distance_to_bbox_height_ratio`，减少对固定 frame size 的依赖。
+
+## 2026-06-16 P0-B Temporal Sampling Audit 真实运行结果
+
+P0-B temporal sampling audit 已在当前 RGB `test_predictions.csv` 上完成真实运行，匹配质量正常：
+
+```text
+Videos summarized: 100
+Matched prediction rows: 100
+Missing videos: 0
+Max absolute correlation: 0.2197
+```
+
+主要相关性显示，视频长度、截断和模型可见帧数与预测值存在弱到中等关系：
+
+```text
+truncated_frame_count vs pred_bdi: r = -0.2197
+truncated_ratio       vs pred_bdi: r = -0.2090
+raw_to_selected_ratio vs pred_bdi: r =  0.2090
+sampled_frame_count   vs pred_bdi: r = -0.2073
+frame_count           vs pred_bdi: r = -0.2073
+```
+
+该结果说明 temporal sampling 是 RGB 过拟合和 prediction compression 的候选混杂因素，但不是单独充分解释。最长视频四分位没有 padding，但平均预测更低、误差更高；这更像是 head-only 截断、长视频中性片段稀释或关键片段覆盖不足，而不是简单 padding 问题。Freeform 视频整体更长、padding 更少，Northwind 更短、padding 更多，但两类任务的平均绝对误差接近，因此任务级差异不能仅由 padding 解释。
+
+当前下一步仍应运行已接入的 temporal sampling 训练消融：`uniform_256`、`uniform_512`、`uniform_1024`、`first_crop`、`middle_crop` 和 `random_crop`。每组训练后必须接入 `scripts/summarize_prediction_runs.py`，统一比较整体指标、prediction std、severity bias 和 Freeform/Northwind task consistency。
+## 2026-06-17 局部遮挡与静态外观捷径审计方向
+
+眼镜、麦克风、胡须等因素应被纳入后续 RGB 过拟合机制审计，但它们不应替代当前多因素主线。更准确的定位是：它们位于 **identity/static appearance shortcut** 与 **local occlusion artifact** 的交叉处。
+
+理论依据包括 shortcut learning、面部遮挡识别和遮挡鲁棒表情识别相关研究。对本项目而言，这些因素有三类风险：
+
+- 作为 subject identity 线索：眼镜、胡须、发际线和局部纹理可能帮助模型识别 subject，而不是学习抑郁相关行为；
+- 作为局部遮挡：麦克风或口鼻附近遮挡会破坏嘴部、下半脸和 AU/landmark 观测；
+- 作为 patch-level artifact：眼镜反光、麦克风黑块和胡须边界可能形成高对比局部 patch，被 DeiT/ViT backbone 放大。
+
+后续建议先做 case-study 与区域遮挡验证，而不是立即全局删除这些区域。优先检查 severe 低估、minimal 高估、高 task diff、以及 `middle_crop` 明显改善/恶化的样本，判断模型关注或遮挡敏感性是否集中在眼镜、麦克风、胡须、下半脸或边界残留上。

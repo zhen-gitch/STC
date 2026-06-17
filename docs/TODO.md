@@ -327,6 +327,7 @@ src/diagnostics/        # 独立诊断与可视化系统
 - [ ] 动态任务权重、PCGrad、GradNorm、LDS 或 `loss_dist`。
 
 ## 2026-06-15 RGB 过拟合多因素审计队列
+系统机制路线图已新增：`docs/OVERFITTING_MECHANISM_ROADMAP.md`。后续 P0/P1/P2 任务应优先对齐该文档中的 Layer 0-6 和实验决策树，确保每个实验回答一个明确机制问题。
 
 当前权威路线见 `docs/RGB_OVERFITTING_AUDIT_PLAN.md`。核心结论：黑边/黑填充是 RGB 过拟合的可见风险入口，但不是单一充分解释。下一阶段应把 RGB 过拟合拆成多因素审计，逐项验证 split/subject integrity、时序采样、训练曲线泛化缺口、OpenFace 对齐几何、身份静态外观、姿态/追踪质量、任务语境和 severity prediction compression。
 
@@ -337,7 +338,7 @@ src/diagnostics/        # 独立诊断与可视化系统
 - [x] 新增 `tests/test_temporal_sampling_audit.py`。
 - [x] 本地完成 compile 和 direct smoke 验证。
 - [ ] 在服务器运行 `python -m pytest tests/test_temporal_sampling_audit.py`。
-- [ ] 在真实 RGB/MTL-Lite prediction CSV 和 aligned frame root 上运行 `scripts/audit_temporal_sampling.py`。
+- [x] 在真实 RGB/MTL-Lite prediction CSV 和 aligned frame root 上运行 `scripts/audit_temporal_sampling.py`。
 - [x] 实现固定帧数采样策略：256 / 512 / 1024 uniform frames。
 - [x] 实现 temporal crop 策略：first / middle / random。
 - [x] 新增 temporal sampling override 配置：
@@ -349,13 +350,21 @@ src/diagnostics/        # 独立诊断与可视化系统
 - [ ] 在服务器运行 `python -m pytest tests/test_temporal_sampling.py tests/test_temporal_sampling_audit.py`。
 - [ ] 运行 256 / 512 / 1024 uniform frame 三组训练消融。
 - [ ] 运行 first / middle / random temporal crop 三组训练消融。
-- [ ] 输出 `temporal_sampling_audit_report.md`。
+- [x] 输出 `temporal_sampling_audit_report.md`。
 - [x] 新增 prediction run summary 工具，自动记录 `true_mean/std`、`pred_mean/std`、severity group bias、task consistency 和 pairwise baseline improvement。
 - [x] 新增 `src/diagnostics/prediction_runs.py`、`scripts/summarize_prediction_runs.py`、`tests/test_prediction_runs.py`。
 - [ ] 在服务器运行 `python -m pytest tests/test_prediction_runs.py`。
 - [x] 对已有 RGB input ablation 全部运行 `scripts/summarize_prediction_runs.py`，生成统一论文表格底稿。
 - [x] 当前统一汇总包含 `rgb`、`gray_scale`、`blur`、`boundary_erased`、`center_mask`、`black_to_gray`、`black_to_mean`、`black_to_blur`、`soft_center_mask`、`inner_crop_resize`、`border_black_feather`、`border_black_to_gray` 和 `center_mask_black_to_gray`。
 - [ ] 将统一汇总表整理为论文正文/附录表格，明确区分 input artifact mitigation 与 severity calibration。
+
+当前 temporal sampling audit 真实运行结论：
+
+- [x] `100/100` 个 RGB test prediction row 成功匹配，`Missing videos = 0`。
+- [x] 最大绝对相关约 `0.2197`，主要来自 temporal/truncation 指标与 `pred_bdi` 的关系。
+- [x] `truncated_frame_count` 与 `pred_bdi` 约 `r = -0.2197`，`truncated_ratio` 与 `pred_bdi` 约 `r = -0.2090`，`frame_count` / `sampled_frame_count` 与 `pred_bdi` 约 `r = -0.2073`。
+- [x] high frame-count quartile 预测更低、误差更高且无 padding，说明后续应优先验证截断和采样覆盖，而不是只处理 padding。
+- [ ] 将 temporal sampling 消融训练结果接入 `scripts/summarize_prediction_runs.py`，统一报告 prediction std、severity bias、task consistency 和 pairwise improvement。
 
 ### P0：当前高优先级过拟合验证
 
@@ -413,6 +422,9 @@ split integrity audit
 
 - [ ] 设计 `face_contour_erased` 输入变体，弱化脸型、发际线和轮廓捷径。
 - [ ] 设计 `eye_mouth_only` 或 `upper_lower_face` 区域变体，验证有效信号是否集中于行为区域。
+- [ ] 建立眼镜、麦克风、胡须等局部遮挡/饰物 case list，优先从 severe 低估、minimal 高估、高 task diff 和 temporal middle_crop 改善/恶化样本中筛选。
+- [ ] 设计 `glasses_region_erased`、`mouth_occluder_erased`、`beard_lower_face_erased` 等区域消融或手工 case-study 遮挡，用于判断局部 occlusion shortcut 风险。
+- [ ] 对眼镜反光、麦克风黑块、胡须/下半脸纹理区域运行 spatial occlusion / attention 复核，比较预测变化是否符合真实 BDI。
 - [ ] 在 P0-D paired-task retrieval 完成后，再决定是否训练 frozen RGB embedding subject proxy classifier。
 - [ ] 对 embedding 做 subject-level 聚类或可视化，检查是否按 subject/外观而非 BDI 聚类。
 

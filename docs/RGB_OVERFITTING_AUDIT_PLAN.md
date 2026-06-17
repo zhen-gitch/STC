@@ -1,6 +1,7 @@
 # RGB_OVERFITTING_AUDIT_PLAN.md
 
 本文档是当前 RGB 输入模型过拟合研究的主控文档。后续涉及 RGB 过拟合原因、实验优先级、论文叙事和审计结果解释时，优先参考本文档；`CURRENT_STATUS.md` 记录当前状态，`TODO.md` 记录执行清单，`SHORTCUT_AUDIT_DESIGN.md` 记录具体脚本/输出规格，`RESEARCH_NOTES.md` 记录论文背景和研究线索。
+更高层的机制地图见 `docs/OVERFITTING_MECHANISM_ROADMAP.md`。该文档用于统一组织 split、calibration、input artifact、identity/static appearance、local occlusion、OpenFace geometry、temporal/task context 和 behavior validation，避免后续实验零散拼凑。
 
 ## 核心判断
 
@@ -41,6 +42,7 @@
 | OpenFace 对齐几何 | face scale、bbox、center offset、eye distance 等静态几何成为捷径 | `center_mask` 有效但 `inner_crop_resize` 变差 | P0 | alignment geometry audit |
 | 身份与静态外观 | 脸型、肤色、胡须、眼镜、发际线、皮肤纹理携带 subject 信息 | RGB 与 full behavior 特征均有过拟合风险 | P0/P1 | paired-task embedding retrieval |
 | 黑边/边界伪迹 | 黑填充、硬边界、麦克风黑块形成高对比 patch | border feather 有效，但不能解决 severe 低估 | P1 | 作为子证据保留，进入 case study |
+| 局部遮挡与饰物 | 眼镜、麦克风、胡须、口鼻周围遮挡、反光和局部黑块可能与 subject、任务或采集条件共现 | 样例帧存在麦克风黑块；中心黑像素语义混杂；输入 artifact 处理只能部分改善 | P1 | artifact/occlusion case study + 区域遮挡消融 |
 | 姿态/追踪质量 | confidence、success、pose、gaze、jitter 混合真实行为和质量混杂 | OpenFace shortcut audit 已发现中等相关线索 | P1 | quality/pose/gaze mixed audit |
 | 任务语境差异 | Freeform/Northwind 的说话内容、gaze、动作、长度不同 | task consistency 已显示同 subject 可有较大预测差异 | P0/P1 | task inconsistency mixed-factor audit |
 | Prediction compression | MSE/标签分布导致向均值收缩，minimal 高估、severe 低估 | 所有较好输入变体仍 `pred_std < true_std` | P0 | val-fit test-apply calibration verification |
@@ -117,6 +119,34 @@ random_crop
 ```
 
 每组训练后必须接入 `scripts/summarize_prediction_runs.py`，报告 overall metrics、prediction std、severity bias、task consistency 和 pairwise improvement。
+
+当前真实运行结果：
+
+```text
+Videos summarized: 100
+Matched prediction rows: 100
+Missing videos: 0
+Max absolute correlation: 0.2197
+```
+
+主要发现：
+
+```text
+truncated_frame_count vs pred_bdi: r = -0.2197
+truncated_ratio       vs pred_bdi: r = -0.2090
+raw_to_selected_ratio vs pred_bdi: r =  0.2090
+sampled_frame_count   vs pred_bdi: r = -0.2073
+frame_count           vs pred_bdi: r = -0.2073
+```
+
+分组判读：
+
+- longest / high frame-count quartile 的预测均值更低、绝对误差更高，且几乎没有 padding，提示风险更可能来自长视频截断、首段采样偏置或长视频中性片段稀释；
+- shortest / low frame-count quartile padding 比例最高，但平均误差反而更低，说明 padding 不是当前唯一驱动因素；
+- severe 组仍表现为强低估，temporal 指标只能解释一部分误差方向，不能替代 severity calibration 分析；
+- Freeform 平均更长、valid ratio 更高，Northwind 更短、padding 更高，但两类任务平均绝对误差接近，因此任务语境差异仍需和 pose/gaze、geometry、black artifact 等共同审计。
+
+结论：temporal sampling 是次级但真实的混杂因素。后续优先运行 fixed uniform 与 temporal crop 训练消融，判断是否能缓解 prediction compression、severe 低估或 task inconsistency；在训练消融完成前，不应把当前 `stride_head` 采样直接定性为主要过拟合原因。
 
 ### P0-C Training Overfit Curve Summary
 
@@ -305,6 +335,7 @@ task_neighbor_agreement
 - 若 Freeform 的最近邻常是同 subject 的 Northwind，说明 embedding 强身份化。
 - 若 same-subject retrieval 强而 severity neighbor agreement 弱，说明表征更像身份/外观空间。
 - 若 `center_mask` 降低 same-subject retrieval，同时保持或提升 BDI 指标，可作为去身份化输入处理证据。
+扩展判读：眼镜、胡须、发际线、麦克风遮挡和局部反光应被视为 identity/static appearance 与 local occlusion 的交叉因素。它们可能不是 BDI 因果线索，但在小样本 subject-independent 设置中可能与某些 subject、任务录制条件或严重程度分布偶然共现。若 embedding retrieval 显示强同人聚类，后续 case study 应检查最近邻是否共享眼镜、胡须、麦克风、发型或局部遮挡，而不仅仅检查人脸整体相似。
 
 ### P0-F Severity Calibration Verification
 
@@ -359,7 +390,7 @@ task_inconsistency_report.md
 P1 只在 P0 证据完成后启动，避免继续经验试错。
 
 1. **Patch / attention case study**：针对 severe 低估、minimal 高估、高 task diff、黑边改善/恶化 case 生成 attention、occlusion、keyframe 图组。
-2. **Region ablation**：`face_contour_erased`、`eye_mouth_only`、`upper_face_only`、`lower_face_only`，用于验证行为区域和身份区域。
+2. **Region / occlusion ablation**：`face_contour_erased`、`eye_mouth_only`、`upper_face_only`、`lower_face_only`、`glasses_region_erased`、`mouth_occluder_erased`、`beard_lower_face_erased`，用于验证行为区域、身份区域和局部遮挡区域。
 3. **Quality / pose stratified evaluation**：按 confidence、success、pose、gaze、jitter、face scale 分层报告指标。
 4. **Behavior feature subset selection**：在 feature-group ablation 后决定哪些 OpenFace 特征进入稳定 behavior subset。
 5. **Targeted robustness augmentation**：只在诊断明确后测试 border fill randomization、small affine jitter、brightness/contrast jitter 和 temporal random crop。

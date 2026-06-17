@@ -14,8 +14,9 @@
 2. OpenFace 质量捷径：`confidence`、`success`、失败帧比例、landmark 抖动、tracking drift。
 3. 姿态与 gaze 捷径：`pose_Rx`、`pose_Ry`、`pose_Rz`、gaze direction、头部运动幅度。
 4. 裁剪与对齐伪影：黑边、插值痕迹、裁剪边界、人脸尺度残留、头发/衣服残留。
-5. 视频质量捷径：模糊、压缩、亮度、对比度、分辨率、帧间抖动。
-6. 时序采样捷径：有效帧数、padding 比例、静止帧比例、特定 subject 的采样模式。
+5. 局部遮挡与饰物捷径：眼镜、胡须、麦克风、反光、口鼻周围遮挡、局部黑块。
+6. 视频质量捷径：模糊、压缩、亮度、对比度、分辨率、帧间抖动。
+7. 时序采样捷径：有效帧数、padding 比例、静止帧比例、特定 subject 的采样模式。
 
 验证目标：
 
@@ -673,6 +674,7 @@ all_without_raw_landmarks
 
 - 判断 RGB/MTL-Lite embedding 是否主要编码 subject 身份、脸型或静态外观；
 - 判断去除脸部轮廓、头发、眼镜、胡须等静态区域是否提升泛化。
+- 判断眼镜、麦克风、胡须等局部遮挡或饰物是否与高误差、severity bias 或 task inconsistency 共现。
 
 建议输出：
 
@@ -688,6 +690,9 @@ region_ablation_summary.csv
 - `eye_mouth_only`
 - `upper_face_only`
 - `lower_face_only`
+- `glasses_region_erased`
+- `mouth_occluder_erased`
+- `beard_lower_face_erased`
 - subject proxy classifier on frozen RGB embeddings
 
 判读：
@@ -695,6 +700,8 @@ region_ablation_summary.csv
 - 如果 subject proxy accuracy 高，说明 embedding 中身份信号强；
 - 如果 `face_contour_erased` 改善，说明脸型/轮廓/发际线等静态外观可能是捷径；
 - 如果只保留眼嘴区域仍能接近 `center_mask`，说明模型有效信号可能集中在行为区域。
+- 如果遮挡眼镜、麦克风或胡须区域后预测大幅变化，且变化与 BDI 真实分数无稳定关系，应将其报告为局部 occlusion shortcut 风险，而不是行为 biomarker。
+- 如果这类局部区域只在少数 subject 上影响极大，应优先做 case-study 证据，而不是直接设计全局数据处理规则。
 
 ### 12.2 OpenFace 对齐几何审计
 
@@ -785,6 +792,16 @@ clip_count
 - 当前离线审计会输出 temporal summary、merged table、correlation table、group summary 和 markdown report；
 - 已新增 `src/datasets/temporal_sampling.py` 并在 `AVECDataset` 中接入 `PROCESS_TEMPORAL.SAMPLING_STRATEGY`；
 - 已新增 fixed uniform 与 temporal crop override 配置，训练结果仍待服务器运行。
+
+当前 RGB prediction 真实审计结果：
+
+- `100/100` 个 test prediction row 成功匹配，`Missing videos = 0`；
+- 最大绝对相关约 `0.2197`；
+- `truncated_frame_count` 与 `pred_bdi` 相关约 `r = -0.220`；
+- `truncated_ratio` 与 `pred_bdi` 相关约 `r = -0.209`；
+- `frame_count` / `sampled_frame_count` 与 `pred_bdi` 相关约 `r = -0.207`；
+- high frame-count quartile 的预测更低、误差更高，但 padding 为 `0`，提示长视频截断和采样覆盖比 padding 本身更值得优先验证；
+- Freeform 更长、Northwind 更短且 padding 更多，但任务平均绝对误差接近，说明任务语境差异需要和其他混杂因素联合分析。
 
 判读：
 

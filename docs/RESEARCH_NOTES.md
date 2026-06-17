@@ -63,8 +63,12 @@
 
 - OpticalDR, 2024: https://arxiv.org/abs/2402.18786
 - Shortcut Learning in Deep Neural Networks, 2020: https://arxiv.org/abs/2004.07780
+- Occlusion-Adaptive Deep Network for Robust Facial Expression Recognition, 2020: https://arxiv.org/abs/2005.06040
+- A survey of face recognition techniques under occlusion, 2020: https://arxiv.org/abs/2006.11366
+- When Face Recognition Meets Occlusion, 2021: https://arxiv.org/abs/2103.02805
 - 这些研究支持一个关键风险判断：深度视觉模型可能优先学习身份、采集条件、质量差异等容易但不可迁移的特征。
 - 对本项目启发：需要设计 identity/quality/pose/crop artifact 相关的诊断和消融，而不是只比较 backbone 或训练 epoch。
+- 对遮挡因素的启发：眼镜、麦克风、胡须和口鼻周围遮挡会改变局部可见面部区域，既可能破坏表情/AU/landmark 观测，也可能形成稳定 subject 或采集条件标记；因此应作为 occlusion shortcut 审计对象，而不是简单当作噪声删除。
 
 ### 多任务损失与负迁移
 
@@ -261,6 +265,7 @@ center_mask_black_to_gray
 ### 1. 身份与静态外观捷径
 
 人脸 RGB 图像天然包含强身份信息，包括脸型、年龄、性别、肤色、皱纹、眼袋、胡须、发际线、眼镜、皮肤纹理和面部胖瘦。小样本 subject-independent 任务中，视觉 backbone 很容易学习这些稳定外观，而不是学习跨 subject 的面部行为动态。
+眼镜、麦克风、胡须等因素尤其值得作为子问题审计。它们一方面是身份/外观线索，另一方面也是局部遮挡或局部高对比 artifact：眼镜会带来镜框边缘和反光，麦克风可能形成口部附近黑色遮挡块，胡须会改变下半脸纹理和嘴部边界。这些线索不一定与抑郁有因果关系，但在 AVEC2014 这类小样本视频任务中，可能与 subject、任务录制条件、说话方式或 severe/minimal 分布偶然共现，从而成为 shortcut。
 
 相关研究线索：
 
@@ -277,6 +282,7 @@ center_mask_black_to_gray
 建议验证：
 
 - 设计 `face_contour_erased`、`eye_mouth_only`、`upper_face_only`、`lower_face_only` 等区域消融；
+- 增加 `glasses_region_erased`、`mouth_occluder_erased`、`beard_lower_face_erased` 或手工标注 case study，用于验证眼镜、麦克风和胡须区域是否驱动预测；
 - 检查 embedding 是否按 subject、脸型或外观聚类，而不是按 BDI 聚类；
 - 训练 subject/identity proxy classifier，测试当前 RGB embedding 是否容易预测 subject。
 
@@ -344,6 +350,8 @@ OpenFace 的 `confidence`、`success`、pose、gaze、landmark jitter 既可能�
 - 对比固定帧数均匀采样，例如 256 / 512 / 1024；
 - 对比 first / middle / uniform / random temporal crop；
 - 用 temporal occlusion 检查模型是否依赖少数片段。
+
+当前 RGB prediction 审计结果已经支持把该项保留为 P0 混杂因素：`100/100` 个 test prediction row 成功匹配，最大绝对相关约 `0.220`。其中 `truncated_frame_count` 与 `pred_bdi` 相关约 `r = -0.220`，`truncated_ratio` 与 `pred_bdi` 相关约 `r = -0.209`，`frame_count` / `sampled_frame_count` 与 `pred_bdi` 相关约 `r = -0.207`。长视频四分位预测更低、误差更高且无 padding，说明问题更可能来自首段采样、长视频截断或关键片段覆盖不足，而不是简单 padding。该证据弱于 alignment geometry，但足以支撑 fixed uniform 与 temporal crop 消融。
 
 ### 5. Freeform/Northwind 任务语境差异
 

@@ -856,3 +856,54 @@ Coordinate scale correction:
   - severe: `scale=0.364`, `residual=-16.50`
 - Recommended follow-up implementation: add raw coordinate ranges and relative
   geometry ratios such as `eye_distance_to_bbox_height_ratio`.
+
+### P0 temporal sampling audit server result
+
+- Reviewed the RGB temporal sampling audit output generated on the current
+  test prediction CSV.
+- Matching quality was valid:
+  - Videos summarized: `100`.
+  - Matched prediction rows: `100`.
+  - Missing videos: `0`.
+  - Maximum absolute correlation: about `0.2197`.
+- Main correlations:
+  - `truncated_frame_count` vs `pred_bdi`: about `r = -0.2197`.
+  - `truncated_ratio` vs `pred_bdi`: about `r = -0.2090`.
+  - `raw_to_selected_ratio` vs `pred_bdi`: about `r = 0.2090`.
+  - `sampled_frame_count` / `frame_count` vs `pred_bdi`: about
+    `r = -0.2073`.
+- Interpretation:
+  - Temporal length and truncation are weak-to-moderate confounds.
+  - Longest videos tend to receive lower predictions and higher errors, even
+    though they have no padding; this points toward truncation, head-biased
+    sampling, or diluted key behavior rather than padding alone.
+  - Freeform videos are longer and less padded, while Northwind videos are
+    shorter and more padded, but task-level absolute errors are similar.
+  - Temporal sampling should remain a P0 ablation target, but it should not be
+    treated as the sole cause of RGB overfitting or severe underestimation.
+- Next:
+  - Run `uniform_256`, `uniform_512`, `uniform_1024`, `first_crop`,
+    `middle_crop`, and `random_crop` training ablations.
+  - Summarize each run with `scripts/summarize_prediction_runs.py`.
+### Local occlusion and static-appearance shortcut direction
+
+- Added a focused research direction for eyeglasses, microphones, beard, local reflections, and mouth-region occluders.
+- Interpretation:
+  - These factors should not replace the broader multi-factor overfitting explanation.
+  - They sit between identity/static appearance shortcut and local occlusion artifact.
+  - They may act as subject identifiers, corrupt visible facial behavior regions, or create high-contrast ViT patches.
+- Updated documentation:
+  - `docs/RGB_OVERFITTING_AUDIT_PLAN.md`
+  - `docs/SHORTCUT_AUDIT_DESIGN.md`
+  - `docs/RESEARCH_NOTES.md`
+  - `docs/TODO.md`
+  - `docs/CURRENT_STATUS.md`
+  - `docs/CODEX_CONTEXT.md`
+- Recommended next step is case-study and spatial occlusion verification before adding global preprocessing rules.
+
+### Systematic overfitting mechanism roadmap
+
+- Added `docs/OVERFITTING_MECHANISM_ROADMAP.md` as a higher-level route for RGB overfitting mechanism research.
+- The roadmap organizes current evidence into layers: data validity, prediction compression, input artifact/local occlusion, identity/static appearance, OpenFace geometry/quality, temporal/task context, and model optimization.
+- It also adds a decision tree and stop rules to avoid scattered experiment accumulation.
+- Updated references from `RGB_OVERFITTING_AUDIT_PLAN.md`, `TODO.md`, `CURRENT_STATUS.md`, and `CODEX_CONTEXT.md`.
