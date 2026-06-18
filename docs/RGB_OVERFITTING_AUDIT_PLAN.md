@@ -14,6 +14,7 @@
 1. 第一轮 RGB input ablation 显示 `center_mask` 明显优于原始 `rgb`，说明输入侧非行为线索确实重要。
 2. 黑伪迹审计显示黑区很普遍，且高边界黑区组误差更大，但单一黑像素指标与误差的线性相关并不强。
 3. 最新边界连通黑区消融显示 `center_mask_black_to_gray` 整体 MAE 最好，但 severe 低估更严重，说明输入伪迹处理无法单独解决 prediction compression。
+4. RGB baseline severity calibration 显示 `pred_std=6.13` 远低于 `true_std=11.48`，val-fit 线性校准只轻微改善 MAE/RMSE，CCC 反而下降，severe 低估几乎不变。
 
 ## 相关研究依据
 
@@ -45,7 +46,7 @@
 | 局部遮挡与饰物 | 眼镜、麦克风、胡须、口鼻周围遮挡、反光和局部黑块可能与 subject、任务或采集条件共现 | 样例帧存在麦克风黑块；中心黑像素语义混杂；输入 artifact 处理只能部分改善 | P1 | artifact/occlusion case study + 区域遮挡消融 |
 | 姿态/追踪质量 | confidence、success、pose、gaze、jitter 混合真实行为和质量混杂 | OpenFace shortcut audit 已发现中等相关线索 | P1 | quality/pose/gaze mixed audit |
 | 任务语境差异 | Freeform/Northwind 的说话内容、gaze、动作、长度不同 | task consistency 已显示同 subject 可有较大预测差异 | P0/P1 | task inconsistency mixed-factor audit |
-| Prediction compression | MSE/标签分布导致向均值收缩，minimal 高估、severe 低估 | 所有较好输入变体仍 `pred_std < true_std` | P0 | val-fit test-apply calibration verification |
+| Prediction compression | MSE/标签分布导致向均值收缩，minimal 高估、severe 低估 | RGB baseline `pred_std=6.13` vs `true_std=11.48`；severe residual `-16.50`；线性校准后 CCC 下降且 severe 仍 `-16.10` | P0 | multi-run calibration summary + severity-aware training ablation |
 | ViT patch shortcut | 局部高对比 patch 或边界 patch 被 backbone 放大 | 与黑边/遮挡样例一致，但缺少 attribution 证据 | P1 | patch occlusion / attention case study |
 
 ## P0 实验安排
@@ -385,6 +386,29 @@ severity_calibration_fit.csv
 severity_calibration_test_summary.csv
 severity_calibration_report.md
 ```
+
+RGB baseline 已完成真实运行：
+
+```text
+calibration: pred_calibrated = 0.870402 * pred + 2.689282
+original:   MAE=8.9145, RMSE=10.9530, Pearson=0.3526, CCC=0.2925, pred_std=6.13, true_std=11.48
+calibrated: MAE=8.8460, RMSE=10.8278, Pearson=0.3526, CCC=0.2692, pred_std=5.33, true_std=11.48
+minimal residual: +6.89 -> +8.04
+severe residual:  -16.50 -> -16.10
+```
+
+判读：
+
+- RGB baseline 有弱排序信号，但预测动态范围被压缩；
+- 简单线性校准不能修复 severe 低估，且会降低 CCC；
+- 这说明后续不能只做 post-hoc calibration，应进入 multi-run severity calibration summary 与 severity-aware training ablation。
+
+下一步具体研究方向：
+
+1. 对所有关键输入/时序变体复跑 calibration，并输出统一表：`run, split, MAE/RMSE/Pearson/CCC, pred_std/true_std, minimal_residual, severe_residual, calibration_delta`。
+2. 将 calibration summary 与 identity retrieval summary 合并，检查高 identity retrieval 是否伴随更强 prediction compression 或 severe underestimation。
+3. 训练侧单独测试 severity-balanced sampler、severity-weighted regression loss、ordinal severity auxiliary head、Huber/CCC/mixed loss；每个实验必须同时报告 identity retrieval 与 task consistency，避免只通过抬高预测改善 severe。
+4. 若某个 severity-aware 训练方法提高 `pred_std` 并缓解 severe 低估，但 identity retrieval 也升高，应解释为 severity/identity 纠缠，而不是直接称为泛化提升。
 
 注意：calibration 只用于机制验证，不能作为观察 test 后的最终模型调参。
 

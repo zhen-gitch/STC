@@ -1199,3 +1199,57 @@ severity_calibration_report.md
 - 如果 calibration 明显改善 severe/minimal bias 但 Pearson 基本不变，说明排序信息存在但尺度被压缩；
 - 如果 calibration 伤害整体 MAE 或 mild/moderate，应报告 trade-off；
 - calibration 只作为机制验证，不能与输入消融混为最终模型优化。
+当前 RGB baseline 结果：
+
+```text
+pred_calibrated = 0.870402 * pred + 2.689282
+original:   MAE=8.9145, RMSE=10.9530, Pearson=0.3526, CCC=0.2925, pred_std=6.13, true_std=11.48
+calibrated: MAE=8.8460, RMSE=10.8278, Pearson=0.3526, CCC=0.2692, pred_std=5.33, true_std=11.48
+minimal residual: +6.89 -> +8.04
+severe residual:  -16.50 -> -16.10
+```
+
+该结果说明：
+
+- RGB baseline 的主要失败模式包含 prediction range compression；
+- validation-fit 线性校准不能解决 severe underestimation；
+- 后续需要构建 multi-run severity calibration summary，而不是只人工阅读单个报告。
+
+建议新增后续汇总脚本任务：
+
+```text
+scripts/summarize_severity_calibration_runs.py
+src/diagnostics/severity_calibration_runs.py
+```
+
+建议输入为多个 severity calibration 输出目录，例如：
+
+```text
+--run rgb=logs/severity_calibration
+--run middle_crop=logs/middle_crop_severity_calibration
+--run border_black_feather=logs/border_black_feather_severity_calibration
+```
+
+建议输出：
+
+```text
+tables/severity_calibration_run_summary.csv
+tables/severity_calibration_group_bias_summary.csv
+reports/severity_calibration_runs_report.md
+```
+
+核心字段：
+
+```text
+run
+original_mae / calibrated_mae
+original_rmse / calibrated_rmse
+original_pearson / calibrated_pearson
+original_ccc / calibrated_ccc
+true_std
+original_pred_std / calibrated_pred_std
+minimal_residual_original / minimal_residual_calibrated
+severe_residual_original / severe_residual_calibrated
+ccc_delta
+severe_residual_delta
+```

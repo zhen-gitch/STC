@@ -932,3 +932,12 @@ Coordinate scale correction:
 - `middle_crop_test` reduced same-subject top-1 to about `0.49`, but this coincided with worse task consistency; it likely reflects temporal/task-context confounding rather than a clean severity representation.
 - No current variant simultaneously lowers identity retrieval, increases severity-neighbor agreement, improves BDI metrics, and preserves task consistency.
 - Added follow-up task to build `scripts/summarize_identity_retrieval_runs.py` and a diagnostics module for multi-run identity retrieval summaries.
+
+### RGB baseline severity calibration result review
+
+- Reviewed `logs/severity_calibration` for the RGB baseline.
+- Validation-only calibration fitted `pred_calibrated = 0.870402 * pred + 2.689282` on 100 validation records.
+- Test original metrics: MAE `8.9145`, RMSE `10.9530`, Pearson `0.3526`, CCC `0.2925`, true std `11.48`, pred std `6.13`.
+- Test calibrated metrics: MAE `8.8460`, RMSE `10.8278`, Pearson `0.3526`, CCC `0.2692`, pred std `5.33`.
+- Severe underestimation remained almost unchanged: residual `-16.50 -> -16.10`; minimal overestimation worsened: `+6.89 -> +8.04`.
+- Interpretation: RGB baseline has weak ranking signal but strong prediction range compression. Simple post-hoc linear calibration is not a solution; next work should run multi-run severity calibration summary and then test severity-aware training methods with identity/task-consistency checks.

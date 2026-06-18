@@ -84,7 +84,8 @@ Shortcut learning 研究指出，深度模型可能学习在标准测试条件�
 
 1. **Prediction compression**
    - 多个 RGB 变体仍 `pred_std < true_std`。
-   - minimal 高估和 severe 低估持续存在。
+   - RGB baseline severity calibration 已确认：test `pred_std=6.13`，`true_std=11.48`；severe residual `-16.50`，线性校准后仍为 `-16.10`。
+   - minimal 高估和 severe 低估持续存在，且不能被简单 validation-fit 线性校准修复。
 
 2. **Identity / static appearance shortcut**
    - 人脸 RGB 天然包含 subject identity。
@@ -125,16 +126,24 @@ Shortcut learning 研究指出，深度模型可能学习在标准测试条件�
 - severe 系统性低估；
 - minimal 系统性高估。
 
+已完成：
+
+- RGB baseline validation-fit / test-apply linear calibration；
+- severity group calibration report；
+- 结果显示简单线性校准只轻微改善 MAE/RMSE，Pearson 不变，CCC 下降，severe 低估几乎不变。
+
 下一步：
 
-- validation-fit / test-apply linear calibration；
-- severity group calibration report；
-- 只在机制验证阶段使用，不作为观察 test 后的最终调参。
+- 将 calibration verification 扩展到所有关键 input / temporal ablation；
+- 构建 multi-run calibration summary，并与 identity retrieval / prediction summary 合并；
+- 在诊断闭环后测试 severity-balanced sampler、severity-weighted loss 和 ordinal severity auxiliary head；
+- calibration 只在机制验证阶段使用，不作为观察 test 后的最终调参。
 
 判读：
 
 - 若 calibration 改善 severe/minimal bias 但 Pearson 基本不变，说明排序信息存在但尺度被压缩；
-- 若 calibration 无法改善，说明输入/表征层面也缺少 severity ranking 信息。
+- 若 calibration 无法改善，说明输入/表征层面也缺少稳定 severity ranking 信息，或 severity 信号被 identity/task/artifact shortcut 淹没；
+- RGB baseline 当前属于第二种偏强：存在弱排序信号，但简单线性校准不足以恢复 severe 区间。
 
 ### Layer 2: OpenFace 输入 artifact
 

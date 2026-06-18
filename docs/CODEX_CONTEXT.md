@@ -444,6 +444,8 @@ P0 prediction run summary 已实现：
 
 Temporal sampling 最新结论：六组训练消融已经完成，`middle_crop` 整体指标最好并缓解 severe 低估，但明显恶化 Freeform/Northwind task consistency；`uniform_256/512/1024` 几乎等价；所有 temporal run 都是 `overfit_after_best_val=True`。因此不要继续扩展普通 temporal crop 或 `uniform_2048`，应转向 task inconsistency mixed-factor audit、severity calibration 和 identity retrieval。
 
+Severity calibration 最新结论：RGB baseline 的 `pred_std=6.13` 远低于 `true_std=11.48`，severe residual 为 `-16.50`；validation-fit 线性校准后 CCC 从 `0.2925` 降到 `0.2692`，severe residual 仍为 `-16.10`。因此当前应把 prediction range compression 作为独立核心机制，后续优先做 multi-run calibration summary、identity-residual 联合表和 severity-aware training ablation，而不是把线性校准当作最终模型方案。
+
 OpenFace 边界硬突变方向：`border_black_feather` 已支持边界软化假设，下一步如果继续 input artifact 子线，应优先做 `edge_soften_only` 与 `border_blur_fill`，用于区分黑色面积和黑色-肤色硬突变边缘。不要做全图 blur 或粗暴全黑替换。
 
 Identity retrieval 最新结论：`rgb_test` same-subject top-1 为 `0.66`、top-5 为 `0.85`，paired-task median rank 为 `1`，说明 RGB embedding 强烈保留 subject/static appearance。`border_black_feather_test` 身份检索更强，top-1 达 `0.75`，所以边界软化不等于去身份化。`center_mask` 和 `center_mask_black_to_gray` 在 test 上也没有显著降低 identity retrieval。`middle_crop` 降低 top-1 到 `0.49`，但伴随 task consistency 恶化，应解释为 temporal/task-context confound，而不是稳定 severity representation。下一步应实现 identity retrieval multi-run summary，并与 prediction summary 合并。

@@ -936,3 +936,53 @@ middle_crop               same_top1=0.45, top5=0.71, severity_agree=0.530, paire
 3. 后续把 identity retrieval summary 与 prediction summary 合并，形成论文核心表：`MAE/RMSE/CCC/pred_std/severe_bias/task_diff/same_subject_top1/same_subject_top5/severity_agree/paired_rank_mean`；
 4. 生成 high-identity / high-error case study，重点检查 `border_black_feather` severe 高身份样本、`middle_crop` 身份下降但 task diff 上升样本、moderate identity retrieval 失败样本；
 5. 暂不把 `center_mask` 称为去身份化方法，应更准确地称为 input artifact / peripheral-region mitigation。
+
+## 2026-06-18 RGB Baseline Severity Calibration 结果与下一步研究方向
+
+已对 RGB baseline 运行 `severity_calibration` 诊断。该结果把 RGB 过拟合问题进一步具体化为 **prediction range compression / severity miscalibration**：模型不是完全没有 BDI 排序信号，而是输出范围明显被压缩到中间区间，导致 minimal 系统性高估、severe 系统性低估。
+
+Validation-only 线性校准拟合：
+
+```text
+pred_calibrated = 0.870402 * pred + 2.689282
+val_count=100, val_MAE=8.4228, val_RMSE=10.7286, val_Pearson=0.4452, val_CCC=0.3599
+val_true_std=11.92, val_pred_std=6.10
+```
+
+Test 原始预测与校准后结果：
+
+```text
+original:   MAE=8.9145, RMSE=10.9530, Pearson=0.3526, CCC=0.2925, true_std=11.48, pred_std=6.13
+calibrated: MAE=8.8460, RMSE=10.8278, Pearson=0.3526, CCC=0.2692, true_std=11.48, pred_std=5.33
+```
+
+Severity group bias：
+
+```text
+original minimal:  residual=+6.8856,  MAE= 8.2522
+original mild:     residual=-1.8586,  MAE= 6.1840
+original moderate: residual=-7.6645,  MAE= 7.7576
+original severe:   residual=-16.5032, MAE=16.5032
+
+calibrated minimal:  residual=+8.0397,  MAE= 8.6831
+calibrated mild:     residual=-1.0279,  MAE= 5.4265
+calibrated moderate: residual=-7.2219,  MAE= 7.2827
+calibrated severe:   residual=-16.0999, MAE=16.0999
+```
+
+关键判读：
+
+- RGB baseline 的 `pred_std=6.13`，仅为 `true_std=11.48` 的约一半，说明模型输出被明显压缩；
+- validation-fit 线性校准几乎不改变 Pearson，只轻微改善 MAE/RMSE，但使 CCC 从 `0.2925` 降至 `0.2692`，说明简单后处理不能解决表征层面的 severity 失准；
+- severe 组 residual 从 `-16.50` 到 `-16.10`，几乎未被修复；minimal 组反而从 `+6.89` 加重到 `+8.04`；
+- 该结果支持“弱排序信号 + 强均值收缩”的机制，而不是“整体平移一下预测即可解决”；
+- 结合 identity retrieval，当前 RGB 表征同时存在身份/静态外观保留和 severity 动态范围不足的问题。
+
+下一步研究方向需要更具体地分成四条线：
+
+1. **Severity calibration multi-run summary**：把 `rgb`、`middle_crop`、`border_black_feather`、`center_mask`、`center_mask_black_to_gray` 和关键 temporal/input 变体都跑同一 calibration 诊断，统一比较 `pred_std/true_std`、minimal residual、severe residual、CCC 变化和校准前后 trade-off。
+2. **Identity-residual 联合分析**：将 prediction summary、identity retrieval summary 和 severity calibration summary 合并，形成论文核心机制表，检查 `same_subject_top1/top5` 是否与 severe 低估、prediction compression、task inconsistency 同向变化。
+3. **Severity-aware training ablation**：在完成诊断汇总后再进入训练改进，优先测试 severity-balanced sampler、severity-weighted regression loss、ordinal severity auxiliary head，以及 MAE/Huber/CCC 或混合损失；目标是提高 `pred_std`、降低 severe underestimation，同时不显著增加 identity retrieval。
+4. **Case study and representation check**：对 severe 高误差、高身份检索样本生成图组和 embedding 邻居列表，重点检查眼镜、麦克风、胡须、局部遮挡、OpenFace 尺度和任务片段是否共同出现。
+
+当前不建议把线性校准作为最终模型方案。它的价值是证明 RGB baseline 的主要失败之一是 severity 动态范围不足，并为后续 severity-aware 训练和身份捷径联合分析提供依据。

@@ -402,8 +402,13 @@ src/diagnostics/        # 独立诊断与可视化系统
 - [ ] 为 identity retrieval multi-run summary 添加聚焦测试，覆盖 summary CSV、severity group summary 和 report 输出。
 - [ ] 将 identity retrieval summary 与 prediction summary 合并为论文核心表，至少包含 `MAE/RMSE/CCC/pred_std/severe_bias/task_diff/same_subject_top1/same_subject_top5/severity_agree/paired_rank_mean`。
 - [ ] 生成 high-identity / high-error case study，重点检查 `border_black_feather` severe 高身份样本、`middle_crop` 身份下降但 task diff 上升样本、moderate identity retrieval 失败样本。
-- [ ] P0-E severity calibration 验证：使用 val predictions 拟合 post-hoc linear calibration，再应用到 test，检查 severe 低估和 minimal 高估是否缓解。
-- [ ] P0-E 输出 `severity_calibration_report.md`，并明确该实验只用于验证 prediction compression，不作为最终模型调参结论。
+- [x] P0-E severity calibration 验证：已对 RGB baseline 使用 val predictions 拟合 post-hoc linear calibration，并应用到 test，检查 severe 低估和 minimal 高估是否缓解。
+- [x] P0-E 输出 `severity_calibration_report.md`、`severity_calibration_fit.csv`、`severity_calibration_test_summary.csv`，并明确该实验只用于验证 prediction compression，不作为最终模型调参结论。
+- [ ] 构建 `scripts/summarize_severity_calibration_runs.py`，汇总多个 severity calibration 输出目录。
+- [ ] 新增 `src/diagnostics/severity_calibration_runs.py`，输出 `severity_calibration_run_summary.csv`、`severity_calibration_group_bias_summary.csv` 和 `severity_calibration_runs_report.md`。
+- [ ] 对 `rgb`、`middle_crop`、`border_black_feather`、`center_mask`、`center_mask_black_to_gray` 运行统一 severity calibration summary。
+- [ ] 将 severity calibration summary、prediction summary 和 identity retrieval summary 合并成机制总表，至少包含 `pred_std/true_std`、minimal/severe residual、CCC delta、same_subject_top1/top5、severity_agree 和 task_diff。
+- [ ] 设计 severity-aware training ablation：severity-balanced sampler、severity-weighted regression loss、ordinal severity auxiliary head、Huber/CCC/mixed loss；所有结果必须同时报告 identity retrieval 与 task consistency。
 - [ ] P0-F task inconsistency 混杂审计：将 Freeform/Northwind 差异与 frame_count、black-border、confidence、pose/gaze、alignment geometry 相关联。
 - [ ] P0-F 输出 `task_artifact_correlation.csv` 与 `task_inconsistency_manifest.csv`。
 
