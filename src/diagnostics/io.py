@@ -109,16 +109,31 @@ def read_prediction_table(csv_path):
     return records
 
 
-def save_features_npz(save_path, features, subject_ids, targets, preds):
+def save_features_npz(save_path, features, subject_ids, targets, preds, video_ids=None):
+    """Save video-level embeddings and metadata to a compressed NPZ file.
+
+    Args:
+        save_path: Destination path for the `.npz` file.
+        features: Array of shape (N, D) with video-level embeddings.
+        subject_ids: Subject identifier for each video.
+        targets: Ground-truth BDI scores.
+        preds: Model predictions.
+        video_ids: Optional full video identifiers (e.g. `203_1_Freeform_video`).
+            When provided, they are stored under the `video_ids` key and can be
+            used by downstream retrieval audits to distinguish Freeform/Northwind
+            task pairs.
+    """
     save_path = Path(save_path)
     ensure_dir(save_path.parent)
-    np.savez_compressed(
-        save_path,
-        features=np.asarray(features, dtype=float),
-        subject_ids=np.asarray([str(item) for item in subject_ids]),
-        true_bdi=np.asarray(targets, dtype=float),
-        pred_bdi=np.asarray(preds, dtype=float),
-    )
+    archive = {
+        "features": np.asarray(features, dtype=float),
+        "subject_ids": np.asarray([str(item) for item in subject_ids]),
+        "true_bdi": np.asarray(targets, dtype=float),
+        "pred_bdi": np.asarray(preds, dtype=float),
+    }
+    if video_ids is not None:
+        archive["video_ids"] = np.asarray([str(item) for item in video_ids])
+    np.savez_compressed(save_path, **archive)
 
 
 def numeric_columns_from_rows(rows, excluded=()):

@@ -300,7 +300,7 @@ def main():
     generated_files.append(prediction_csv)
 
     features_npz = output_root / "embeddings" / f"{args.split}_features.npz"
-    save_features_npz(features_npz, features, subject_ids, targets, preds)
+    save_features_npz(features_npz, features, subject_ids, targets, preds, video_ids=video_ids)
     generated_files.append(features_npz)
 
     if enabled["regression"]:
