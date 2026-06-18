@@ -12,6 +12,8 @@ by git and should be created from `local_paths.example.yaml` on each machine.
 `pre/default_config.yaml` is retained as a historical complete config for
 compatibility. Prefer the base + local paths + override layout for new runs.
 
+完整脚本使用手册见 `docs/EXPERIMENT_SCRIPT_MANUAL.md`。
+
 MTL-Lite mainline overrides:
 
 - `regression_only_baseline.yaml`: BDI regression only.
