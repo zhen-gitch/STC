@@ -51,6 +51,15 @@ SUMMARY_COLUMNS = [
     "pred_std",
 ]
 
+# Columns written to the per-group bias table.
+GROUP_BIAS_COLUMNS = [
+    "version",
+    "severity_group",
+    "count",
+    "mean_residual",
+    "mae",
+]
+
 SEVERITY_GROUPS = ["minimal", "mild", "moderate", "severe"]
 
 
@@ -249,6 +258,27 @@ def write_severity_calibration_test_summary(csv_path, original_metrics, calibrat
         {"version": "calibrated", **{k: _format_scalar(calibrated_metrics[k]) for k in SUMMARY_COLUMNS if k != "version"}},
     ]
     write_csv_rows(csv_path, rows, SUMMARY_COLUMNS)
+    return Path(csv_path)
+
+
+def write_severity_calibration_group_bias(csv_path, original_bias, calibrated_bias):
+    """Write original vs calibrated severity group bias to CSV."""
+    rows = []
+    for version, bias in [("original", original_bias), ("calibrated", calibrated_bias)]:
+        for group in SEVERITY_GROUPS:
+            if group not in bias:
+                continue
+            entry = bias[group]
+            rows.append(
+                {
+                    "version": version,
+                    "severity_group": group,
+                    "count": entry["count"],
+                    "mean_residual": _format_scalar(entry["mean_residual"]),
+                    "mae": _format_scalar(entry["mae"]),
+                }
+            )
+    write_csv_rows(csv_path, rows, GROUP_BIAS_COLUMNS)
     return Path(csv_path)
 
 
@@ -490,6 +520,13 @@ def run_severity_calibration_audit(
         calibrated_test_metrics,
     )
     generated.append(summary_path)
+
+    group_bias_path = write_severity_calibration_group_bias(
+        tables_dir / "severity_calibration_group_bias.csv",
+        original_bias,
+        calibrated_bias,
+    )
+    generated.append(group_bias_path)
 
     scatter_path = plot_calibration_scatter(
         test_records,
