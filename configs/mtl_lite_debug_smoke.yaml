@@ -4,6 +4,8 @@ DEVICES: 1
 STRATEGY: "auto"
 PRECISION: "bf16-mixed"
 
+EXPERIMENT_NAME: "mtl_lite_debug_smoke"
+
 EXTRACT_FEATURE:
   BATCH_SIZE: 1
   CHUNK_SIZE: 32

@@ -200,11 +200,34 @@ def _video_ids_from_labels(labels):
     return [str(item) for item in video_ids]
 
 
+def _task_names_from_labels(labels):
+    """Extract task names from labels, falling back to inference from video_id."""
+    task_names = labels.get("task_name")
+    if task_names is None:
+        video_ids = labels.get("video_id", labels.get("subject_id", ""))
+        if isinstance(video_ids, str):
+            video_ids = [video_ids]
+        task_names = []
+        for vid in video_ids:
+            vid = str(vid or "")
+            if "Freeform" in vid:
+                task_names.append("Freeform")
+            elif "Northwind" in vid:
+                task_names.append("Northwind")
+            else:
+                task_names.append("")
+        return task_names
+    if isinstance(task_names, str):
+        return [task_names]
+    return [str(item or "") for item in task_names]
+
+
 def collect_predictions_and_features(model, data_loader, device):
     import torch
 
     all_video_ids = []
     all_subject_ids = []
+    all_task_names = []
     all_targets = []
     all_preds = []
     all_features = []
@@ -220,6 +243,7 @@ def collect_predictions_and_features(model, data_loader, device):
 
             all_video_ids.extend(_video_ids_from_labels(labels))
             all_subject_ids.extend(_subject_ids_from_labels(labels))
+            all_task_names.extend(_task_names_from_labels(labels))
             all_targets.extend(targets.tolist())
             all_preds.extend(preds.tolist())
             all_features.append(features)
@@ -229,6 +253,7 @@ def collect_predictions_and_features(model, data_loader, device):
     return (
         all_video_ids,
         all_subject_ids,
+        all_task_names,
         np.asarray(all_targets),
         np.asarray(all_preds),
         np.concatenate(all_features, axis=0),
@@ -351,13 +376,13 @@ def run_split_diagnostics(
 
     data_loader = get_split_loader(data_module, split)
 
-    video_ids, subject_ids, targets, preds, features = collect_predictions_and_features(
+    video_ids, subject_ids, task_names, targets, preds, features = collect_predictions_and_features(
         model, data_loader, device
     )
 
     prediction_csv = split_root / "regression" / f"{split}_predictions.csv"
     records = write_prediction_table(
-        prediction_csv, subject_ids, targets, preds, video_ids=video_ids
+        prediction_csv, subject_ids, targets, preds, video_ids=video_ids, task_names=task_names
     )
     generated_files.append(prediction_csv)
 

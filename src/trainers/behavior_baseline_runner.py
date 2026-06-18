@@ -7,6 +7,7 @@ from omegaconf import OmegaConf
 from pytorch_lightning.callbacks import LearningRateMonitor, ModelCheckpoint, RichProgressBar
 from pytorch_lightning.loggers import CSVLogger, TensorBoardLogger
 
+from src.config import resolve_experiment_save_dir, resolve_next_experiment_version
 from src.datasets.openface_features import OpenFaceFeatureDataModule
 from src.diagnostics.io import ensure_dir, write_prediction_table
 from src.models.behavior_baseline import BehaviorBaselineModel
@@ -26,6 +27,8 @@ def build_behavior_baseline_trainer(cfgs):
     )
     lr_monitor = LearningRateMonitor(logging_interval="step")
 
+    save_dir = resolve_experiment_save_dir(cfgs)
+    version = resolve_next_experiment_version(save_dir)
     return pl.Trainer(
         accelerator=cfgs.ACCELERATOR,
         devices=cfgs.DEVICES,
@@ -36,8 +39,8 @@ def build_behavior_baseline_trainer(cfgs):
         check_val_every_n_epoch=1,
         log_every_n_steps=1,
         logger=[
-            CSVLogger(save_dir=cfgs.LOG_DIR, name="behavior_baseline_csv"),
-            TensorBoardLogger(save_dir=cfgs.LOG_DIR, name="behavior_baseline_tensorboard"),
+            CSVLogger(save_dir=save_dir, name="", version=version),
+            TensorBoardLogger(save_dir=save_dir, name="", version=version),
         ],
     )
 

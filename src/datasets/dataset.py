@@ -182,6 +182,19 @@ class AVECDataset(Dataset):
         with open(label_path, 'r') as f:
             return match_id, int(f.read().strip())
 
+    def _infer_task_name(self, video_id):
+        """Infer the task name from the video directory name.
+
+        OpenFace aligned video folders are conventionally named like
+        ``203_1_Freeform_video`` or ``203_1_Northwind_video``.
+        """
+        video_id = str(video_id or "")
+        if "Freeform" in video_id:
+            return "Freeform"
+        if "Northwind" in video_id:
+            return "Northwind"
+        return ""
+
     def _load_labels(self, video_id):
         match_id, label = self._label_value_for_video_id(video_id)
 
@@ -193,6 +206,7 @@ class AVECDataset(Dataset):
             "bdi_score": torch.tensor(label, dtype=torch.float32),
             "subject_id": match_id,
             "video_id": video_id,
+            "task_name": self._infer_task_name(video_id),
         }
 
     def iter_bdi_scores(self):

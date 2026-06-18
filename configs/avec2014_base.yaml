@@ -2,6 +2,10 @@ ACCELERATOR: "gpu"
 PRECISION: "bf16-mixed"
 MODE: "full"
 
+EXPERIMENT_ROOT: "experiment"
+EXPERIMENT_GROUP: "default"
+EXPERIMENT_NAME: "mtl_lite"
+
 BACKBONE_OUT_DIMS:
   iresnet50: 512
   resnet50: 2048
