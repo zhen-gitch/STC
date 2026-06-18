@@ -347,6 +347,24 @@ task_neighbor_agreement
 - 若 `center_mask` 降低 same-subject retrieval，同时保持或提升 BDI 指标，可作为去身份化输入处理证据。
 扩展判读：眼镜、胡须、发际线、麦克风遮挡和局部反光应被视为 identity/static appearance 与 local occlusion 的交叉因素。它们可能不是 BDI 因果线索，但在小样本 subject-independent 设置中可能与某些 subject、任务录制条件或严重程度分布偶然共现。若 embedding retrieval 显示强同人聚类，后续 case study 应检查最近邻是否共享眼镜、胡须、麦克风、发型或局部遮挡，而不仅仅检查人脸整体相似。
 
+当前 multi-run 结果：
+
+```text
+rgb_test                       same_top1=0.66, top5=0.85, severity_agree=0.492
+center_mask_test               same_top1=0.67, top5=0.86, severity_agree=0.498
+center_mask_black_to_gray_test same_top1=0.68, top5=0.84, severity_agree=0.522
+border_black_feather_test      same_top1=0.75, top5=0.90, severity_agree=0.550
+middle_crop_test               same_top1=0.49, top5=0.65, severity_agree=0.454
+```
+
+判读：
+
+- `rgb` embedding 已强烈身份化；
+- `border_black_feather` 预测表现较好但身份检索更强，说明 artifact smoothing 不等于去身份化；
+- `center_mask` / `center_mask_black_to_gray` 没有在 test 上显著降低身份检索，不能称为 de-identification；
+- `middle_crop` 降低身份检索，但 task consistency 变差，因此更像 temporal/task-context confound，而不是稳定 severity representation；
+- 下一步需要 multi-run identity summary 工具，并与 prediction summary 合并分析。
+
 ### P0-F Severity Calibration Verification
 
 目的：区分输入捷径和标签/损失导致的 prediction compression。

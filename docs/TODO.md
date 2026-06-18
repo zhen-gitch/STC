@@ -394,8 +394,14 @@ src/diagnostics/        # 独立诊断与可视化系统
 - [x] 根据 OpenFace camera parameters `500,500,320,240` 推断源坐标系约 640x480，并使用 `--frame-width 640 --frame-height 480` 重跑 geometry audit。
 - [ ] 在服务器运行 `python -m pytest tests/test_alignment_geometry.py`。
 - [ ] 后续增强 geometry 审计：显式输出 `landmark_x_min/x_max/y_min/y_max`、`eye_distance_to_bbox_height_ratio` 等不依赖固定 frame size 的相对几何指标。
-- [ ] P0-D embedding 身份信息审计：优先做 paired-task retrieval，检查同一 subject 的 Freeform/Northwind embedding 是否互为近邻；再考虑 subject proxy classifier。
-- [ ] P0-D 输出 `embedding_identity_retrieval.csv`、`embedding_identity_report.md`，报告 same-subject top-k retrieval、subject clustering 与 severity clustering。
+- [x] P0-D embedding 身份信息审计：已对 `rgb`、`center_mask`、`center_mask_black_to_gray`、`border_black_feather`、`middle_crop` 的 test/val 输出运行 paired-task retrieval。
+- [x] P0-D 输出 `embedding_identity_retrieval.csv`、`embedding_identity_report.md`，报告 same-subject top-k retrieval、paired-task rank、severity neighbor agreement 与 task neighbor agreement。
+
+- [ ] 构建 `scripts/summarize_identity_retrieval_runs.py`，用于汇总多个 identity retrieval 输出目录。
+- [ ] 新增 `src/diagnostics/identity_retrieval_runs.py`，输出 `identity_retrieval_run_summary.csv`、`identity_retrieval_severity_summary.csv` 和 `identity_retrieval_runs_report.md`。
+- [ ] 为 identity retrieval multi-run summary 添加聚焦测试，覆盖 summary CSV、severity group summary 和 report 输出。
+- [ ] 将 identity retrieval summary 与 prediction summary 合并为论文核心表，至少包含 `MAE/RMSE/CCC/pred_std/severe_bias/task_diff/same_subject_top1/same_subject_top5/severity_agree/paired_rank_mean`。
+- [ ] 生成 high-identity / high-error case study，重点检查 `border_black_feather` severe 高身份样本、`middle_crop` 身份下降但 task diff 上升样本、moderate identity retrieval 失败样本。
 - [ ] P0-E severity calibration 验证：使用 val predictions 拟合 post-hoc linear calibration，再应用到 test，检查 severe 低估和 minimal 高估是否缓解。
 - [ ] P0-E 输出 `severity_calibration_report.md`，并明确该实验只用于验证 prediction compression，不作为最终模型调参结论。
 - [ ] P0-F task inconsistency 混杂审计：将 Freeform/Northwind 差异与 frame_count、black-border、confidence、pose/gaze、alignment geometry 相关联。

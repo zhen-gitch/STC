@@ -923,3 +923,12 @@ Coordinate scale correction:
 - Priority variants: `edge_soften_only` and `border_blur_fill`.
 - Goal: distinguish whether the RGB model is sensitive to black padding area itself or to the high-contrast transition between OpenFace black fill and face pixels.
 - This remains an input artifact submechanism, not a replacement for identity, geometry, task context, or calibration analyses.
+
+### Identity retrieval multi-run result review
+
+- Reviewed identity retrieval outputs for `rgb`, `center_mask`, `center_mask_black_to_gray`, `border_black_feather`, and `middle_crop` on test and val splits.
+- `rgb_test` showed strong identity retrieval: same-subject top-1 about `0.66`, top-5 about `0.85`, paired-task median rank `1`.
+- `border_black_feather_test` had even stronger identity retrieval, with same-subject top-1 about `0.75` and top-5 about `0.90`, so artifact smoothing should not be interpreted as de-identification.
+- `middle_crop_test` reduced same-subject top-1 to about `0.49`, but this coincided with worse task consistency; it likely reflects temporal/task-context confounding rather than a clean severity representation.
+- No current variant simultaneously lowers identity retrieval, increases severity-neighbor agreement, improves BDI metrics, and preserves task consistency.
+- Added follow-up task to build `scripts/summarize_identity_retrieval_runs.py` and a diagnostics module for multi-run identity retrieval summaries.

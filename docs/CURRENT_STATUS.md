@@ -896,3 +896,43 @@ random_crop   best_val_rmse=11.2404, best_epoch=9,  last_gap=6.5972
 ```
 
 因此，temporal sampling 的论文结论应保持克制：**temporal location matters, but simple sampling replacement does not solve RGB overfitting**。后续不建议继续扩展 `uniform_2048` 或更多普通 crop；更高价值的是 task inconsistency mixed-factor audit、severity calibration 和 identity/static appearance retrieval。
+
+## 2026-06-18 Identity Retrieval Multi-run 结果与任务走向
+
+已对 `rgb`、`center_mask`、`center_mask_black_to_gray`、`border_black_feather` 和 `middle_crop` 分别在 test / val 上运行 embedding identity retrieval。该结果是当前 RGB shortcut 机制中最直接的证据之一。
+
+核心 test 结果：
+
+```text
+rgb                       same_top1=0.66, top5=0.85, severity_agree=0.492, paired_rank_mean=5.09
+center_mask               same_top1=0.67, top5=0.86, severity_agree=0.498, paired_rank_mean=4.12
+center_mask_black_to_gray same_top1=0.68, top5=0.84, severity_agree=0.522, paired_rank_mean=5.12
+border_black_feather      same_top1=0.75, top5=0.90, severity_agree=0.550, paired_rank_mean=2.91
+middle_crop               same_top1=0.49, top5=0.65, severity_agree=0.454, paired_rank_mean=10.62
+```
+
+核心 val 结果：
+
+```text
+rgb                       same_top1=0.52, top5=0.73, severity_agree=0.518, paired_rank_mean=6.24
+center_mask               same_top1=0.45, top5=0.80, severity_agree=0.480, paired_rank_mean=5.79
+center_mask_black_to_gray same_top1=0.50, top5=0.76, severity_agree=0.462, paired_rank_mean=7.34
+border_black_feather      same_top1=0.67, top5=0.80, severity_agree=0.494, paired_rank_mean=4.52
+middle_crop               same_top1=0.45, top5=0.71, severity_agree=0.530, paired_rank_mean=7.02
+```
+
+主要判读：
+
+- RGB baseline 的 same-subject top-1 为 `0.66`、top-5 为 `0.85`，paired-task median rank 为 `1`，说明 embedding 明显保留 subject identity / static appearance；
+- `border_black_feather` 在 test 上 identity retrieval 最强，same-subject top-1 达 `0.75`，说明边界软化虽然改善部分预测指标，但并没有去身份化，可能只是降低 artifact noise 同时保留甚至强化稳定外观；
+- `center_mask` 和 `center_mask_black_to_gray` 在 test 上并未明显降低 identity retrieval，因此不能把它们解释为 de-identification 方法；
+- `middle_crop` 明显降低 same-subject retrieval，但它同时恶化 task consistency，说明降低身份稳定性不等于形成稳定 severity representation；
+- severity neighbor agreement 没有随着 identity retrieval 降低而稳定提升，当前还没有任何变体同时满足低 identity、高 severity agreement、低 task inconsistency 和良好 BDI 指标。
+
+当前任务走向：
+
+1. 构建 `scripts/summarize_identity_retrieval_runs.py`，将多个 identity retrieval 输出汇总为统一表格和报告；
+2. 输出 `identity_retrieval_run_summary.csv`、`identity_retrieval_severity_summary.csv` 和 `identity_retrieval_runs_report.md`；
+3. 后续把 identity retrieval summary 与 prediction summary 合并，形成论文核心表：`MAE/RMSE/CCC/pred_std/severe_bias/task_diff/same_subject_top1/same_subject_top5/severity_agree/paired_rank_mean`；
+4. 生成 high-identity / high-error case study，重点检查 `border_black_feather` severe 高身份样本、`middle_crop` 身份下降但 task diff 上升样本、moderate identity retrieval 失败样本；
+5. 暂不把 `center_mask` 称为去身份化方法，应更准确地称为 input artifact / peripheral-region mitigation。
