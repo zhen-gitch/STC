@@ -1,3 +1,13 @@
+#!/usr/bin/env python
+"""Generate offline diagnostics for one or more MTL-Lite splits.
+
+This script is split-agnostic: by default it diagnoses the test split and
+writes artifacts under ``<run_dir>/diagnostics/``.  When multiple splits are
+requested (e.g. ``--split val test``), each split gets its own subdirectory
+under ``<run_dir>/diagnostics/<split>/`` so that regression plots, embeddings,
+and expensive visual diagnostics do not overwrite each other.
+"""
+
 import argparse
 import sys
 from pathlib import Path
@@ -19,16 +29,26 @@ from src.diagnostics.io import (
     select_records,
     write_prediction_table,
 )
-from src.diagnostics.regression import plot_regression_diagnostics
+from src.diagnostics.regression import plot_regression_diagnostics, regression_summary
 from src.diagnostics.reports import write_diagnostic_report
 from src.diagnostics.training_curves import plot_training_curves
 
 
+VALID_SPLITS = {"train", "val", "test"}
+
+
 def build_parser():
-    parser = argparse.ArgumentParser(description="Generate offline diagnostics for MTL-Lite runs.")
+    parser = argparse.ArgumentParser(
+        description="Generate offline diagnostics for MTL-Lite runs."
+    )
     parser.add_argument("--run-dir", required=True, help="MTL-Lite CSVLogger version directory.")
     parser.add_argument("--ckpt", default="best", help="'best', 'last', or an explicit checkpoint path.")
-    parser.add_argument("--split", default="test", choices=["train", "val", "test"], help="Dataset split to diagnose.")
+    parser.add_argument(
+        "--split",
+        nargs="*",
+        default=["test"],
+        help="Dataset split(s) to diagnose. Accepts one or more of train/val/test (default: test).",
+    )
     parser.add_argument("--config", default=None, help="Resolved config YAML. Defaults to <run-dir>/resolved_config.yaml.")
     parser.add_argument("--base-config", default="configs/avec2014_base.yaml", help="Shared base YAML config fallback.")
     parser.add_argument("--local-paths", default="configs/local_paths.yaml", help="Machine-local YAML config fallback.")
@@ -72,6 +92,40 @@ def resolve_enabled(args):
     if not any(flags.values()):
         return {key: True for key in flags}
     return flags
+
+
+def resolve_splits(args):
+    """Return a validated, ordered list of splits requested by the user.
+
+    ``nargs='*'`` can produce an empty list when ``--split`` is supplied with
+    no value.  In that case we fall back to ``["test"]`` to preserve the
+    historical default.
+    """
+    splits = list(args.split) if args.split else ["test"]
+    invalid = [split for split in splits if split not in VALID_SPLITS]
+    if invalid:
+        raise ValueError(f"Invalid split(s): {invalid}. Must be one of {sorted(VALID_SPLITS)}.")
+    # Preserve requested order while removing accidental duplicates.
+    seen = set()
+    ordered = []
+    for split in splits:
+        if split not in seen:
+            seen.add(split)
+            ordered.append(split)
+    return ordered
+
+
+def split_output_root(output_root, split, all_splits):
+    """Return the output directory for a specific split.
+
+    To keep the default single-split ``test`` behavior unchanged, outputs stay
+    directly under ``output_root``.  As soon as more than one split is
+    requested, each split gets its own subdirectory to avoid filename clashes.
+    """
+    output_root = Path(output_root)
+    if len(all_splits) == 1 and all_splits[0] == "test":
+        return output_root
+    return ensure_dir(output_root / split)
 
 
 def load_config(args):
@@ -274,47 +328,59 @@ def run_expensive_diagnostics(args, enabled, model, data_loader, records, output
     return generated_files
 
 
-def main():
-    args = build_parser().parse_args()
-    enabled = resolve_enabled(args)
-    run_dir = Path(args.run_dir).expanduser().resolve()
-    output_root = ensure_dir(run_dir / "diagnostics")
+def run_split_diagnostics(
+    args,
+    run_dir,
+    output_root,
+    split,
+    all_splits,
+    cfgs,
+    model,
+    data_module,
+    device,
+    enabled,
+):
+    """Run the full diagnostic pipeline for a single split.
+
+    Returns:
+        Tuple of ``(generated_files, split_summary)`` where ``split_summary`` is
+        a dict with basic regression metrics for the top-level summary report.
+    """
+    split_root = split_output_root(output_root, split, all_splits)
     generated_files = []
 
-    metrics_csv = run_dir / "metrics.csv"
-    if enabled["training_curves"] and metrics_csv.exists():
-        path = plot_training_curves(metrics_csv, output_root / "training")
-        if path:
-            generated_files.append(path)
+    data_loader = get_split_loader(data_module, split)
 
-    cfgs = load_config(args)
-    checkpoint_path = find_checkpoint(run_dir, args.ckpt)
-    device = resolve_device(args.device)
-    model = load_model(cfgs, checkpoint_path, device)
-    data_module = build_data_module(cfgs, args.batch_size)
-    data_loader = get_split_loader(data_module, args.split)
+    video_ids, subject_ids, targets, preds, features = collect_predictions_and_features(
+        model, data_loader, device
+    )
 
-    video_ids, subject_ids, targets, preds, features = collect_predictions_and_features(model, data_loader, device)
-    prediction_csv = output_root / "regression" / f"{args.split}_predictions.csv"
-    records = write_prediction_table(prediction_csv, subject_ids, targets, preds, video_ids=video_ids)
+    prediction_csv = split_root / "regression" / f"{split}_predictions.csv"
+    records = write_prediction_table(
+        prediction_csv, subject_ids, targets, preds, video_ids=video_ids
+    )
     generated_files.append(prediction_csv)
 
-    features_npz = output_root / "embeddings" / f"{args.split}_features.npz"
-    save_features_npz(features_npz, features, subject_ids, targets, preds, video_ids=video_ids)
+    features_npz = split_root / "embeddings" / f"{split}_features.npz"
+    save_features_npz(
+        features_npz, features, subject_ids, targets, preds, video_ids=video_ids
+    )
     generated_files.append(features_npz)
 
     if enabled["regression"]:
-        generated_files.extend(plot_regression_diagnostics(prediction_csv, output_root / "regression"))
+        generated_files.extend(
+            plot_regression_diagnostics(prediction_csv, split_root / "regression")
+        )
 
     if enabled["embeddings"]:
-        generated_files.extend(plot_embedding_diagnostics(features_npz, output_root / "embeddings"))
+        generated_files.extend(
+            plot_embedding_diagnostics(features_npz, split_root / "embeddings")
+        )
 
     if enabled["correlation"]:
-        if metrics_csv.exists():
-            path = plot_metrics_correlation_heatmap(metrics_csv, output_root / "correlation")
-            if path:
-                generated_files.append(path)
-        path = plot_predictions_correlation_heatmap(prediction_csv, output_root / "correlation")
+        path = plot_predictions_correlation_heatmap(
+            prediction_csv, split_root / "correlation"
+        )
         if path:
             generated_files.append(path)
 
@@ -322,22 +388,128 @@ def main():
         args=args,
         enabled=enabled,
         model=model,
-        data_loader=get_split_loader(data_module, args.split),
+        data_loader=get_split_loader(data_module, split),
         records=read_prediction_table(prediction_csv),
-        output_root=output_root,
+        output_root=split_root,
         device=device,
     )
     generated_files.extend(expensive_files)
 
     report_path = write_diagnostic_report(
-        output_root / "reports" / "diagnostic_report.md",
+        split_root / "reports" / "diagnostic_report.md",
         run_dir=run_dir,
-        checkpoint_path=checkpoint_path,
+        checkpoint_path=find_checkpoint(run_dir, args.ckpt),
         records=read_prediction_table(prediction_csv),
         generated_files=generated_files,
     )
-    print(f"[DIAGNOSTICS] Report saved to: {report_path}")
-    print(f"[DIAGNOSTICS] Output directory: {output_root}")
+    generated_files.append(report_path)
+
+    summary = regression_summary(records)
+    summary["split"] = split
+    summary["prediction_csv"] = str(prediction_csv)
+    summary["features_npz"] = str(features_npz)
+    summary["report"] = str(report_path)
+    return generated_files, summary
+
+
+def _write_split_summary_report(report_path, run_dir, checkpoint_path, split_summaries):
+    """Write a top-level markdown report when multiple splits are diagnosed."""
+    report_path = Path(report_path)
+    ensure_dir(report_path.parent)
+
+    lines = [
+        "# MTL-Lite Diagnostic Summary",
+        "",
+        f"- Run directory: `{run_dir}`",
+        f"- Checkpoint: `{checkpoint_path}`",
+        "",
+        "## Per-Split Summary",
+        "",
+        "| Split | Count | MAE | RMSE | Pearson |",
+        "|---|---:|---:|---:|---:|",
+    ]
+    for summary in split_summaries:
+        lines.append(
+            f"| {summary['split']} | {summary['count']} | "
+            f"{summary['mae']:.4f} | {summary['rmse']:.4f} | {summary['pearson']:.4f} |"
+        )
+
+    lines.extend(
+        [
+            "",
+            "## Detailed Reports",
+            "",
+        ]
+    )
+    for summary in split_summaries:
+        lines.append(f"- [{summary['split']}] `{summary['report']}`")
+
+    report_path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+    return report_path
+
+
+def main():
+    args = build_parser().parse_args()
+    enabled = resolve_enabled(args)
+    run_dir = Path(args.run_dir).expanduser().resolve()
+    output_root = ensure_dir(run_dir / "diagnostics")
+    all_splits = resolve_splits(args)
+
+    # Training-curve diagnostics are independent of the split, so keep them at
+    # the top level to avoid duplication.
+    top_level_files = []
+    metrics_csv = run_dir / "metrics.csv"
+    if enabled["training_curves"] and metrics_csv.exists():
+        path = plot_training_curves(metrics_csv, output_root / "training")
+        if path:
+            top_level_files.append(path)
+
+    cfgs = load_config(args)
+    checkpoint_path = find_checkpoint(run_dir, args.ckpt)
+    device = resolve_device(args.device)
+    model = load_model(cfgs, checkpoint_path, device)
+    data_module = build_data_module(cfgs, args.batch_size)
+
+    # Metrics-to-metrics correlation is also split-independent.
+    if enabled["correlation"] and metrics_csv.exists():
+        path = plot_metrics_correlation_heatmap(metrics_csv, output_root / "correlation")
+        if path:
+            top_level_files.append(path)
+
+    split_summaries = []
+    for split in all_splits:
+        print(f"[DIAGNOSTICS] Running diagnostics for split: {split}")
+        generated, summary = run_split_diagnostics(
+            args=args,
+            run_dir=run_dir,
+            output_root=output_root,
+            split=split,
+            all_splits=all_splits,
+            cfgs=cfgs,
+            model=model,
+            data_module=data_module,
+            device=device,
+            enabled=enabled,
+        )
+        split_summaries.append(summary)
+        print(f"[DIAGNOSTICS] {split}: MAE={summary['mae']:.4f}, RMSE={summary['rmse']:.4f}, "
+              f"Pearson={summary['pearson']:.4f}")
+        print(f"[DIAGNOSTICS] {split} report: {summary['report']}")
+
+    if len(all_splits) > 1:
+        summary_report = _write_split_summary_report(
+            output_root / "reports" / "diagnostic_summary.md",
+            run_dir=run_dir,
+            checkpoint_path=checkpoint_path,
+            split_summaries=split_summaries,
+        )
+        top_level_files.append(summary_report)
+
+    print(f"[DIAGNOSTICS] Top-level output directory: {output_root}")
+    if top_level_files:
+        print("[DIAGNOSTICS] Top-level files:")
+        for path in top_level_files:
+            print(f"  - {path}")
 
 
 if __name__ == "__main__":
