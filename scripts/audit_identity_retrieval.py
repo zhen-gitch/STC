@@ -10,9 +10,13 @@ research context.
 Example:
 
     python scripts/audit_identity_retrieval.py \
-        --features-npz logs/rgb/diagnostics/embeddings/test_features.npz \
-        --predictions logs/rgb/diagnostics/regression/test_predictions.csv \
-        --output-dir logs/rgb/diagnostics/identity_retrieval
+        --features-npz experiment/default/rgb/version_0/diagnostics/embeddings/test_features.npz \
+        --predictions experiment/default/rgb/version_0/diagnostics/regression/test_predictions.csv \
+        --output-dir experiment/default/rgb/version_0/diagnostics/identity_retrieval
+
+When ``diagnose_mtl_lite.py`` is run with multiple splits, the artifacts move to
+``<run_dir>/diagnostics/<split>/embeddings/<split>_features.npz`` and
+``<run_dir>/diagnostics/<split>/regression/<split>_predictions.csv``.
 """
 
 import argparse

@@ -258,36 +258,22 @@ class MTLLiteDepressionModel(pl.LightningModule):
 
 ## 9. 配置接口设计
 
-建议新增：
+MTL-Lite 基线只保留当前实际使用的键：
 
 ```yaml
 MODEL:
   AUXILIARY_TASKS:
-    ORDINAL_CLASSIFICATION: true
-    CONTRASTIVE: false
-  ENABLE_CGC: false
-  ENABLE_ADAPTIVE_MASK: false
-  ENABLE_PCGRAD: false
-  ENABLE_UNCERTAINTY_WEIGHTING: false
-```
+    ORDINAL_CLASSIFICATION: True
 
-建议新增 loss 配置：
-
-```yaml
 LOSSES:
-  REGRESSION: "mse"
   ORDINAL_WEIGHT: 1.0
   CCC_WEIGHT: 0.0
-  LDS_WEIGHTING: false
-  DIST_WEIGHT: 0.0
-```
 
-输入消融配置：
-
-```yaml
 DATASET:
   INPUT_VARIANT: "rgb"
 ```
+
+历史遗留键（如 `MODEL.ENABLE_CGC`、`MODEL.ENABLE_ADAPTIVE_MASK`、`LOSSES.REGRESSION`、`LOSSES.LDS_WEIGHTING`、`LOSSES.DIST_WEIGHT`、`VISUALIZATION` 等）已从 `configs/avec2014_base.yaml` 移除，完整旧配置保留在 `configs/pre/default_config.yaml`。
 
 当前 RGB dataset 支持 `rgb`、`grayscale`、`blur`、`center_mask`、`boundary_erased`、`black_to_gray`、`black_to_mean`、`black_to_blur`、`soft_center_mask`、`inner_crop_resize`。`landmark_heatmap` 需要真实 OpenFace landmark 坐标，应在后续 behavior baseline 或 OpenFace landmark dataset 中实现，不应由 RGB 帧伪造。
 
@@ -515,5 +501,5 @@ python -c "from src.models.task_heads import build_regression_task_head; print('
 python -c "from src.models.mtl_lite import MTLLiteDepressionModel; print('mtl lite import ok')"
 python -m pytest tests/test_mtl_lite_forward.py tests/test_mtl_lite_loss_backward.py
 python scripts/train_mtl_lite.py --override configs/mtl_lite_debug_smoke.yaml
-python scripts/diagnose_mtl_lite.py --run-dir /path/to/LOG_DIR/mtl_lite_csv/version_0 --ckpt best
+python scripts/diagnose_mtl_lite.py --run-dir experiment/default/mtl_lite/version_0 --ckpt best
 ```

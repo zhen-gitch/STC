@@ -4,4 +4,7 @@
 IMAGE_DIR: "/path/to/AVEC2014/face_images"
 LABEL_DIR: "/path/to/AVEC2014/depression_labels"
 DATASET_SPLIT_FILE: "/path/to/AVEC2014/dataset_split.json"
+
+# LOG_DIR is retained only as a legacy fallback for the old end-to-end runner.
+# New MTL-Lite runs use EXPERIMENT_ROOT / EXPERIMENT_GROUP / EXPERIMENT_NAME.
 LOG_DIR: "/path/to/experiment/logs"
