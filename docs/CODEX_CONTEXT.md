@@ -442,6 +442,10 @@ P0 prediction run summary 已实现：
 
 当前 RGB 输入消融的整体排序仍应谨慎判读：`center_mask_black_to_gray` 的 MAE/RMSE/Pearson 最好，但 severe 低估更严重；`center_mask` 的 CCC 和任务一致性更稳；`border_black_feather` 支持边界软化假设，但不是完整解决方案。不要把任一输入变体直接当作最终模型，应先进入 temporal sampling、alignment geometry、identity/static appearance 和 calibration 审计。
 
+Temporal sampling 最新结论：六组训练消融已经完成，`middle_crop` 整体指标最好并缓解 severe 低估，但明显恶化 Freeform/Northwind task consistency；`uniform_256/512/1024` 几乎等价；所有 temporal run 都是 `overfit_after_best_val=True`。因此不要继续扩展普通 temporal crop 或 `uniform_2048`，应转向 task inconsistency mixed-factor audit、severity calibration 和 identity retrieval。
+
+OpenFace 边界硬突变方向：`border_black_feather` 已支持边界软化假设，下一步如果继续 input artifact 子线，应优先做 `edge_soften_only` 与 `border_blur_fill`，用于区分黑色面积和黑色-肤色硬突变边缘。不要做全图 blur 或粗暴全黑替换。
+
 P0-A split / subject integrity audit 已实现：
 
 - `src/diagnostics/split_integrity.py`

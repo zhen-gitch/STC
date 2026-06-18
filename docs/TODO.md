@@ -364,7 +364,10 @@ src/diagnostics/        # 独立诊断与可视化系统
 - [x] 最大绝对相关约 `0.2197`，主要来自 temporal/truncation 指标与 `pred_bdi` 的关系。
 - [x] `truncated_frame_count` 与 `pred_bdi` 约 `r = -0.2197`，`truncated_ratio` 与 `pred_bdi` 约 `r = -0.2090`，`frame_count` / `sampled_frame_count` 与 `pred_bdi` 约 `r = -0.2073`。
 - [x] high frame-count quartile 预测更低、误差更高且无 padding，说明后续应优先验证截断和采样覆盖，而不是只处理 padding。
-- [ ] 将 temporal sampling 消融训练结果接入 `scripts/summarize_prediction_runs.py`，统一报告 prediction std、severity bias、task consistency 和 pairwise improvement。
+- [x] 将 temporal sampling 消融训练结果接入 `scripts/summarize_prediction_runs.py`，统一报告 prediction std、severity bias、task consistency 和 pairwise improvement。
+
+- [x] 完成 temporal sampling 六组训练消融结果分析：`middle_crop` 整体最优但恶化 task consistency，`uniform_256/512/1024` 基本等价，`first_crop` 与 `random_crop` 不适合作为主线替代。
+- [x] 完成 temporal training overfit summary：所有 temporal run 均为 `overfit_after_best_val=True`，采样替换不能解决训练后期记忆问题。
 
 ### P0：当前高优先级过拟合验证
 
@@ -412,7 +415,15 @@ split integrity audit
 
 完成 P0 后，再考虑 P1 的区域输入变体、patch/attention case study 和 targeted robustness augmentation。
 
-### P1：输入几何与质量审计
+### P1：输入 artifact、几何与质量审计
+
+#### OpenFace 边界硬突变和平滑过渡消融
+
+- [ ] 设计 `edge_soften_only`，只降低边界连通黑区与脸部交界处的高梯度，不改变大面积黑区。
+- [ ] 设计 `border_blur_fill`，用邻近非黑区域的模糊颜色填充边界连通黑区。
+- [ ] 暂缓 `uniform_2048` 或更多普通 temporal crop，优先回答边界高对比突变是否是输入 artifact 子机制。
+- [ ] 将新边界平滑变体与 `rgb`、`center_mask`、`black_to_gray`、`border_black_feather`、`center_mask_black_to_gray` 统一比较。
+- [ ] 同时报告 overall metrics、prediction std、severity bias、task consistency 和 pairwise improvement，避免只按 MAE 选择。
 
 - [ ] 若 P0-C 已完成，则本节转为扩展分析：增加插值模糊、亮度/对比度、边界 patch 统计和脸部轮廓残留。
 - [ ] 姿态/追踪质量审计：统计 confidence、success、pose、gaze、landmark jitter。

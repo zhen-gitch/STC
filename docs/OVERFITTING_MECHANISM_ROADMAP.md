@@ -380,6 +380,45 @@ AU / landmark-delta / pose-gaze subset generalizes?
 
 > RGB overfitting on OpenFace aligned face should be understood as a multi-factor shortcut problem. Black padding is a visible entry point, but the broader mechanism includes static identity appearance, local occlusion/accessories, pre-alignment geometry, temporal/task context, and label-distribution compression. Therefore, the contribution is not a single mask trick, but a systematic shortcut audit protocol for depression prediction from aligned facial videos.
 
+## 7.1 Latest Temporal And Boundary Updates
+
+### Temporal sampling ablation result
+
+最新 temporal sampling 消融进一步收窄了时序因素的解释边界：
+
+```text
+middle_crop   MAE=8.8014, RMSE=10.7291, Pearson=0.4192, CCC=0.3806
+uniform_512   MAE=8.8661, RMSE=10.9208, Pearson=0.3606, CCC=0.2966
+uniform_1024  MAE=8.8684, RMSE=10.9257, Pearson=0.3621, CCC=0.2981
+uniform_256   MAE=8.8686, RMSE=10.9214, Pearson=0.3615, CCC=0.2974
+first_crop    MAE=8.8746, RMSE=10.9844, Pearson=0.3272, CCC=0.2522
+rgb           MAE=8.9145, RMSE=10.9530, Pearson=0.3526, CCC=0.2925
+random_crop   MAE=9.0369, RMSE=11.2329, Pearson=0.3847, CCC=0.3631
+```
+
+训练曲线审计显示所有 temporal run 均为 `overfit_after_best_val=True`。因此，temporal location 确实影响预测，尤其 `middle_crop` 能改善 overall metrics 和 severe 低估；但简单采样替换不能解决训练后期过拟合。`middle_crop` 同时恶化 Freeform/Northwind task consistency，应作为 task-context confound 线索，而不是最终采样策略。
+
+### Boundary hard-transition submechanism
+
+OpenFace 人脸裁剪边界的硬突变应作为 input artifact 的精确子机制继续验证。已有 `border_black_feather` 结果说明，软化边界比硬替换黑区更有价值。下一步应优先区分：模型到底依赖黑色填充面积，还是依赖黑色到肤色之间的高梯度突变。
+
+优先候选：
+
+```text
+edge_soften_only
+border_blur_fill
+```
+
+暂缓候选：
+
+```text
+border_reflect_fill
+border_feather_blur_fill
+center_mask_soft_boundary_v2
+```
+
+如果只平滑边界即可改善预测，论文表述应从 black padding shortcut 更精确地推进为 OpenFace alignment introduces structured high-contrast transition artifacts。
+
 ## 8. 当前停止规则
 
 为了提高研究效率，以下方向暂不继续扩展：

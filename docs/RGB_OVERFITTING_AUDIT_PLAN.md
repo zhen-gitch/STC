@@ -148,6 +148,16 @@ frame_count           vs pred_bdi: r = -0.2073
 
 结论：temporal sampling 是次级但真实的混杂因素。后续优先运行 fixed uniform 与 temporal crop 训练消融，判断是否能缓解 prediction compression、severe 低估或 task inconsistency；在训练消融完成前，不应把当前 `stride_head` 采样直接定性为主要过拟合原因。
 
+当前 temporal sampling 训练消融结论：
+
+- `middle_crop` 整体最优：MAE `8.8014`、RMSE `10.7291`、Pearson `0.4192`、CCC `0.3806`；
+- `middle_crop` 缓解 severe 低估，但 task diff mean 从 `2.89` 增至 `4.63`，说明 temporal location 与 task context 混杂；
+- `uniform_256/512/1024` 几乎等价，不支持“采样帧数不足是主因”；
+- `first_crop` 和 `random_crop` 都不适合作为主线替代；
+- temporal training overfit summary 显示所有 temporal run 都是 `overfit_after_best_val=True`，说明采样替换不能解决训练后期记忆问题。
+
+后续停止扩展普通 sampling 变体，转向 task inconsistency mixed-factor audit、severity calibration 和 identity retrieval。
+
 ### P0-C Training Overfit Curve Summary
 
 目的：区分真正泛化提升和测试预测偏置变化。
@@ -386,6 +396,22 @@ task_inconsistency_report.md
 ```
 
 ## P1 实验安排
+
+### P1-A OpenFace Boundary Hard-transition Smoothing
+
+目的：验证 OpenFace aligned face 中黑区与脸部区域之间的硬突变边缘是否被 DeiT/ViT patch backbone 学成捷径。
+
+候选变体：
+
+```text
+edge_soften_only
+border_blur_fill
+border_reflect_fill
+border_feather_blur_fill
+center_mask_soft_boundary_v2
+```
+
+优先实现 `edge_soften_only` 与 `border_blur_fill`。二者分别验证“边界高梯度”与“自然填充过渡”是否比固定灰色或简单 feather 更有效。对照组固定为 `rgb`、`center_mask`、`black_to_gray`、`border_black_feather` 和 `center_mask_black_to_gray`。
 
 P1 只在 P0 证据完成后启动，避免继续经验试错。
 

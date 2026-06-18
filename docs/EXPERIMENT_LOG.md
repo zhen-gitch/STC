@@ -907,3 +907,19 @@ Coordinate scale correction:
 - The roadmap organizes current evidence into layers: data validity, prediction compression, input artifact/local occlusion, identity/static appearance, OpenFace geometry/quality, temporal/task context, and model optimization.
 - It also adds a decision tree and stop rules to avoid scattered experiment accumulation.
 - Updated references from `RGB_OVERFITTING_AUDIT_PLAN.md`, `TODO.md`, `CURRENT_STATUS.md`, and `CODEX_CONTEXT.md`.
+
+### Temporal sampling ablation and overfit result review
+
+- Reviewed temporal sampling prediction summary and training overfit summary.
+- Main prediction result: `middle_crop` achieved the best overall temporal result with MAE about `8.80`, RMSE about `10.73`, Pearson about `0.42`, and CCC about `0.38`.
+- `middle_crop` reduced severe underestimation but increased Freeform/Northwind task inconsistency.
+- `uniform_256`, `uniform_512`, and `uniform_1024` were nearly identical, so insufficient uniform frame count is unlikely to be the main bottleneck.
+- `first_crop` worsened prediction compression; `random_crop` increased prediction variance but was unstable.
+- All temporal runs were still `overfit_after_best_val=True`; sampling replacement did not fix late training memorization.
+
+### OpenFace boundary hard-transition smoothing plan
+
+- Added a focused plan for boundary hard-transition smoothing.
+- Priority variants: `edge_soften_only` and `border_blur_fill`.
+- Goal: distinguish whether the RGB model is sensitive to black padding area itself or to the high-contrast transition between OpenFace black fill and face pixels.
+- This remains an input artifact submechanism, not a replacement for identity, geometry, task context, or calibration analyses.

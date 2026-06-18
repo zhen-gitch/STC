@@ -828,3 +828,71 @@ frame_count           vs pred_bdi: r = -0.2073
 - 作为 patch-level artifact：眼镜反光、麦克风黑块和胡须边界可能形成高对比局部 patch，被 DeiT/ViT backbone 放大。
 
 后续建议先做 case-study 与区域遮挡验证，而不是立即全局删除这些区域。优先检查 severe 低估、minimal 高估、高 task diff、以及 `middle_crop` 明显改善/恶化的样本，判断模型关注或遮挡敏感性是否集中在眼镜、麦克风、胡须、下半脸或边界残留上。
+
+## 2026-06-18 OpenFace 边界硬突变和平滑过渡消融计划
+
+人脸裁剪边界的硬像素突变值得作为 input artifact 子机制继续验证。当前 `border_black_feather` 已明显优于原始 `rgb` 和普通 `black_to_gray`，说明问题可能不只是黑色填充面积，而是黑区与脸部区域之间的高对比过渡被 DeiT/ViT patch backbone 放大。
+
+该方向的定位是：**OpenFace aligned face hard-transition artifact**。它属于输入 artifact 与 ViT patch shortcut 的交叉机制，不应替代 identity、geometry、temporal 和 calibration 等主线。
+
+下一轮不建议继续做全图 blur 或粗暴全黑替换，而应做精确边界消融：
+
+```text
+edge_soften_only              # 只降低边界连通黑区与脸部交界处的高梯度，不改变大面积黑区
+border_blur_fill              # 用邻近非黑区域的模糊颜色填充边界连通黑区
+border_reflect_fill           # 用边界邻近像素反射/延展填充黑区
+border_feather_blur_fill      # feather mask + blur/inpaint-like fill，验证软过渡是否优于固定灰色
+center_mask_soft_boundary_v2  # 在 center_mask 上使用更宽、更自然的软边界
+```
+
+优先只做两组：`edge_soften_only` 和 `border_blur_fill`。它们最直接回答：模型到底依赖黑色面积，还是依赖黑色-肤色之间的硬突变边缘。
+
+对照组应固定为：
+
+```text
+rgb
+center_mask
+black_to_gray
+border_black_feather
+center_mask_black_to_gray
+```
+
+判读时必须同时报告 overall metrics、prediction std、severity bias、task consistency 和 pairwise improvement。若平滑边界改善 MAE 但继续加重 severe 低估，则应解释为 artifact mitigation，而不是完整泛化解决方案。
+
+## 2026-06-18 Temporal Sampling 消融与过拟合结果
+
+六组 temporal sampling 训练消融已经完成，并已通过 `scripts/summarize_prediction_runs.py` 与 `scripts/summarize_training_overfit.py` 汇总。结论是：temporal location 会影响预测，但简单替换采样策略不能解决 RGB 过拟合。
+
+整体 test 指标：
+
+```text
+middle_crop   MAE=8.8014, RMSE=10.7291, Pearson=0.4192, CCC=0.3806, pred_std=7.3842
+uniform_512   MAE=8.8661, RMSE=10.9208, Pearson=0.3606, CCC=0.2966, pred_std=6.1048
+uniform_1024  MAE=8.8684, RMSE=10.9257, Pearson=0.3621, CCC=0.2981, pred_std=6.1294
+uniform_256   MAE=8.8686, RMSE=10.9214, Pearson=0.3615, CCC=0.2974, pred_std=6.1142
+first_crop    MAE=8.8746, RMSE=10.9844, Pearson=0.3272, CCC=0.2522, pred_std=5.4438
+rgb           MAE=8.9145, RMSE=10.9530, Pearson=0.3526, CCC=0.2925, pred_std=6.1587
+random_crop   MAE=9.0369, RMSE=11.2329, Pearson=0.3847, CCC=0.3631, pred_std=8.1834
+```
+
+关键判读：
+
+- `middle_crop` 是本轮最有价值的策略，整体 MAE/RMSE/Pearson/CCC 均优于 `rgb`，并将 severe 组 bias 从 `-16.50` 缓解到 `-14.55`；
+- `middle_crop` 同时显著恶化 task consistency，Freeform/Northwind 平均预测差异从 `2.89` 增至 `4.63`，说明中段片段可能引入任务语境混杂；
+- `uniform_256/512/1024` 几乎等价，说明瓶颈不是简单的均匀采样帧数不足；
+- `first_crop` 加重 prediction compression，severe bias 变为 `-17.42`，不应作为替代策略；
+- `random_crop` 增大 `pred_std` 并缓解部分 severe 低估，但整体 MAE/RMSE 最差且 task consistency 最差，不稳定。
+
+训练曲线过拟合汇总显示，所有 temporal run 都是 `overfit_after_best_val=True`：
+
+```text
+middle_crop   best_val_rmse=10.5861, best_epoch=11, last_gap=6.5087
+rgb           best_val_rmse=10.7153, best_epoch=6,  last_gap=6.4181
+uniform_256   best_val_rmse=10.8494, best_epoch=6,  last_gap=6.4019
+uniform_512   best_val_rmse=10.8587, best_epoch=6,  last_gap=6.4607
+uniform_1024  best_val_rmse=10.8717, best_epoch=6,  last_gap=6.4424
+first_crop    best_val_rmse=11.1440, best_epoch=6,  last_gap=6.5589
+random_crop   best_val_rmse=11.2404, best_epoch=9,  last_gap=6.5972
+```
+
+因此，temporal sampling 的论文结论应保持克制：**temporal location matters, but simple sampling replacement does not solve RGB overfitting**。后续不建议继续扩展 `uniform_2048` 或更多普通 crop；更高价值的是 task inconsistency mixed-factor audit、severity calibration 和 identity/static appearance retrieval。
