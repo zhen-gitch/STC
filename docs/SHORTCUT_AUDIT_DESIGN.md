@@ -1131,6 +1131,45 @@ task_neighbor_agreement
 - 如果 same-subject retrieval 强而 severity neighbor agreement 弱，说明模型表征更像身份/外观空间；
 - 如果 `center_mask` 降低 same-subject retrieval，同时保持或提升 BDI 指标，可作为去身份化输入处理证据。
 
+Multi-run summary 扩展：
+
+```text
+scripts/summarize_identity_retrieval_runs.py
+```
+
+输入为多个 identity retrieval 输出目录，例如 `rgb_test=logs/rgb_test_identity_retrieval`。脚本应读取每个目录下的：
+
+```text
+tables/embedding_identity_summary.csv
+tables/embedding_identity_retrieval.csv
+```
+
+输出：
+
+```text
+tables/identity_retrieval_run_summary.csv
+tables/identity_retrieval_severity_summary.csv
+reports/identity_retrieval_runs_report.md
+```
+
+核心字段：
+
+```text
+run
+split
+same_subject_top1_rate
+same_subject_top3_rate
+same_subject_top5_rate
+paired_task_rank_mean
+paired_task_rank_median
+paired_task_in_top1_rate
+paired_task_in_top5_rate
+severity_neighbor_agreement_top5_mean
+task_neighbor_agreement_top5_mean
+```
+
+severity summary 需要按 `query_severity_group` 汇总 top-1/top-5 same-subject rate、severity agreement 和 paired-task rank，用于发现 moderate/severe 等组别是否更不稳定。
+
 ### 12.11 Severity calibration verification
 
 目标：

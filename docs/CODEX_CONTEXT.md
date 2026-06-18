@@ -446,6 +446,8 @@ Temporal sampling 最新结论：六组训练消融已经完成，`middle_crop` 
 
 OpenFace 边界硬突变方向：`border_black_feather` 已支持边界软化假设，下一步如果继续 input artifact 子线，应优先做 `edge_soften_only` 与 `border_blur_fill`，用于区分黑色面积和黑色-肤色硬突变边缘。不要做全图 blur 或粗暴全黑替换。
 
+Identity retrieval 最新结论：`rgb_test` same-subject top-1 为 `0.66`、top-5 为 `0.85`，paired-task median rank 为 `1`，说明 RGB embedding 强烈保留 subject/static appearance。`border_black_feather_test` 身份检索更强，top-1 达 `0.75`，所以边界软化不等于去身份化。`center_mask` 和 `center_mask_black_to_gray` 在 test 上也没有显著降低 identity retrieval。`middle_crop` 降低 top-1 到 `0.49`，但伴随 task consistency 恶化，应解释为 temporal/task-context confound，而不是稳定 severity representation。下一步应实现 identity retrieval multi-run summary，并与 prediction summary 合并。
+
 P0-A split / subject integrity audit 已实现：
 
 - `src/diagnostics/split_integrity.py`

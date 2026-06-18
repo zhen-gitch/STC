@@ -195,6 +195,10 @@ Shortcut learning 研究指出，深度模型可能学习在标准测试条件�
 - `center_mask` 降低 identity retrieval 且保持 BDI 表现：去身份化输入处理有证据；
 - nearest neighbors 共享眼镜/胡须/发型/遮挡：进入 local occlusion / accessory case study。
 
+最新 multi-run 结果确认：RGB baseline same-subject top-1 为 `0.66`、top-5 为 `0.85`，paired-task median rank 为 `1`，说明 RGB embedding 明显偏 subject/static appearance。输入 artifact 变体并不自动降低身份线索；`border_black_feather` 在 test 上 top-1 升至 `0.75`，提示边界软化可能让同 subject 的静态外观更稳定。`middle_crop` 将 top-1 降至 `0.49`，但伴随 task consistency 恶化。因此 identity shortcut 与 task-context confound 必须联合解释，不能单看一个 retrieval 指标。
+
+下一步机制要求：只有当某个变体同时降低 same-subject retrieval、提高 severity neighbor agreement、保持或提升 BDI 指标、并不恶化 task consistency，才可被称为有效的去身份化/行为化表征。目前尚无变体满足这一条件。
+
 ### Layer 4: OpenFace geometry / quality confound
 
 问题：OpenFace 检测和对齐过程是否把数据采集差异转成模型可见线索？
