@@ -1,5 +1,7 @@
 # SHORTCUT_AUDIT_DESIGN.md
 
+> 文档职责：诊断脚本和 audit 输出规格。不要在此重复当前结论；当前状态见 `CURRENT_STATUS.md`，主控路线见 `RGB_OVERFITTING_AUDIT_PLAN.md`，文档导航见 `DOCS_GUIDE.md`。
+
 本文档定义“非抑郁捷径验证框架”（Shortcut Audit Framework）的研究目标、数据需求、诊断模块、实验矩阵和实施路线。该框架用于验证模型是否依赖身份、OpenFace 追踪质量、裁剪伪影、姿态、光照、视频质量等非抑郁线索，而不是稳定的面部行为动态。
 
 当前 RGB 过拟合多因素审计的权威路线见 `docs/RGB_OVERFITTING_AUDIT_PLAN.md`。本文档负责定义各类 audit 的输入、输出、字段和判读标准；黑边/黑填充只作为 input artifact 子证据之一，不作为唯一或主要解释。

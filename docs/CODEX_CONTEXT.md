@@ -1,5 +1,7 @@
 # CODEX_CONTEXT.md
 
+> 文档职责：Codex 长期上下文和工作约束，保持精简。开始新任务时先读 `DOCS_GUIDE.md` 决定需要加载哪些文档，避免完整读取所有长文档。
+
 本文档是 Codex 参与本项目时必须优先阅读的长期上下文。后续所有项目文档默认使用中文撰写，除非文件名、命令、类名、函数名、配置键或论文术语需要保留英文。
 
 ## 当前架构决策
@@ -590,3 +592,6 @@ behavior prediction export
 - 不在 test 结果之后反向调训练超参数；
 - behavior baseline 默认作为独立入口，不污染 `scripts/train_mtl_lite.py`；
 - late fusion 和辅助任务必须等待 behavior 特征子集稳定后再做。
+
+三表联合最新结论：`rgb_input_ablation_summary`、`identity_retrieval_summary`、`severity_calibration_summary` 已覆盖 `rgb`、`center_mask`、`border_black_feather`、`middle_crop`、`center_mask_black_to_gray`。`center_mask` 是当前最健康 input artifact mitigation 证据，CCC 最高且 task consistency 接近 baseline；`center_mask_black_to_gray` MAE 最低但 severe bias 最差；`border_black_feather` severe bias 最轻但 identity retrieval 最强；`middle_crop` 降低身份检索但恶化 task consistency。所有 linear calibration 都降低 CCC，不作为最终模型方案。
+下一阶段路线已重组为 identity suppression x boundary smoothing 的 2x2 机制消融：先做机制总表和 case-study anchor，再实现 `edge_soften_only`、`border_blur_fill`、`identity_texture_suppressed`、`identity_texture_suppressed_edge_soften`，并统一接入 prediction / identity retrieval / severity calibration 三类 summary。severity-aware sampler/loss 暂放在该机制拆解之后，避免把 bias redistribution 误判为真正泛化。

@@ -1,5 +1,7 @@
 # TODO.md
 
+> 文档职责：只维护可执行任务和完成状态。不要在此重复长篇实验解释；机制解释见 `RGB_OVERFITTING_AUDIT_PLAN.md`，状态摘要见 `CURRENT_STATUS.md`，文档导航见 `DOCS_GUIDE.md`。
+
 ## 当前架构目标
 
 项目采用新架构：
@@ -406,8 +408,8 @@ src/diagnostics/        # 独立诊断与可视化系统
 - [x] P0-E 输出 `severity_calibration_report.md`、`severity_calibration_fit.csv`、`severity_calibration_test_summary.csv`，并明确该实验只用于验证 prediction compression，不作为最终模型调参结论。
 - [ ] 构建 `scripts/summarize_severity_calibration_runs.py`，汇总多个 severity calibration 输出目录。
 - [ ] 新增 `src/diagnostics/severity_calibration_runs.py`，输出 `severity_calibration_run_summary.csv`、`severity_calibration_group_bias_summary.csv` 和 `severity_calibration_runs_report.md`。
-- [ ] 对 `rgb`、`middle_crop`、`border_black_feather`、`center_mask`、`center_mask_black_to_gray` 运行统一 severity calibration summary。
-- [ ] 将 severity calibration summary、prediction summary 和 identity retrieval summary 合并成机制总表，至少包含 `pred_std/true_std`、minimal/severe residual、CCC delta、same_subject_top1/top5、severity_agree 和 task_diff。
+- [x] 对 `rgb`、`middle_crop`、`border_black_feather`、`center_mask`、`center_mask_black_to_gray` 运行统一 severity calibration summary。
+- [x] 已联合审阅 severity calibration summary、prediction summary 和 identity retrieval summary，完成当前机制结论整理；正式机制总表文件是否落地另行审阅。
 - [ ] 设计 severity-aware training ablation：severity-balanced sampler、severity-weighted regression loss、ordinal severity auxiliary head、Huber/CCC/mixed loss；所有结果必须同时报告 identity retrieval 与 task consistency。
 - [ ] P0-F task inconsistency 混杂审计：将 Freeform/Northwind 差异与 frame_count、black-border、confidence、pose/gaze、alignment geometry 相关联。
 - [ ] P0-F 输出 `task_artifact_correlation.csv` 与 `task_inconsistency_manifest.csv`。
@@ -461,3 +463,15 @@ split integrity audit
 - [ ] 在输入捷径审计之后，再单独测试 severity-balanced sampler。
 - [ ] 在输入捷径审计之后，再单独测试 weighted MSE / Huber / CCC loss。
 - [ ] 输出 severity calibration report，避免把整体抬高预测误判为真正泛化提升。
+
+### 下一阶段：Identity Suppression x Boundary Smoothing 机制消融
+
+- [ ] 构建正式机制总表，将 prediction、identity retrieval、severity calibration 三类 summary 合并为单一 CSV / Markdown 报告。
+- [ ] 固定 case-study anchor：`center_mask` moderate 改善、`center_mask_black_to_gray` severe 崩塌、`border_black_feather` severe 改善但 high-identity、`middle_crop` task consistency 恶化、`rgb` persistent severe underestimation。
+- [ ] 实现 `edge_soften_only`：只降低边界连通黑区与脸部交界处的高梯度，不改变大面积黑区。
+- [ ] 实现 `border_blur_fill`：使用邻近非黑区域的模糊颜色填充边界连通黑区，验证自然过渡是否优于固定灰/硬替换。
+- [ ] 设计并实现 `identity_texture_suppressed`：弱化高频静态身份纹理、胡须/发际线/局部反光等外观线索，避免复用全图 blur 或 grayscale。
+- [ ] 设计组合变体 `identity_texture_suppressed_edge_soften`，在身份弱化基础上加入边界高梯度抑制。
+- [ ] 对上述 2x2 变体统一运行 prediction summary、identity retrieval summary 和 severity calibration summary。
+- [ ] 按成功标准判读：identity retrieval 不升高或下降、severity agreement 不下降、CCC 不下降、task consistency 不恶化、severe bias 改善、pred_std 不继续压缩。
+- [ ] 在 2x2 机制消融完成后，再进入 severity-balanced sampler / weighted loss / Huber-CCC mixed loss / ordinal auxiliary head。

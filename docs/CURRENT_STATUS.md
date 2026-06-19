@@ -1,5 +1,7 @@
 # CURRENT_STATUS.md
 
+> 文档职责：当前状态快照与最新阶段性结论。详细机制路线见 `RGB_OVERFITTING_AUDIT_PLAN.md` / `OVERFITTING_MECHANISM_ROADMAP.md`；具体任务见 `TODO.md`；文档导航见 `DOCS_GUIDE.md`。
+
 ## 状态日期
 
 2026-06-15
@@ -77,6 +79,7 @@ split integrity audit
 
 ## 重要文件
 
+- `docs/DOCS_GUIDE.md`：文档导航、读取顺序和职责边界，优先阅读。
 - `docs/MTL_LITE_DESIGN.md`：新架构、模块边界、接口定义和实施路线。
 - `docs/RGB_OVERFITTING_AUDIT_PLAN.md`：RGB 过拟合多因素审计权威路线。
 - `docs/CODEX_CONTEXT.md`：Codex 长期上下文。
@@ -986,3 +989,99 @@ calibrated severe:   residual=-16.0999, MAE=16.0999
 4. **Case study and representation check**：对 severe 高误差、高身份检索样本生成图组和 embedding 邻居列表，重点检查眼镜、麦克风、胡须、局部遮挡、OpenFace 尺度和任务片段是否共同出现。
 
 当前不建议把线性校准作为最终模型方案。它的价值是证明 RGB baseline 的主要失败之一是 severity 动态范围不足，并为后续 severity-aware 训练和身份捷径联合分析提供依据。
+
+## 2026-06-18 RGB Input / Identity / Calibration 三表联合结果
+
+已完成 `rgb_input_ablation_summary`、`identity_retrieval_summary` 和 `severity_calibration_summary` 的联合审阅，覆盖同一组关键 run：`rgb`、`center_mask`、`border_black_feather`、`middle_crop`、`center_mask_black_to_gray`。当前结论已经从单点输入消融推进到多机制交叉解释。
+
+整体性能显示，`center_mask_black_to_gray` 的 MAE 最低，但 `center_mask` 的 CCC 最高、prediction std 最大且 task consistency 接近 baseline：
+
+```text
+center_mask_black_to_gray: MAE=7.726, CCC=0.453, pred_std=7.020, task_diff=3.735
+center_mask:               MAE=7.942, CCC=0.477, pred_std=8.132, task_diff=2.955
+border_black_feather:      MAE=8.041, CCC=0.409, pred_std=6.264, task_diff=3.300
+middle_crop:               MAE=8.801, CCC=0.381, pred_std=7.384, task_diff=4.634
+rgb:                       MAE=8.915, CCC=0.293, pred_std=6.159, task_diff=2.890
+```
+
+Severity bias 显示输入变体主要是在重新分配不同严重程度组的误差，而不是消除 severe underestimation：
+
+```text
+center_mask:               minimal_bias=+4.61, moderate_bias=-2.08, severe_bias=-15.76
+center_mask_black_to_gray: minimal_bias=+3.64, mild_bias=-0.18, severe_bias=-17.46
+border_black_feather:      minimal_bias=+8.40, moderate_bias=-4.79, severe_bias=-12.73
+rgb:                       minimal_bias=+6.89, moderate_bias=-7.66, severe_bias=-16.50
+middle_crop:               minimal_bias=+6.56, moderate_bias=-6.48, severe_bias=-14.55
+```
+
+Identity retrieval 显示没有任何输入变体同时实现低身份检索、高 severity agreement、低 task inconsistency 和良好 BDI 指标：
+
+```text
+rgb:                       same_top1=0.66, same_top5=0.85, severity_agree=0.492
+center_mask:               same_top1=0.67, same_top5=0.86, severity_agree=0.498
+border_black_feather:      same_top1=0.75, same_top5=0.90, severity_agree=0.550
+middle_crop:               same_top1=0.49, same_top5=0.65, severity_agree=0.454
+center_mask_black_to_gray: same_top1=0.68, same_top5=0.84, severity_agree=0.522
+```
+
+Severity calibration summary 进一步确认 post-hoc linear calibration 不是解决方案。所有 run 的 calibration 都降低 CCC，并进一步压缩 prediction std；它们最多微调 MAE/RMSE，不能恢复 high-severity 端动态范围。因此 calibrated predictions 不应作为主结果。
+
+当前各 run 的机制定位：
+
+- `center_mask`：当前最健康的 input artifact mitigation 证据，CCC 最高，moderate 组改善明显，task consistency 接近 baseline；但 identity retrieval 未下降，不能称为去身份化。
+- `center_mask_black_to_gray`：MAE 最低，minimal/mild 最好，但 severe bias 最差；可作为“MAE 可能误导模型选择”的关键反例。
+- `border_black_feather`：severe 低估最轻，但 minimal 高估最重且 identity retrieval 最强；说明边界软化可能缓解 artifact noise，同时保留甚至强化 subject/static appearance shortcut。
+- `middle_crop`：identity retrieval 明显下降，但 severity agreement 和 task consistency 变差；说明降低身份信息不等于获得稳定 severity representation，temporal/task context 是独立混杂因素。
+- `rgb`：原始 baseline，表现出强 prediction compression、severe underestimation 和身份/静态外观保留。
+
+当前阶段性论文结论：RGB input ablations can improve overall error by redistributing severity-group bias, but they do not eliminate identity shortcut or severe underestimation. Center-focused inputs provide the most stable artifact-mitigation evidence, while black replacement, boundary smoothing, and temporal cropping expose trade-offs among severity bias, identity retrieval, and task consistency.
+
+## 2026-06-18 下一阶段可行研究路线：Identity Suppression x Boundary Smoothing
+
+结合三表联合结果与 identity / boundary 机制讨论，下一阶段不应直接继续堆叠普通 mask，也不应立即把 severity-aware loss 当作主线。更可行的路线是先把两个已显示强信号的机制拆开验证：
+
+1. **identity/static appearance shortcut**：RGB embedding 已强保留 subject identity，`center_mask` 和 `center_mask_black_to_gray` 也没有降低 same-subject retrieval；`border_black_feather` 甚至进一步增强 identity retrieval。
+2. **OpenFace boundary hard-transition artifact**：`border_black_feather` 改善 severe bias，但同时增强 identity retrieval，说明边界平滑可能改善 artifact noise，也可能保留/强化稳定外观。
+
+因此下一阶段应采用 `identity suppression x boundary smoothing` 的 2x2 机制消融，而不是直接做混合变体：
+
+```text
+A. baseline identity + original boundary
+B. baseline identity + smoothed boundary
+C. identity-suppressed input + original boundary
+D. identity-suppressed input + smoothed boundary
+```
+
+判读目标：
+
+- B vs A：只检验边界高梯度 / 黑色到肤色硬突变是否是高响应 artifact；
+- C vs A：只检验身份/静态纹理抑制是否降低 same-subject retrieval 且不破坏 severity representation；
+- D vs B/C：检验身份抑制与边界平滑是叠加、冲突，还是同一机制的不同表现。
+
+优先输入变体应保持可解释、低复杂度：
+
+```text
+edge_soften_only
+border_blur_fill
+identity_texture_suppressed
+identity_texture_suppressed_edge_soften
+```
+
+`identity_texture_suppressed` 不应简单复用全图 blur 或 grayscale，因为既有结果显示二者会损害有效信号。更合适的设计是弱化静态身份纹理和高频局部外观，同时尽量保留眼口、AU 变化、局部运动和整体面部行为结构。候选实现包括：轻量高频纹理抑制、面部轮廓/发际线弱化、局部反光/胡须/饰物区域 case-level occlusion，以及训练时 style / color jitter，而不是测试时粗暴全图模糊。
+
+每个变体必须统一报告：
+
+```text
+MAE / RMSE / Pearson / CCC
+pred_std / true_std
+minimal / moderate / severe bias
+task_diff_mean
+same_subject_top1 / same_subject_top5
+paired_rank_mean
+severity_agree
+calibration_delta_CCC
+```
+
+成功标准不能只是 MAE 下降。一个变体只有同时满足 identity retrieval 下降或不升高、severity agreement 不下降、CCC 不下降、task consistency 不恶化、severe bias 改善且 pred_std 不继续压缩，才可被视为更健康的机制方向。
+
+这条路线完成后，再进入 severity-aware training ablation。否则如果直接测试 sampler/loss，即使 severe bias 改善，也无法判断改善来自真正 severity learning，还是来自 identity / boundary shortcut 的再分配。

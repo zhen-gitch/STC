@@ -1,5 +1,7 @@
 # OVERFITTING_MECHANISM_ROADMAP.md
 
+> 文档职责：上层机制地图和决策树，负责把 input artifact、identity、geometry、temporal、calibration 等机制组织成统一框架。当前状态见 `CURRENT_STATUS.md`；执行任务见 `TODO.md`；文档导航见 `DOCS_GUIDE.md`。
+
 本文档用于系统梳理 RGB 输入模型过拟合的机制研究路线。它不是新的单点实验清单，而是当前所有审计、消融和论文叙事的上层框架。后续具体实验配置仍放在 `RGB_OVERFITTING_AUDIT_PLAN.md`、`SHORTCUT_AUDIT_DESIGN.md` 和 `TODO.md` 中。
 
 ## 1. 研究目标
@@ -443,3 +445,78 @@ center_mask_soft_boundary_v2
 - 仅凭 test MAE 选择最终模型。
 
 每个后续实验都必须回答一个机制问题，而不是只追求单次数值提升。
+## 8. 三表联合后的机制更新
+
+`rgb_input_ablation_summary`、`identity_retrieval_summary` 和 `severity_calibration_summary` 的联合结果已经支持更系统的机制解释：输入变体能改变 overall metrics 和 severity-group bias，但没有任何变体同时满足低 identity retrieval、高 severity agreement、低 task inconsistency、高 CCC 和低 severe bias。
+
+关键证据：
+
+- `center_mask` 是当前最健康的 input artifact mitigation：MAE `7.942`、CCC `0.477`、pred_std `8.132`，moderate bias 从 RGB 的 `-7.66` 改善到 `-2.08`。
+- `center_mask_black_to_gray` 的 MAE 最低 `7.726`，但 severe bias 达 `-17.46`，说明 overall MAE 不能单独作为模型选择依据。
+- `border_black_feather` 的 severe bias 最轻 `-12.73`，但 same-subject top-1 达 `0.75`、top-5 达 `0.90`，提示 severe 端改善与 identity/static appearance shortcut 可能纠缠。
+- `middle_crop` 将 same-subject top-1 降到 `0.49`，但 task diff 升至 `4.63` 且 severity agreement 最低 `0.454`，说明去身份化表象可能来自 temporal/task mismatch，而非更好的抑郁表征。
+- 所有 run 的 post-hoc linear calibration 均降低 CCC，进一步支持 severe underestimation 是表征/优化/分布问题，而不是简单输出尺度偏移。
+
+因此，当前机制地图应把 RGB failure 表述为多因素 shortcut 与 severity compression 的交叉，而不是单个 artifact 的因果链。
+## 9. 可行推进路线：先解耦 Identity 与 Boundary，再改训练目标
+
+当前证据要求下一阶段采用机制解耦，而不是继续单点试错。更可行的路线如下：
+
+```text
+三表联合证据
+-> 机制总表与 case-study anchor
+-> identity suppression x boundary smoothing 2x2 消融
+-> 三类 summary 复核
+-> severity-aware training ablation
+-> behavior-oriented validation / fusion
+```
+
+这一路线的核心约束是：任何新实验都必须能回答“身份记忆、边界高响应、severity compression、task context”中的至少一个机制问题。
+
+### Step 1: 机制总表与 case-study anchor
+
+把 prediction、identity retrieval、severity calibration 结果合并为统一机制表，并固定 case study 样本集合。case 类型至少覆盖：
+
+```text
+center_mask moderate 改善样本
+center_mask_black_to_gray severe 崩塌样本
+border_black_feather severe 改善但 high-identity 样本
+middle_crop task consistency 恶化样本
+rgb severe persistent underestimation 样本
+```
+
+### Step 2: Identity x Boundary 2x2 消融
+
+```text
+A. baseline identity + original boundary
+B. baseline identity + smoothed boundary
+C. identity-suppressed input + original boundary
+D. identity-suppressed input + smoothed boundary
+```
+
+该设计用于判断 identity shortcut 与 boundary artifact 是独立机制还是耦合机制。它比单独新增混合输入变体更可解释。
+
+### Step 3: 三类 summary 复核
+
+每个新变体都必须同时通过：
+
+```text
+prediction_run_summary
+identity_retrieval_run_summary
+severity_calibration_run_summary
+```
+
+只要一个变体降低 MAE 但加重 severe bias、identity retrieval 或 task inconsistency，就应解释为 bias redistribution，而不是泛化提升。
+
+### Step 4: Severity-aware training
+
+只有在 identity / boundary 机制被拆清之后，再测试：
+
+```text
+severity-balanced sampler
+severity-weighted regression loss
+Huber / CCC / mixed loss
+ordinal severity auxiliary head
+```
+
+训练侧实验必须沿用同一三表评估框架，避免把 severe 预测整体抬高误判为真正泛化。

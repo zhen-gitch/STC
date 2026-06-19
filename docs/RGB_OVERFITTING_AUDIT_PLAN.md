@@ -1,5 +1,7 @@
 # RGB_OVERFITTING_AUDIT_PLAN.md
 
+> 文档职责：RGB 过拟合研究主控文档，记录机制判断、实验优先级和论文叙事边界。执行清单见 `TODO.md`；低层脚本规格见 `SHORTCUT_AUDIT_DESIGN.md`；文档导航见 `DOCS_GUIDE.md`。
+
 本文档是当前 RGB 输入模型过拟合研究的主控文档。后续涉及 RGB 过拟合原因、实验优先级、论文叙事和审计结果解释时，优先参考本文档；`CURRENT_STATUS.md` 记录当前状态，`TODO.md` 记录执行清单，`SHORTCUT_AUDIT_DESIGN.md` 记录具体脚本/输出规格，`RESEARCH_NOTES.md` 记录论文背景和研究线索。
 更高层的机制地图见 `docs/OVERFITTING_MECHANISM_ROADMAP.md`。该文档用于统一组织 split、calibration、input artifact、identity/static appearance、local occlusion、OpenFace geometry、temporal/task context 和 behavior validation，避免后续实验零散拼凑。
 
@@ -499,3 +501,73 @@ P1 只在 P0 证据完成后启动，避免继续经验试错。
 - 可以说黑边/硬边界伪迹是重要可见风险入口。
 - 不应说 RGB 过拟合由黑边单独导致。
 - 应强调本文贡献是建立了一套针对 OpenFace aligned face 的多因素 shortcut audit protocol，并用消融、审计和校准把输入伪迹、身份/几何捷径、时序采样和标签压缩分开验证。
+
+## 三表联合阶段性证据
+
+当前已将 input ablation prediction summary、identity retrieval summary 和 severity calibration summary 对齐到同一组核心 run：`rgb`、`center_mask`、`border_black_feather`、`middle_crop`、`center_mask_black_to_gray`。联合判读结果如下：
+
+1. `center_mask_black_to_gray` 的 MAE 最低，但 severe bias 最差，说明整体 MAE 会被 minimal/mild 多数样本改善主导。
+2. `center_mask` 的 CCC 最高、prediction std 最大、task consistency 接近 baseline，是当前最健康的输入侧 artifact mitigation 证据。
+3. `border_black_feather` 的 severe bias 最轻，但 same-subject top-1/top-5 最高，说明边界软化不等于去身份化，可能伴随更强 subject/static appearance 表征。
+4. `middle_crop` 降低 same-subject retrieval，但同时降低 severity agreement 并恶化 task consistency，说明 temporal location / task context 是独立混杂因素。
+5. 所有 post-hoc linear calibration 均降低 CCC 并压缩 prediction std，因此 calibration 只能作为机制诊断，不应作为最终模型改进。
+
+由此，当前 RGB 过拟合不应被解释为单一黑边、单一边界或单一 temporal sampling 问题，而应解释为 input artifact mitigation、identity/static appearance shortcut、severity range compression 和 task-context confound 的组合。
+## 下一阶段研究路线：从三表证据到 2x2 机制消融
+
+当前三表证据表明：
+
+- 输入侧处理可以显著改变 overall metrics 和 severity bias；
+- identity retrieval 并未随输入变体自然下降；
+- `border_black_feather` 同时表现出 severe bias 改善和 identity retrieval 增强；
+- post-hoc calibration 全面降低 CCC，无法恢复 high-severity 动态范围。
+
+因此，下一阶段的核心问题应从“哪个输入变体数值最好”转为：
+
+> identity/static appearance shortcut 与 OpenFace boundary hard-transition artifact 是两个独立机制，还是互相耦合？
+
+### 推荐实验结构
+
+采用 2x2 factorial ablation：
+
+| 条件 | 身份处理 | 边界处理 | 机制问题 |
+|---|---|---|---|
+| A | 原始身份 | 原始边界 | baseline |
+| B | 原始身份 | 平滑边界 | 只检验 boundary hard-transition artifact |
+| C | 身份弱化 | 原始边界 | 只检验 identity/static appearance shortcut |
+| D | 身份弱化 | 平滑边界 | 检验二者是否叠加或冲突 |
+
+优先落地顺序：
+
+```text
+1. edge_soften_only
+2. border_blur_fill
+3. identity_texture_suppressed
+4. identity_texture_suppressed_edge_soften
+```
+
+其中 `edge_soften_only` 应只降低黑区与人脸交界处的高梯度，不改变大面积黑区；`border_blur_fill` 用邻近非黑区域的模糊颜色填充边界连通黑区；`identity_texture_suppressed` 应弱化高频皮肤纹理、胡须/发际线/局部反光等静态身份线索，但避免全图 blur / grayscale 那种已被证明会损害有效信号的粗暴处理。
+
+### 判读规则
+
+每个实验必须同时进入三类 summary：prediction、identity retrieval、severity calibration。最低判读字段：
+
+```text
+MAE/RMSE/Pearson/CCC
+pred_std
+minimal_bias / moderate_bias / severe_bias
+task_diff_mean
+same_subject_top1 / same_subject_top5
+paired_rank_mean
+severity_agree
+calibration_delta_CCC
+```
+
+- 若 B 改善 severe bias 但 same-subject retrieval 上升，说明边界平滑可能降低 artifact noise 但增强稳定外观表征；
+- 若 C 降低 identity retrieval 但 severity agreement / task consistency 下降，则是 `middle_crop` 式失败，不能称为去身份化成功；
+- 若 D 同时降低 identity retrieval、保持或提升 severity agreement、改善 severe bias、保持 CCC 和 task consistency，才可作为后续主模型方向；
+- 若所有身份弱化变体都损害 severity agreement，则说明当前 RGB 可用 severity signal 与 identity/static appearance 高度纠缠，应转向 behavior-only / structured facial dynamics 主线。
+
+### 与 severity-aware training 的关系
+
+Severity-aware sampler / loss / ordinal auxiliary head 应放在上述 2x2 机制消融之后。原因是当前 severe underestimation 既可能来自标签分布和回归均值化，也可能来自 identity / boundary shortcut。如果先改 loss，可能只是在重新分配 bias，而不能证明模型学到了更可泛化的面部行为线索。

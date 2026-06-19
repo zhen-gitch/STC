@@ -1,5 +1,7 @@
 # EXPERIMENT_LOG.md
 
+> 文档职责：按时间追加实验和实现记录，用于追溯证据。当前权威结论见 `CURRENT_STATUS.md` / `RGB_OVERFITTING_AUDIT_PLAN.md`；文档导航见 `DOCS_GUIDE.md`。
+
 This log records completed project maintenance, smoke validation, and experiment
 workflow milestones. Keep entries concise and reproducible.
 
@@ -941,3 +943,18 @@ Coordinate scale correction:
 - Test calibrated metrics: MAE `8.8460`, RMSE `10.8278`, Pearson `0.3526`, CCC `0.2692`, pred std `5.33`.
 - Severe underestimation remained almost unchanged: residual `-16.50 -> -16.10`; minimal overestimation worsened: `+6.89 -> +8.04`.
 - Interpretation: RGB baseline has weak ranking signal but strong prediction range compression. Simple post-hoc linear calibration is not a solution; next work should run multi-run severity calibration summary and then test severity-aware training methods with identity/task-consistency checks.
+### RGB input / identity / calibration joint summary review
+
+- Reviewed `rgb_input_ablation_summary`, `identity_retrieval_summary`, and `severity_calibration_summary` together for `rgb`, `center_mask`, `border_black_feather`, `middle_crop`, and `center_mask_black_to_gray`.
+- `center_mask_black_to_gray` had the best MAE (`7.726`) but the worst severe bias (`-17.46`), showing that overall MAE can be dominated by minimal/mild improvements.
+- `center_mask` had the best CCC (`0.477`), largest prediction std (`8.132`), strong moderate-bias improvement, and near-baseline task consistency, making it the most stable input artifact mitigation evidence.
+- `border_black_feather` reduced severe bias most (`-12.73`) but had the strongest identity retrieval (`same_top1=0.75`, `same_top5=0.90`), so boundary smoothing is not de-identification.
+- `middle_crop` reduced identity retrieval (`same_top1=0.49`) but worsened task consistency and severity agreement, supporting temporal/task-context confounding.
+- All linear calibration variants reduced CCC and compressed prediction variance, so post-hoc calibration remains diagnostic only.
+### Revised feasible roadmap: identity suppression x boundary smoothing
+
+- Reorganized the next research stage around a 2x2 mechanism ablation rather than more isolated RGB variants.
+- The proposed factors are identity/static appearance suppression and OpenFace boundary hard-transition smoothing.
+- Priority variants: `edge_soften_only`, `border_blur_fill`, `identity_texture_suppressed`, and `identity_texture_suppressed_edge_soften`.
+- The goal is to determine whether identity shortcut and boundary artifact are independent mechanisms or coupled effects.
+- Severity-aware training is deferred until this mechanism split is evaluated with prediction, identity retrieval, and severity calibration summaries.
