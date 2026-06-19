@@ -432,8 +432,11 @@ split integrity audit
 
 #### OpenFace 边界硬突变和平滑过渡消融
 
-- [ ] 设计 `edge_soften_only`，只降低边界连通黑区与脸部交界处的高梯度，不改变大面积黑区。
-- [ ] 设计 `border_blur_fill`，用邻近非黑区域的模糊颜色填充边界连通黑区。
+- [x] 设计 `edge_soften_only`，只降低边界连通黑区与脸部交界处的高梯度，不改变大面积黑区。
+- [x] 设计 `border_blur_fill`，用邻近非黑区域的模糊颜色填充边界连通黑区。
+- [ ] 在服务器运行 `python -m pytest tests/test_input_variants.py`。
+- [ ] 在相同 split、seed、训练入口、checkpoint 策略下运行 `configs/input_ablation/edge_soften_only.yaml` 和 `configs/input_ablation/border_blur_fill.yaml`。
+- [ ] 将新结果与 `rgb`、`center_mask`、`black_to_gray`、`border_black_feather`、`center_mask_black_to_gray` 统一比较。
 - [ ] 暂缓 `uniform_2048` 或更多普通 temporal crop，优先回答边界高对比突变是否是输入 artifact 子机制。
 - [ ] 将新边界平滑变体与 `rgb`、`center_mask`、`black_to_gray`、`border_black_feather`、`center_mask_black_to_gray` 统一比较。
 - [ ] 同时报告 overall metrics、prediction std、severity bias、task consistency 和 pairwise improvement，避免只按 MAE 选择。

@@ -393,19 +393,30 @@ python scripts/train_mtl_lite.py \
   --override configs/regression_only_baseline.yaml \
   --override configs/input_ablation/center_mask.yaml
 
-# 3. 对两个 run 生成 test 诊断（单 split 默认即可）
+# 3. 训练边界平滑消融
+python scripts/train_mtl_lite.py \
+  --override configs/regression_only_baseline.yaml \
+  --override configs/input_ablation/edge_soften_only.yaml
+
+python scripts/train_mtl_lite.py \
+  --override configs/regression_only_baseline.yaml \
+  --override configs/input_ablation/border_blur_fill.yaml
+
+# 4. 对 run 生成 test 诊断（单 split 默认即可）
 python scripts/diagnose_mtl_lite.py \
   --run-dir experiment/default/rgb/version_0 --ckpt best
 
 python scripts/diagnose_mtl_lite.py \
   --run-dir experiment/default/center_mask/version_0 --ckpt best
 
-# 4. 汇总比较
+# 5. 汇总比较
 python scripts/summarize_prediction_runs.py \
   --output-dir analysis_outputs/rgb_vs_center_mask \
   --baseline rgb \
   --run rgb=experiment/default/rgb/version_0/diagnostics/regression/test_predictions.csv \
-  --run center_mask=experiment/default/center_mask/version_0/diagnostics/regression/test_predictions.csv
+  --run center_mask=experiment/default/center_mask/version_0/diagnostics/regression/test_predictions.csv \
+  --run edge_soften_only=experiment/default/edge_soften_only/version_0/diagnostics/regression/test_predictions.csv \
+  --run border_blur_fill=experiment/default/border_blur_fill/version_0/diagnostics/regression/test_predictions.csv
 ```
 
 ### 7.2 完整多因素审计工作流

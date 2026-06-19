@@ -1085,3 +1085,17 @@ calibration_delta_CCC
 成功标准不能只是 MAE 下降。一个变体只有同时满足 identity retrieval 下降或不升高、severity agreement 不下降、CCC 不下降、task consistency 不恶化、severe bias 改善且 pred_std 不继续压缩，才可被视为更健康的机制方向。
 
 这条路线完成后，再进入 severity-aware training ablation。否则如果直接测试 sampler/loss，即使 severe bias 改善，也无法判断改善来自真正 severity learning，还是来自 identity / boundary shortcut 的再分配。
+
+## 2026-06-19 Boundary Smoothing 变体实现
+
+已实现并本地测试通过两个精确边界消融变体：
+
+- `edge_soften_only`：仅对边界连通黑区与脸部像素的过渡带做轻微模糊，保持大面积黑区不变。
+- `border_blur_fill`：用邻近非黑像素的局部均值填充边界连通黑区。
+
+二者已加入 `src/datasets/input_variants.py`、`tests/test_input_variants.py`，并新增 override 配置：
+
+- `configs/input_ablation/edge_soften_only.yaml`
+- `configs/input_ablation/border_blur_fill.yaml`
+
+下一步在服务器使用与 `rgb` / `center_mask` / `border_black_feather` 完全相同的 split、seed、训练入口和 checkpoint 策略运行这两组实验，并接入 `scripts/summarize_prediction_runs.py` / `scripts/summarize_identity_retrieval_runs.py` / `scripts/summarize_severity_calibration_runs.py` 进行三表联合判读。

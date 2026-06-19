@@ -16,6 +16,8 @@ SUPPORTED_INPUT_VARIANTS = {
     "border_black_to_gray",
     "border_black_feather",
     "center_mask_black_to_gray",
+    "edge_soften_only",
+    "border_blur_fill",
 }
 RESERVED_INPUT_VARIANTS = {"landmark_heatmap"}
 
@@ -36,6 +38,8 @@ def normalize_input_variant(variant):
         "border_black_gray": "border_black_to_gray",
         "border_black_soft": "border_black_feather",
         "center_mask_gray_border": "center_mask_black_to_gray",
+        "edge_soften": "edge_soften_only",
+        "border_blur": "border_blur_fill",
     }
     variant = aliases.get(variant, variant)
     if variant in RESERVED_INPUT_VARIANTS:
@@ -84,6 +88,10 @@ def apply_input_variant(video_tensor, variant):
     if variant == "center_mask_black_to_gray":
         center_masked = _apply_ellipse_mask(video_tensor, radius_y=0.46, radius_x=0.38)
         return _replace_border_black_pixels(center_masked, mode="gray")
+    if variant == "edge_soften_only":
+        return _edge_soften_only(video_tensor)
+    if variant == "border_blur_fill":
+        return _border_blur_fill(video_tensor)
     raise AssertionError(f"Unhandled input variant: {variant}")
 
 
@@ -237,3 +245,86 @@ def _inner_crop_resize(video_tensor, top=0.12, bottom=0.90, left=0.16, right=0.8
     cropped = video_tensor[:, :, y0:y1, x0:x1].to(dtype=torch.float32)
     resized = F.interpolate(cropped, size=(height, width), mode="bilinear", align_corners=False)
     return _restore_dtype(resized, dtype)
+
+
+def _morphological_edge(mask, kernel_size=5):
+    """Return a narrow edge band around a binary mask.
+
+    The edge is computed as dilation - erosion using a square pooling window.
+    Output is a float tensor in [0, 1] with the same shape as ``mask``.
+    """
+    if kernel_size % 2 == 0:
+        kernel_size += 1
+    padding = kernel_size // 2
+    mask_float = mask.to(dtype=torch.float32)
+    local_mean = F.avg_pool2d(
+        mask_float,
+        kernel_size=kernel_size,
+        stride=1,
+        padding=padding,
+        count_include_pad=False,
+    )
+    # Dilation: any neighbor is foreground.
+    dilated = (local_mean > 0.0).to(dtype=torch.float32)
+    # Erosion: all neighbors are foreground.
+    eroded = (local_mean >= 1.0).to(dtype=torch.float32)
+    return dilated - eroded
+
+
+def _edge_soften_only(video_tensor, edge_kernel=5, blur_kernel=5, threshold=8):
+    """Soften only the high-gradient band at the border-black / face boundary."""
+    dtype = video_tensor.dtype
+    values = video_tensor.to(dtype=torch.float32)
+    border_black_mask = _border_black_pixel_mask(values, threshold=threshold)
+    if not border_black_mask.any():
+        return video_tensor
+
+    edge_alpha = _morphological_edge(border_black_mask, kernel_size=edge_kernel)
+    if edge_alpha.sum() == 0:
+        return video_tensor
+
+    blurred = _blur_video(values, kernel_size=blur_kernel).to(dtype=torch.float32)
+    alpha = edge_alpha.expand_as(values)
+    output = values * (1.0 - alpha) + blurred * alpha
+    return _restore_dtype(output, dtype)
+
+
+def _border_blur_fill(video_tensor, kernel_size=15, threshold=8, fallback_fill=127.0):
+    """Fill border-connected black pixels with a blur of neighboring non-black pixels."""
+    dtype = video_tensor.dtype
+    values = video_tensor.to(dtype=torch.float32)
+    border_black_mask = _border_black_pixel_mask(values, threshold=threshold)
+    if not border_black_mask.any():
+        return video_tensor
+
+    if kernel_size % 2 == 0:
+        kernel_size += 1
+    padding = kernel_size // 2
+
+    valid_mask = (~border_black_mask).to(dtype=torch.float32)
+    masked_values = torch.where(border_black_mask.expand_as(values), torch.zeros_like(values), values)
+
+    # Sum and count of valid pixels in each local window.
+    blurred_sum = F.avg_pool2d(
+        masked_values,
+        kernel_size=kernel_size,
+        stride=1,
+        padding=padding,
+        count_include_pad=False,
+    )
+    blurred_count = F.avg_pool2d(
+        valid_mask,
+        kernel_size=kernel_size,
+        stride=1,
+        padding=padding,
+        count_include_pad=False,
+    )
+
+    # Avoid division by zero; fallback to neutral gray where no valid neighbor exists.
+    safe_count = torch.clamp(blurred_count, min=1e-6)
+    fill = blurred_sum / safe_count.expand_as(blurred_sum)
+    fallback = torch.full_like(values, float(fallback_fill))
+    fill = torch.where(blurred_count.expand_as(fill) > 0.0, fill, fallback)
+
+    output = torch.where(border_black_mask.expand_as(values), fill, values)
+    return _restore_dtype(output, dtype)

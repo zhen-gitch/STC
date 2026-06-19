@@ -125,6 +125,50 @@ def test_inner_crop_resize_preserves_shape_and_removes_outer_border():
     assert output.sum() > video.sum()
 
 
+def test_edge_soften_only_preserves_large_black_areas_and_softens_boundary():
+    video = torch.full((1, 3, 24, 24), 220, dtype=torch.uint8)
+    # Wide border-connected black strips; the interior of the strip should stay black.
+    video[:, :, :6, :] = 0
+    video[:, :, :, :6] = 0
+    # Center black dot should remain untouched.
+    video[:, :, 12, 12] = 0
+
+    output = apply_input_variant(video, "edge_soften_only")
+
+    assert output.dtype == video.dtype
+    assert output.shape == video.shape
+    # Center black pixel preserved.
+    assert torch.equal(output[:, :, 12, 12], torch.zeros((1, 3), dtype=torch.uint8))
+    # Far interior preserved.
+    assert torch.equal(output[:, :, 15, 15], video[:, :, 15, 15])
+    # Large black area interior remains black (well inside the 2-pixel edge band).
+    assert torch.equal(output[:, :, 2, 2], torch.zeros((1, 3), dtype=torch.uint8))
+    # Boundary edge pixels should differ from original (softened).
+    assert not torch.equal(output[:, :, 6, 10], video[:, :, 6, 10])
+
+
+def test_border_blur_fill_replaces_border_black_with_neighbor_blur():
+    video = torch.full((1, 3, 16, 16), 200, dtype=torch.uint8)
+    # Border-connected black strip on the left.
+    video[:, :, :, :3] = 0
+    # Center black dot should remain untouched.
+    video[:, :, 8, 8] = 0
+
+    output = apply_input_variant(video, "border_blur_fill")
+
+    assert output.dtype == video.dtype
+    assert output.shape == video.shape
+    # Center black pixel preserved.
+    assert torch.equal(output[:, :, 8, 8], torch.zeros((1, 3), dtype=torch.uint8))
+    # Border black pixels are filled with neighbor-blur values (no longer black).
+    assert output[:, :, 0, 1].float().mean() > 50
+    assert output[:, :, 0, 1].float().mean() > 0
+    # The fill should be close to the bright neighbor value (200).
+    assert output[:, :, 0, 1].float().mean() >= 180
+    # Interior bright region preserved.
+    assert torch.equal(output[:, :, 5, 10], video[:, :, 5, 10])
+
+
 def test_input_variant_aliases_and_reserved_values():
     assert normalize_input_variant("gray") == "grayscale"
     assert normalize_input_variant("masked_face") == "center_mask"
@@ -132,6 +176,8 @@ def test_input_variant_aliases_and_reserved_values():
     assert normalize_input_variant("soft_mask") == "soft_center_mask"
     assert normalize_input_variant("border_black_gray") == "border_black_to_gray"
     assert normalize_input_variant("center_mask_gray_border") == "center_mask_black_to_gray"
+    assert normalize_input_variant("edge_soften") == "edge_soften_only"
+    assert normalize_input_variant("border_blur") == "border_blur_fill"
 
     with pytest.raises(ValueError, match="landmark_heatmap"):
         normalize_input_variant("landmark_heatmap")

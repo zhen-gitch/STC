@@ -1,0 +1,4 @@
+EXPERIMENT_NAME: "edge_soften_only"
+
+DATASET:
+  INPUT_VARIANT: "edge_soften_only"
