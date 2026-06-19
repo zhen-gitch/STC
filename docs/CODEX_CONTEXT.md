@@ -595,3 +595,5 @@ behavior prediction export
 
 三表联合最新结论：`rgb_input_ablation_summary`、`identity_retrieval_summary`、`severity_calibration_summary` 已覆盖 `rgb`、`center_mask`、`border_black_feather`、`middle_crop`、`center_mask_black_to_gray`。`center_mask` 是当前最健康 input artifact mitigation 证据，CCC 最高且 task consistency 接近 baseline；`center_mask_black_to_gray` MAE 最低但 severe bias 最差；`border_black_feather` severe bias 最轻但 identity retrieval 最强；`middle_crop` 降低身份检索但恶化 task consistency。所有 linear calibration 都降低 CCC，不作为最终模型方案。
 下一阶段路线已重组为 identity suppression x boundary smoothing 的 2x2 机制消融：先做机制总表和 case-study anchor，再实现 `edge_soften_only`、`border_blur_fill`、`identity_texture_suppressed`、`identity_texture_suppressed_edge_soften`，并统一接入 prediction / identity retrieval / severity calibration 三类 summary。severity-aware sampler/loss 暂放在该机制拆解之后，避免把 bias redistribution 误判为真正泛化。
+
+Identity suppression 最新路线：现有研究支持输入级去身份化、domain-adversarial GRL、disentanglement 和行为表征替代等方向；当前项目最匹配的是先做输入级 `identity_texture_suppressed` + boundary smoothing 2x2 消融。subject-adversarial GRL 暂放在该机制拆解之后，full generative de-identification / complete disentanglement 暂不作为当前主线。

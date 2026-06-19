@@ -1099,3 +1099,11 @@ calibration_delta_CCC
 - `configs/input_ablation/border_blur_fill.yaml`
 
 下一步在服务器使用与 `rgb` / `center_mask` / `border_black_feather` 完全相同的 split、seed、训练入口和 checkpoint 策略运行这两组实验，并接入 `scripts/summarize_prediction_runs.py` / `scripts/summarize_identity_retrieval_runs.py` / `scripts/summarize_severity_calibration_runs.py` 进行三表联合判读。
+
+## 2026-06-19 Identity Suppression 方法调研与路线确认
+
+已将现有 identity suppression / disentanglement / adversarial learning / behavior representation 研究映射到当前项目。结论是：当前最可行的是输入级身份纹理弱化与边界平滑的 2x2 机制消融；subject-adversarial GRL 和完整 disentanglement 暂不作为第一步。
+
+原因：AVEC2014 样本小，RGB severity signal 与 subject/static appearance 可能纠缠。过早使用 adversarial identity removal 可能同时抹除有效行为线索。更稳妥的方式是先用 `edge_soften_only`、`border_blur_fill`、`identity_texture_suppressed`、`identity_texture_suppressed_edge_soften` 检验 identity shortcut 与 boundary artifact 是独立还是耦合。
+
+“回到正轨”的判据被明确为：same-subject retrieval 不升高或下降、severity agreement 不下降、CCC 不下降、pred_std 不继续压缩、severe bias 改善且 task consistency 不恶化。

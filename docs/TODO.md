@@ -478,3 +478,9 @@ split integrity audit
 - [ ] 对上述 2x2 变体统一运行 prediction summary、identity retrieval summary 和 severity calibration summary。
 - [ ] 按成功标准判读：identity retrieval 不升高或下降、severity agreement 不下降、CCC 不下降、task consistency 不恶化、severe bias 改善、pred_std 不继续压缩。
 - [ ] 在 2x2 机制消融完成后，再进入 severity-balanced sampler / weighted loss / Huber-CCC mixed loss / ordinal auxiliary head。
+### 文献映射后的身份消融任务
+
+- [ ] 在 `identity_texture_suppressed` 设计中优先采用输入级高频纹理/轮廓弱化，不直接使用全图 blur、grayscale 或生成式 de-identification。
+- [ ] 为每个 identity suppression 变体报告 same_subject_top1/top5、severity_agree、CCC、pred_std、severe bias 和 task_diff，避免只用 MAE 选择。
+- [ ] 在 2x2 输入机制消融后，再评估是否实现 subject-adversarial GRL；若实现，必须加入稳定性检查和 behavior signal 损伤检查。
+- [ ] 将 full generative de-identification / complete disentanglement 保留为论文讨论或远期方案，不作为当前 P0/P1 主线。

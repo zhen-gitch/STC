@@ -958,3 +958,9 @@ Coordinate scale correction:
 - Priority variants: `edge_soften_only`, `border_blur_fill`, `identity_texture_suppressed`, and `identity_texture_suppressed_edge_soften`.
 - The goal is to determine whether identity shortcut and boundary artifact are independent mechanisms or coupled effects.
 - Severity-aware training is deferred until this mechanism split is evaluated with prediction, identity retrieval, and severity calibration summaries.
+### Identity suppression literature mapping
+
+- Reviewed identity suppression, domain-adversarial learning, disentanglement, shortcut learning, and facial behavior representation methods.
+- Mapped them to the current OpenFace aligned face setting.
+- Current recommendation: prioritize input-level `identity_texture_suppressed` and boundary smoothing 2x2 ablation before subject-adversarial GRL or full disentanglement.
+- Added explicit criteria for whether a method moves the model back toward depression-relevant behavior: identity retrieval should not rise, severity agreement and CCC should not drop, prediction std should not compress further, severe bias should improve, and task consistency should not degrade.

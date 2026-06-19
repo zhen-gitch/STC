@@ -520,3 +520,17 @@ ordinal severity auxiliary head
 ```
 
 训练侧实验必须沿用同一三表评估框架，避免把 severe 预测整体抬高误判为真正泛化。
+## 10. 回到正轨的判据：从去身份化到行为化表征
+
+身份消融的目标不是单纯降低 same-subject retrieval，而是避免模型用 subject/static appearance 替代 depression-relevant behavior。当前判据应同时包含：
+
+```text
+identity retrieval 不升高或下降
+severity neighbor agreement 不下降
+CCC 不下降
+pred_std 不继续压缩
+severe bias 改善
+task consistency 不恶化
+```
+
+因此，`middle_crop` 虽然降低 identity retrieval，但不算回到正轨，因为它损害 severity agreement 和 task consistency；`border_black_feather` 虽然缓解 severe bias，也不算充分回到正轨，因为它增强 identity retrieval。真正可接受的方向必须在三表评估中同时通过 prediction、identity 和 calibration 约束。

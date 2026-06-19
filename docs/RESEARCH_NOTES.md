@@ -551,3 +551,71 @@ Freeform/Northwind 同 subject prediction diff 需要与多因素关联：
 核心表述应保持克制：
 
 > 黑边和硬边界伪迹是 RGB 过拟合的重要可见入口，但不是唯一原因。当前证据更支持一个多因素解释：RGB 模型同时受到 OpenFace 对齐几何、身份静态外观、时序采样、任务语境和标签分布压缩的影响。
+
+## Identity Suppression 与干扰因素消除方法谱系
+
+本节用于归档现有研究中常见的身份记忆、静态外观和输入 artifact 抑制方法，并映射到当前 OpenFace aligned face / AVEC2014 小样本场景。
+
+### 1. 输入级去身份化与外观弱化
+
+常见方法包括 face contour / hairline masking、skin texture smoothing、颜色/风格随机化、局部饰物遮挡、只保留眼口/AU 相关区域、face anonymization / de-identification。该类方法的优点是可解释、实现成本低、适合小样本；缺点是可能同时损伤表情/AU/行为线索。
+
+对当前项目最匹配。已有结果显示：`center_mask` 最健康，`border_black_feather` 改善 severe bias 但增强 identity retrieval，`middle_crop` 降低 identity retrieval 但损害 task consistency。因此输入级身份弱化应先以机制消融方式验证，而不是直接替换主模型。
+
+### 2. 表征级 adversarial identity removal
+
+Domain-adversarial / gradient reversal 方法通过让共享表征对主任务有效、但对 domain / subject 分类器不可辨别，学习 domain-invariant representation。参考：Domain-Adversarial Training of Neural Networks, https://arxiv.org/abs/1505.07818。
+
+映射到本项目，可以把 `subject_id` 作为 adversarial target：
+
+```text
+video embedding -> BDI regression / severity ordinal
+video embedding -> Gradient Reversal -> subject classifier
+```
+
+但该方向应放在输入级机制消融之后。原因是 AVEC2014 小样本、subject 数多、每个 subject 的任务视频有限，subject-adversarial head 容易训练不稳定，也可能把与抑郁严重程度纠缠的有效行为信号一并抹除。
+
+### 3. Disentanglement：身份 / 姿态 / 表情解耦
+
+FER 和 face representation 研究中常见的路线是把 identity、pose、expression 或 behavior 表征显式拆开，或学习 identity-distilled / identity-dispelled features。该方向可以为论文讨论提供理论支撑，但直接实现完整 disentanglement 或生成式去身份化对当前项目风险较高：数据量小、训练复杂、生成伪影难以解释。
+
+当前更适合做轻量替代：输入级身份纹理抑制、embedding identity retrieval 诊断、case-level spatial occlusion，再决定是否进入 adversarial / disentangled representation。
+
+### 4. 行为表征替代 RGB 外观
+
+抑郁视觉分析更理想的信号应来自 AU、landmark motion、pose/gaze dynamics、面部活动迟滞等行为动态，而不是静态 RGB 外观。AU temporal biomarker 和 facial dynamics 相关研究支持将结构化 OpenFace features 作为行为对照。参考：Exploring Facial Biomarkers for Depression through Temporal Analysis of Action Units, https://arxiv.org/abs/2407.13753。
+
+这与当前 behavior-only baseline 路线一致。长期目标不是把 RGB 修补到完全可靠，而是判断 RGB、behavior features 和二者融合各自是否捕捉到可泛化的 severity signal。
+
+### 5. 与 shortcut learning 的关系
+
+Shortcut learning 研究指出，深度模型可能利用训练分布中容易但非因果的线索，而不是目标任务真正需要的机制。参考：Shortcut Learning in Deep Neural Networks, https://arxiv.org/abs/2004.07780。当前项目中的身份纹理、脸部轮廓、眼镜/胡须/麦克风、OpenFace 黑边硬突变、对齐几何、视频长度和任务语境都符合 shortcut 风险特征。
+
+### 当前项目方法匹配度
+
+| 方法 | 匹配度 | 当前判断 |
+|---|---:|---|
+| `edge_soften_only` / `border_blur_fill` | 高 | 直接检验 OpenFace boundary hard-transition artifact |
+| `identity_texture_suppressed` | 高 | 针对高频皮肤纹理、胡须、发际线、眼镜反光等静态身份线索 |
+| face contour / hairline weakening | 高 | 弱化脸型、发际线、外轮廓 identity cue |
+| local accessory occlusion case study | 高 | 验证眼镜、麦克风、胡须等局部 shortcut |
+| style / color augmentation | 中高 | 可弱化颜色/纹理 shortcut，但必须避免损害行为线索 |
+| subject-adversarial GRL | 中 | 有理论支撑，但小样本不稳定，放在输入级消融之后 |
+| full generative de-identification | 低 | 复杂且可能引入生成伪影，暂不作为当前主线 |
+| severity-aware sampler / loss | 中 | 必要，但应在 identity / boundary 机制拆清之后测试 |
+
+### 让模型回到正轨的判定标准
+
+一个方法不能只凭 MAE 下降被视为有效。更健康的方向应同时满足：
+
+```text
+same_subject_top1/top5 下降或不升高
+severity_agree 不下降，最好上升
+CCC 不下降
+pred_std 不继续压缩
+severe bias 改善
+minimal bias 不明显恶化
+task_diff_mean 不恶化
+```
+
+若 identity retrieval 下降但 severity agreement 和 task consistency 也下降，应解释为 `middle_crop` 式失败。若 severe bias 改善但 identity retrieval 上升，应解释为 `border_black_feather` 式 identity / artifact 纠缠。

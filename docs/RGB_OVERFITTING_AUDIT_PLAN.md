@@ -571,3 +571,18 @@ calibration_delta_CCC
 ### 与 severity-aware training 的关系
 
 Severity-aware sampler / loss / ordinal auxiliary head 应放在上述 2x2 机制消融之后。原因是当前 severe underestimation 既可能来自标签分布和回归均值化，也可能来自 identity / boundary shortcut。如果先改 loss，可能只是在重新分配 bias，而不能证明模型学到了更可泛化的面部行为线索。
+## Identity Suppression 方法选择与项目适配
+
+基于现有研究和当前三表结果，身份记忆抑制应按风险从低到高推进：
+
+```text
+input-level identity texture suppression
+-> local accessory / contour case-study occlusion
+-> style / color augmentation
+-> subject-adversarial GRL
+-> full disentanglement / de-identification 仅作为远期讨论
+```
+
+当前最匹配的是输入级机制消融，因为它可解释、对小样本友好，并且能与已有 `center_mask`、`border_black_feather`、`middle_crop` 结果形成连续证据。`subject-adversarial GRL` 有理论支撑，但应在 identity x boundary 2x2 结果明确后再做；否则若训练失败或 severe bias 改善，很难判断是有效去身份化、过度抹除行为信号，还是 bias redistribution。
+
+使模型回到正轨的目标不是“让 embedding 完全无法识别 subject”，而是让 representation 从 subject/static appearance shortcut 转向 depression-relevant facial behavior。判定时必须同时检查 identity retrieval、severity agreement、CCC、pred_std、severe bias 和 task consistency。
