@@ -8,7 +8,6 @@ DEVICES: 1
 STRATEGY: "auto"
 PRECISION: "bf16-mixed"
 
-EXPERIMENT_ROOT: "experiment"
 EXPERIMENT_GROUP: "default"
 EXPERIMENT_NAME: "mtl_lite"
 

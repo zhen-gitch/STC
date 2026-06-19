@@ -3,10 +3,12 @@
 本手册汇总当前项目所有可直接运行的训练、诊断、审计和汇总脚本。所有路径默认采用新的实验输出布局：
 
 ```text
-experiment/<EXPERIMENT_GROUP>/<EXPERIMENT_NAME>/version_N/
+<LOG_DIR>/<EXPERIMENT_GROUP>/<EXPERIMENT_NAME>/version_N/
 ```
 
-其中 `version_N` 由 `src/config.py` 自动按已有目录递增（`version_0`、`version_1`、...）。
+- `LOG_DIR` 在 `configs/local_paths.yaml` 中设置（机器相关，不提交 git）。
+- `EXPERIMENT_GROUP` / `EXPERIMENT_NAME` 来自 base/override 配置。
+- `version_N` 由 `src/config.py` 自动按已有目录递增（`version_0`、`version_1`、...）。
 
 ---
 
@@ -25,7 +27,7 @@ cp configs/local_paths.example.yaml configs/local_paths.yaml
 # 编辑 configs/local_paths.yaml 填入真实路径
 ```
 
-`LOG_DIR` 仅作为旧端到端 runner 的 fallback；新实验使用 `EXPERIMENT_ROOT / EXPERIMENT_GROUP / EXPERIMENT_NAME`。
+`LOG_DIR` 是新实验的主要输出根目录，实际路径为 `<LOG_DIR>/<EXPERIMENT_GROUP>/<EXPERIMENT_NAME>/version_N/`。
 
 ---
 
@@ -59,7 +61,7 @@ python scripts/train_mtl_lite.py --override configs/mtl_lite_baseline.yaml
 输出：
 
 ```text
-experiment/default/mtl_lite/version_0/
+<LOG_DIR>/default/mtl_lite/version_0/
   metrics.csv
   hparams.yaml
   resolved_config.yaml
@@ -75,7 +77,7 @@ python scripts/train_mtl_lite.py --override configs/regression_only_baseline.yam
 输出：
 
 ```text
-experiment/default/regression_only/version_0/
+<LOG_DIR>/default/regression_only/version_0/
 ```
 
 ### 2.4 MTL-Lite debug smoke
@@ -87,7 +89,7 @@ python scripts/train_mtl_lite.py --override configs/mtl_lite_debug_smoke.yaml
 输出：
 
 ```text
-experiment/default/mtl_lite_debug_smoke/version_0/
+<LOG_DIR>/default/mtl_lite_debug_smoke/version_0/
 ```
 
 ### 2.5 Behavior-only baseline
@@ -110,7 +112,7 @@ DATASET:
 输出：
 
 ```text
-experiment/default/behavior_baseline/version_0/
+<LOG_DIR>/default/behavior_baseline/version_0/
   metrics.csv
   checkpoints/
   diagnostics/behavior/val_predictions.csv
@@ -125,14 +127,14 @@ experiment/default/behavior_baseline/version_0/
 
 ```bash
 python scripts/diagnose_mtl_lite.py \
-  --run-dir experiment/default/mtl_lite/version_0 \
+  --run-dir <LOG_DIR>/default/mtl_lite/version_0 \
   --ckpt best
 ```
 
 输出：
 
 ```text
-experiment/default/mtl_lite/version_0/diagnostics/
+<LOG_DIR>/default/mtl_lite/version_0/diagnostics/
   regression/test_predictions.csv
   embeddings/test_features.npz
   training/training_curves.png
@@ -144,7 +146,7 @@ experiment/default/mtl_lite/version_0/diagnostics/
 
 ```bash
 python scripts/diagnose_mtl_lite.py \
-  --run-dir experiment/default/mtl_lite/version_0 \
+  --run-dir <LOG_DIR>/default/mtl_lite/version_0 \
   --ckpt best \
   --split val test
 ```
@@ -152,7 +154,7 @@ python scripts/diagnose_mtl_lite.py \
 输出：
 
 ```text
-experiment/default/mtl_lite/version_0/diagnostics/
+<LOG_DIR>/default/mtl_lite/version_0/diagnostics/
   val/regression/val_predictions.csv
   val/embeddings/val_features.npz
   val/reports/diagnostic_report.md
@@ -166,7 +168,7 @@ experiment/default/mtl_lite/version_0/diagnostics/
 
 ```bash
 python scripts/diagnose_mtl_lite.py \
-  --run-dir experiment/default/mtl_lite/version_0 \
+  --run-dir <LOG_DIR>/default/mtl_lite/version_0 \
   --ckpt best \
   --split test \
   --enable-regression \
@@ -187,17 +189,17 @@ python scripts/audit_split_integrity.py \
   --split-file /path/to/dataset_split.json \
   --label-dir /path/to/labels \
   --image-root /path/to/aligned/frame/root \
-  --predictions experiment/default/mtl_lite/version_0/diagnostics/regression/test_predictions.csv \
-  --output-dir experiment/default/mtl_lite/version_0/diagnostics/split_integrity
+  --predictions <LOG_DIR>/default/mtl_lite/version_0/diagnostics/regression/test_predictions.csv \
+  --output-dir <LOG_DIR>/default/mtl_lite/version_0/diagnostics/split_integrity
 ```
 
 ### 4.2 Temporal sampling audit
 
 ```bash
 python scripts/audit_temporal_sampling.py \
-  --predictions experiment/default/mtl_lite/version_0/diagnostics/regression/test_predictions.csv \
+  --predictions <LOG_DIR>/default/mtl_lite/version_0/diagnostics/regression/test_predictions.csv \
   --image-root /path/to/AVEC2014/face_images \
-  --output-dir experiment/default/mtl_lite/version_0/diagnostics/temporal_sampling \
+  --output-dir <LOG_DIR>/default/mtl_lite/version_0/diagnostics/temporal_sampling \
   --sample-step 10 \
   --max-seq-len 2000 \
   --sampling-strategy stride_head
@@ -209,9 +211,9 @@ python scripts/audit_temporal_sampling.py \
 
 ```bash
 python scripts/audit_alignment_geometry.py \
-  --predictions experiment/default/mtl_lite/version_0/diagnostics/regression/test_predictions.csv \
+  --predictions <LOG_DIR>/default/mtl_lite/version_0/diagnostics/regression/test_predictions.csv \
   --openface-root /path/to/openface_csv_root \
-  --output-dir experiment/default/mtl_lite/version_0/diagnostics/alignment_geometry \
+  --output-dir <LOG_DIR>/default/mtl_lite/version_0/diagnostics/alignment_geometry \
   --frame-width 640 \
   --frame-height 480 \
   --sample-step 1
@@ -223,9 +225,9 @@ python scripts/audit_alignment_geometry.py \
 
 ```bash
 python scripts/audit_black_artifacts.py \
-  --predictions experiment/default/mtl_lite/version_0/diagnostics/regression/test_predictions.csv \
+  --predictions <LOG_DIR>/default/mtl_lite/version_0/diagnostics/regression/test_predictions.csv \
   --image-root /path/to/AVEC2014/face_images \
-  --output-dir experiment/default/mtl_lite/version_0/diagnostics/black_artifacts \
+  --output-dir <LOG_DIR>/default/mtl_lite/version_0/diagnostics/black_artifacts \
   --sample-step 10
 ```
 
@@ -233,9 +235,9 @@ python scripts/audit_black_artifacts.py \
 
 ```bash
 python scripts/audit_shortcuts.py \
-  --predictions experiment/default/mtl_lite/version_0/diagnostics/regression/test_predictions.csv \
+  --predictions <LOG_DIR>/default/mtl_lite/version_0/diagnostics/regression/test_predictions.csv \
   --openface-root /path/to/openface_csv_root \
-  --output-dir experiment/default/mtl_lite/version_0/diagnostics/shortcut_audit
+  --output-dir <LOG_DIR>/default/mtl_lite/version_0/diagnostics/shortcut_audit
 ```
 
 ### 4.6 Embedding identity retrieval audit
@@ -244,9 +246,9 @@ python scripts/audit_shortcuts.py \
 
 ```bash
 python scripts/audit_identity_retrieval.py \
-  --features-npz experiment/default/mtl_lite/version_0/diagnostics/embeddings/test_features.npz \
-  --predictions experiment/default/mtl_lite/version_0/diagnostics/regression/test_predictions.csv \
-  --output-dir experiment/default/mtl_lite/version_0/diagnostics/identity_retrieval \
+  --features-npz <LOG_DIR>/default/mtl_lite/version_0/diagnostics/embeddings/test_features.npz \
+  --predictions <LOG_DIR>/default/mtl_lite/version_0/diagnostics/regression/test_predictions.csv \
+  --output-dir <LOG_DIR>/default/mtl_lite/version_0/diagnostics/identity_retrieval \
   --top-k 5
 ```
 
@@ -254,9 +256,9 @@ python scripts/audit_identity_retrieval.py \
 
 ```bash
 python scripts/audit_identity_retrieval.py \
-  --features-npz experiment/default/mtl_lite/version_0/diagnostics/test/embeddings/test_features.npz \
-  --predictions experiment/default/mtl_lite/version_0/diagnostics/test/regression/test_predictions.csv \
-  --output-dir experiment/default/mtl_lite/version_0/diagnostics/test/identity_retrieval \
+  --features-npz <LOG_DIR>/default/mtl_lite/version_0/diagnostics/test/embeddings/test_features.npz \
+  --predictions <LOG_DIR>/default/mtl_lite/version_0/diagnostics/test/regression/test_predictions.csv \
+  --output-dir <LOG_DIR>/default/mtl_lite/version_0/diagnostics/test/identity_retrieval \
   --top-k 5
 ```
 
@@ -266,7 +268,7 @@ python scripts/audit_identity_retrieval.py \
 
 ```bash
 python scripts/diagnose_mtl_lite.py \
-  --run-dir experiment/default/mtl_lite/version_0 \
+  --run-dir <LOG_DIR>/default/mtl_lite/version_0 \
   --ckpt best \
   --split val test
 ```
@@ -275,21 +277,21 @@ python scripts/diagnose_mtl_lite.py \
 
 ```bash
 python scripts/audit_severity_calibration.py \
-  --val-predictions experiment/default/mtl_lite/version_0/diagnostics/val/regression/val_predictions.csv \
-  --test-predictions experiment/default/mtl_lite/version_0/diagnostics/test/regression/test_predictions.csv \
-  --output-dir experiment/default/mtl_lite/version_0/diagnostics/severity_calibration
+  --val-predictions <LOG_DIR>/default/mtl_lite/version_0/diagnostics/val/regression/val_predictions.csv \
+  --test-predictions <LOG_DIR>/default/mtl_lite/version_0/diagnostics/test/regression/test_predictions.csv \
+  --output-dir <LOG_DIR>/default/mtl_lite/version_0/diagnostics/severity_calibration
 ```
 
 ### 4.8 Task inconsistency mixed-factor audit
 
 ```bash
 python scripts/audit_task_inconsistency.py \
-  --predictions experiment/default/mtl_lite/version_0/diagnostics/test/regression/test_predictions.csv \
-  --black-artifacts-summary experiment/default/mtl_lite/version_0/diagnostics/black_artifacts/tables/black_artifact_summary.csv \
-  --openface-quality-summary experiment/default/mtl_lite/version_0/diagnostics/shortcut_audit/tables/openface_quality_summary.csv \
-  --alignment-geometry-summary experiment/default/mtl_lite/version_0/diagnostics/alignment_geometry/tables/alignment_geometry_summary.csv \
-  --temporal-sampling-summary experiment/default/mtl_lite/version_0/diagnostics/temporal_sampling/tables/temporal_sampling_summary.csv \
-  --output-dir experiment/default/mtl_lite/version_0/diagnostics/task_inconsistency \
+  --predictions <LOG_DIR>/default/mtl_lite/version_0/diagnostics/test/regression/test_predictions.csv \
+  --black-artifacts-summary <LOG_DIR>/default/mtl_lite/version_0/diagnostics/black_artifacts/tables/black_artifact_summary.csv \
+  --openface-quality-summary <LOG_DIR>/default/mtl_lite/version_0/diagnostics/shortcut_audit/tables/openface_quality_summary.csv \
+  --alignment-geometry-summary <LOG_DIR>/default/mtl_lite/version_0/diagnostics/alignment_geometry/tables/alignment_geometry_summary.csv \
+  --temporal-sampling-summary <LOG_DIR>/default/mtl_lite/version_0/diagnostics/temporal_sampling/tables/temporal_sampling_summary.csv \
+  --output-dir <LOG_DIR>/default/mtl_lite/version_0/diagnostics/task_inconsistency \
   --top-n 20
 ```
 
@@ -305,9 +307,9 @@ python scripts/audit_task_inconsistency.py \
 python scripts/summarize_prediction_runs.py \
   --output-dir analysis_outputs/rgb_input_ablation_summary \
   --baseline rgb \
-  --run rgb=experiment/default/rgb/version_0/diagnostics/regression/test_predictions.csv \
-  --run center_mask=experiment/default/center_mask/version_0/diagnostics/regression/test_predictions.csv \
-  --run border_black_feather=experiment/default/border_black_feather/version_0/diagnostics/regression/test_predictions.csv
+  --run rgb=<LOG_DIR>/default/rgb/version_0/diagnostics/regression/test_predictions.csv \
+  --run center_mask=<LOG_DIR>/default/center_mask/version_0/diagnostics/regression/test_predictions.csv \
+  --run border_black_feather=<LOG_DIR>/default/border_black_feather/version_0/diagnostics/regression/test_predictions.csv
 ```
 
 `PATH` 可以是 CSV 文件，也可以是包含 `test_predictions.csv` 的目录。使用 `--split val` 可汇总验证集预测。
@@ -328,9 +330,9 @@ analysis_outputs/rgb_input_ablation_summary/
 ```bash
 python scripts/summarize_training_overfit.py \
   --output-dir analysis_outputs/training_overfit_summary \
-  --run rgb=experiment/default/rgb/version_0/metrics.csv \
-  --run center_mask=experiment/default/center_mask/version_0/metrics.csv \
-  --run behavior=experiment/default/behavior_baseline/version_0/metrics.csv
+  --run rgb=<LOG_DIR>/default/rgb/version_0/metrics.csv \
+  --run center_mask=<LOG_DIR>/default/center_mask/version_0/metrics.csv \
+  --run behavior=<LOG_DIR>/default/behavior_baseline/version_0/metrics.csv
 ```
 
 ### 5.3 Identity retrieval multi-run summary
@@ -338,9 +340,9 @@ python scripts/summarize_training_overfit.py \
 ```bash
 python scripts/summarize_identity_retrieval_runs.py \
   --output-dir analysis_outputs/identity_retrieval_summary \
-  --run rgb=experiment/default/rgb/version_0/diagnostics/identity_retrieval \
-  --run center_mask=experiment/default/center_mask/version_0/diagnostics/identity_retrieval \
-  --run border_black_feather=experiment/default/border_black_feather/version_0/diagnostics/identity_retrieval
+  --run rgb=<LOG_DIR>/default/rgb/version_0/diagnostics/identity_retrieval \
+  --run center_mask=<LOG_DIR>/default/center_mask/version_0/diagnostics/identity_retrieval \
+  --run border_black_feather=<LOG_DIR>/default/border_black_feather/version_0/diagnostics/identity_retrieval
 ```
 
 ### 5.4 Severity calibration multi-run summary
@@ -348,9 +350,9 @@ python scripts/summarize_identity_retrieval_runs.py \
 ```bash
 python scripts/summarize_severity_calibration_runs.py \
   --output-dir analysis_outputs/severity_calibration_summary \
-  --run rgb=experiment/default/rgb/version_0/diagnostics/severity_calibration \
-  --run center_mask=experiment/default/center_mask/version_0/diagnostics/severity_calibration \
-  --run border_black_feather=experiment/default/border_black_feather/version_0/diagnostics/severity_calibration
+  --run rgb=<LOG_DIR>/default/rgb/version_0/diagnostics/severity_calibration \
+  --run center_mask=<LOG_DIR>/default/center_mask/version_0/diagnostics/severity_calibration \
+  --run border_black_feather=<LOG_DIR>/default/border_black_feather/version_0/diagnostics/severity_calibration
 ```
 
 ### 5.5 Mechanism summary（合并预测 / identity / calibration）
@@ -371,8 +373,8 @@ python scripts/summarize_mechanism.py \
 
 ```bash
 python scripts/compare_behavior_predictions.py \
-  --rgb-predictions experiment/default/mtl_lite/version_0/diagnostics/regression/test_predictions.csv \
-  --behavior-predictions experiment/default/behavior_baseline/version_0/diagnostics/behavior/test_predictions.csv \
+  --rgb-predictions <LOG_DIR>/default/mtl_lite/version_0/diagnostics/regression/test_predictions.csv \
+  --behavior-predictions <LOG_DIR>/default/behavior_baseline/version_0/diagnostics/behavior/test_predictions.csv \
   --output-dir analysis_outputs/rgb_behavior_comparison
 ```
 
@@ -404,25 +406,25 @@ python scripts/train_mtl_lite.py \
 
 # 4. 对 run 生成 test 诊断（单 split 默认即可）
 python scripts/diagnose_mtl_lite.py \
-  --run-dir experiment/default/rgb/version_0 --ckpt best
+  --run-dir <LOG_DIR>/default/rgb/version_0 --ckpt best
 
 python scripts/diagnose_mtl_lite.py \
-  --run-dir experiment/default/center_mask/version_0 --ckpt best
+  --run-dir <LOG_DIR>/default/center_mask/version_0 --ckpt best
 
 # 5. 汇总比较
 python scripts/summarize_prediction_runs.py \
   --output-dir analysis_outputs/rgb_vs_center_mask \
   --baseline rgb \
-  --run rgb=experiment/default/rgb/version_0/diagnostics/regression/test_predictions.csv \
-  --run center_mask=experiment/default/center_mask/version_0/diagnostics/regression/test_predictions.csv \
-  --run edge_soften_only=experiment/default/edge_soften_only/version_0/diagnostics/regression/test_predictions.csv \
-  --run border_blur_fill=experiment/default/border_blur_fill/version_0/diagnostics/regression/test_predictions.csv
+  --run rgb=<LOG_DIR>/default/rgb/version_0/diagnostics/regression/test_predictions.csv \
+  --run center_mask=<LOG_DIR>/default/center_mask/version_0/diagnostics/regression/test_predictions.csv \
+  --run edge_soften_only=<LOG_DIR>/default/edge_soften_only/version_0/diagnostics/regression/test_predictions.csv \
+  --run border_blur_fill=<LOG_DIR>/default/border_blur_fill/version_0/diagnostics/regression/test_predictions.csv
 ```
 
 ### 7.2 完整多因素审计工作流
 
 ```bash
-RUN_DIR=experiment/default/mtl_lite/version_0
+RUN_DIR=<LOG_DIR>/default/mtl_lite/version_0
 
 # 1. 导出 val + test 预测
 python scripts/diagnose_mtl_lite.py --run-dir $RUN_DIR --ckpt best --split val test
@@ -509,7 +511,7 @@ python scripts/audit_task_inconsistency.py \
 
 **Q: 训练输出没有生成 `version_0` 而是覆盖到了旧目录？**
 
-A: 检查 `configs/local_paths.yaml` 是否仍设置了 `LOG_DIR` 并启用了旧 runner。新 runner 使用 `EXPERIMENT_ROOT / EXPERIMENT_GROUP / EXPERIMENT_NAME`；确认 override 中 `EXPERIMENT_NAME` 与预期一致。
+A: 检查 `configs/local_paths.yaml` 是否正确设置了 `LOG_DIR`。新 runner 使用 `<LOG_DIR>/<EXPERIMENT_GROUP>/<EXPERIMENT_NAME>/version_N/`；确认 override 中 `EXPERIMENT_NAME` 与预期一致。
 
 **Q: `diagnose_mtl_lite.py` 报错找不到 `test_predictions.csv`？**
 

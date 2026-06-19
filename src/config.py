@@ -83,10 +83,10 @@ def load_experiment_config(
 def resolve_experiment_save_dir(cfgs) -> Path:
     """Resolve the training output directory for an experiment.
 
-    The directory follows ``<experiment_root>/<group>/<name>/`` so that runs
-    can be located by experiment group and name.  The layout is:
+    The directory follows ``<LOG_DIR>/<group>/<name>/`` so that runs can be
+    located by experiment group and name.  The layout is:
 
-        experiment/
+        <LOG_DIR>/
           <EXPERIMENT_GROUP>/
             <EXPERIMENT_NAME>/
               version_0/
@@ -94,18 +94,21 @@ def resolve_experiment_save_dir(cfgs) -> Path:
               ...
 
     Config keys:
-      - ``EXPERIMENT_ROOT``: root directory, relative to project root if not
-        absolute (default: ``"experiment"``).
+      - ``LOG_DIR``: root directory, typically set in
+        ``configs/local_paths.yaml``; relative paths are anchored under the
+        project root.
       - ``EXPERIMENT_GROUP``: experiment group/folder (default: ``"default"``).
       - ``EXPERIMENT_NAME``: experiment/run name (default: ``"mtl_lite"``).
 
-    For backward compatibility, if ``EXPERIMENT_ROOT`` is missing, the legacy
-    ``LOG_DIR`` value is used as the root.
+    ``LOG_DIR`` is required.  If it is missing, a clear error is raised.
     """
-    root = getattr(cfgs, "EXPERIMENT_ROOT", None)
-    if root is None:
-        root = getattr(cfgs, "LOG_DIR", "experiment")
-    root = Path(root)
+    log_dir = getattr(cfgs, "LOG_DIR", None)
+    if not log_dir:
+        raise ValueError(
+            "LOG_DIR is not configured. Please set LOG_DIR in configs/local_paths.yaml "
+            "(created from configs/local_paths.example.yaml)."
+        )
+    root = Path(log_dir)
     if not root.is_absolute():
         root = PROJECT_ROOT / root
 
@@ -119,10 +122,10 @@ def resolve_next_experiment_version(save_dir, prefix="version"):
 
     Lightning normally creates ``<save_dir>/<name>/version_N``.  When
     ``name=""`` is used, this helper lets callers place ``version_N`` directly
-    under the experiment directory, producing the cleaner layout:
+    under the experiment directory, producing the layout:
 
-        experiment/<group>/<name>/version_0/
-        experiment/<group>/<name>/version_1/
+        <LOG_DIR>/<group>/<name>/version_0/
+        <LOG_DIR>/<group>/<name>/version_1/
     """
     save_dir = Path(save_dir)
     if not save_dir.exists():

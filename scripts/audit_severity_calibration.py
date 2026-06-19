@@ -11,9 +11,9 @@ calibration.  See ``docs/RGB_OVERFITTING_AUDIT_PLAN.md`` (P0-F).
 Example:
 
     python scripts/audit_severity_calibration.py \
-        --val-predictions experiment/default/rgb/version_0/diagnostics/val/regression/val_predictions.csv \
-        --test-predictions experiment/default/rgb/version_0/diagnostics/test/regression/test_predictions.csv \
-        --output-dir experiment/default/rgb/version_0/diagnostics/severity_calibration
+        --val-predictions <LOG_DIR>/default/rgb/version_0/diagnostics/val/regression/val_predictions.csv \
+        --test-predictions <LOG_DIR>/default/rgb/version_0/diagnostics/test/regression/test_predictions.csv \
+        --output-dir <LOG_DIR>/default/rgb/version_0/diagnostics/severity_calibration
 """
 
 import argparse

@@ -260,7 +260,7 @@ python -c "from src.metrics.metrics import ConcordanceCorrCoefMetric, concordanc
 python -c "from src.models.mtl_lite import MTLLiteDepressionModel; print('mtl lite import ok')"
 python -m pytest tests/test_mtl_lite_forward.py tests/test_mtl_lite_loss_backward.py
 python scripts/train_mtl_lite.py --override configs/mtl_lite_debug_smoke.yaml
-python scripts/diagnose_mtl_lite.py --run-dir experiment/default/mtl_lite/version_0 --ckpt best
+python scripts/diagnose_mtl_lite.py --run-dir <LOG_DIR>/default/mtl_lite/version_0 --ckpt best
 ```
 
 ## Shortcut Audit 当前结论
@@ -362,9 +362,9 @@ python scripts/train_mtl_lite.py \
 
 ```bash
 python scripts/audit_black_artifacts.py \
-  --predictions experiment/default/rgb/version_0/diagnostics/regression/test_predictions.csv \
+  --predictions <LOG_DIR>/default/rgb/version_0/diagnostics/regression/test_predictions.csv \
   --image-root /path/to/aligned/frame/root \
-  --output-dir experiment/default/rgb/version_0/diagnostics/black_artifacts \
+  --output-dir <LOG_DIR>/default/rgb/version_0/diagnostics/black_artifacts \
   --sample-step 10
 ```
 
@@ -467,8 +467,8 @@ python scripts/audit_split_integrity.py \
   --split-file /path/to/dataset_split.json \
   --label-dir /path/to/labels \
   --image-root /path/to/aligned/frame/root \
-  --predictions experiment/default/rgb/version_0/diagnostics/regression/test_predictions.csv \
-  --output-dir experiment/default/rgb/version_0/diagnostics/split_integrity
+  --predictions <LOG_DIR>/default/rgb/version_0/diagnostics/regression/test_predictions.csv \
+  --output-dir <LOG_DIR>/default/rgb/version_0/diagnostics/split_integrity
 ```
 
 P0-B training overfit summary 已实现：
@@ -503,9 +503,9 @@ P0-C alignment geometry audit 已实现：
 
 ```bash
 python scripts/audit_alignment_geometry.py \
-  --predictions experiment/default/rgb/version_0/diagnostics/regression/test_predictions.csv \
+  --predictions <LOG_DIR>/default/rgb/version_0/diagnostics/regression/test_predictions.csv \
   --openface-root /path/to/openface_csv_root \
-  --output-dir experiment/default/rgb/version_0/diagnostics/alignment_geometry \
+  --output-dir <LOG_DIR>/default/rgb/version_0/diagnostics/alignment_geometry \
   --frame-width 112 \
   --frame-height 112 \
   --sample-step 1

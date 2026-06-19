@@ -5,9 +5,9 @@ Example:
 
     python scripts/summarize_severity_calibration_runs.py \
         --output-dir analysis_outputs/severity_calibration_summary \
-        --run rgb=experiment/default/rgb/version_0/diagnostics/severity_calibration \
-        --run center_mask=experiment/default/center_mask/version_0/diagnostics/severity_calibration \
-        --run border_black_feather=experiment/default/border_black_feather/version_0/diagnostics/severity_calibration
+        --run rgb=<LOG_DIR>/default/rgb/version_0/diagnostics/severity_calibration \
+        --run center_mask=<LOG_DIR>/default/center_mask/version_0/diagnostics/severity_calibration \
+        --run border_black_feather=<LOG_DIR>/default/border_black_feather/version_0/diagnostics/severity_calibration
 
 Each ``--run`` value is ``NAME=PATH``.  PATH may be the output directory of
 ``scripts/audit_severity_calibration.py`` (containing

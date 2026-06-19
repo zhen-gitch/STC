@@ -5,9 +5,9 @@ Example:
 
     python scripts/summarize_identity_retrieval_runs.py \
         --output-dir analysis_outputs/identity_retrieval_summary \
-        --run rgb=experiment/default/rgb/version_0/diagnostics/identity_retrieval \
-        --run center_mask=experiment/default/center_mask/version_0/diagnostics/identity_retrieval \
-        --run border_black_feather=experiment/default/border_black_feather/version_0/diagnostics/identity_retrieval
+        --run rgb=<LOG_DIR>/default/rgb/version_0/diagnostics/identity_retrieval \
+        --run center_mask=<LOG_DIR>/default/center_mask/version_0/diagnostics/identity_retrieval \
+        --run border_black_feather=<LOG_DIR>/default/border_black_feather/version_0/diagnostics/identity_retrieval
 
 Each ``--run`` value is ``NAME=PATH``.  PATH may be the output directory of
 ``scripts/audit_identity_retrieval.py`` (containing

@@ -10,9 +10,9 @@ research context.
 Example:
 
     python scripts/audit_identity_retrieval.py \
-        --features-npz experiment/default/rgb/version_0/diagnostics/embeddings/test_features.npz \
-        --predictions experiment/default/rgb/version_0/diagnostics/regression/test_predictions.csv \
-        --output-dir experiment/default/rgb/version_0/diagnostics/identity_retrieval
+        --features-npz <LOG_DIR>/default/rgb/version_0/diagnostics/embeddings/test_features.npz \
+        --predictions <LOG_DIR>/default/rgb/version_0/diagnostics/regression/test_predictions.csv \
+        --output-dir <LOG_DIR>/default/rgb/version_0/diagnostics/identity_retrieval
 
 When ``diagnose_mtl_lite.py`` is run with multiple splits, the artifacts move to
 ``<run_dir>/diagnostics/<split>/embeddings/<split>_features.npz`` and

@@ -192,14 +192,14 @@ MTL-Lite 离线诊断：
 
 ```bash
 python scripts/diagnose_mtl_lite.py \
-  --run-dir experiment/default/mtl_lite/version_0 \
+  --run-dir <LOG_DIR>/default/mtl_lite/version_0 \
   --ckpt best
 ```
 
 诊断输出目录：
 
 ```text
-experiment/default/mtl_lite/version_0/diagnostics/
+<LOG_DIR>/default/mtl_lite/version_0/diagnostics/
 ```
 
 Regression-only baseline：
@@ -364,7 +364,7 @@ DATASET:
 ### P0 执行进展
 
 - 已实现 behavior baseline 的 val/test prediction CSV 导出。
-- 导出目录为 `experiment/default/behavior_baseline/version_0/diagnostics/behavior/`。
+- 导出目录为 `<LOG_DIR>/default/behavior_baseline/version_0/diagnostics/behavior/`。
 - `val_predictions.csv` 与 `test_predictions.csv` 已包含 `video_id`、`subject_id`、`task_name`、`true_bdi`、`pred_bdi`、`residual`、`abs_error`、`severity_group`。
 - 该导出发生在 best-checkpoint test evaluation 之后，不改变训练 forward、loss、metric、训练超参数或 checkpoint 选择策略。
 - 已新增 `BEHAVIOR_FEATURES.FEATURE_SET` 命名特征组入口，默认值为 `custom`，不改变既有 behavior baseline。
@@ -403,9 +403,9 @@ OpenFace aligned RGB
 
 ```bash
 python scripts/audit_black_artifacts.py \
-  --predictions experiment/default/rgb/version_0/diagnostics/regression/test_predictions.csv \
+  --predictions <LOG_DIR>/default/rgb/version_0/diagnostics/regression/test_predictions.csv \
   --image-root /path/to/aligned/frame/root \
-  --output-dir experiment/default/rgb/version_0/diagnostics/black_artifacts \
+  --output-dir <LOG_DIR>/default/rgb/version_0/diagnostics/black_artifacts \
   --sample-step 10
 ```
 
@@ -479,9 +479,9 @@ tests/test_temporal_sampling_audit.py
 
 ```bash
 python scripts/audit_temporal_sampling.py \
-  --predictions experiment/default/rgb/version_0/diagnostics/regression/test_predictions.csv \
+  --predictions <LOG_DIR>/default/rgb/version_0/diagnostics/regression/test_predictions.csv \
   --image-root /path/to/AVEC2014/face_images \
-  --output-dir experiment/default/rgb/version_0/diagnostics/temporal_sampling \
+  --output-dir <LOG_DIR>/default/rgb/version_0/diagnostics/temporal_sampling \
   --sample-step 10 \
   --max-seq-len 2000
 ```
@@ -573,19 +573,19 @@ tests/test_prediction_runs.py
 python scripts/summarize_prediction_runs.py \
   --baseline rgb \
   --output-dir analysis_outputs/rgb_input_ablation_summary \
-  --run rgb=experiment/default/rgb/version_0/diagnostics/regression/test_predictions.csv \
-  --run gray_scale=experiment/default/gray_scale/version_0/diagnostics/regression/test_predictions.csv \
-  --run blur=experiment/default/blur/version_0/diagnostics/regression/test_predictions.csv \
-  --run boundary_erased=experiment/default/boundary_erased/version_0/diagnostics/regression/test_predictions.csv \
-  --run center_mask=experiment/default/center_mask/version_0/diagnostics/regression/test_predictions.csv \
-  --run black_to_gray=experiment/default/rgb_ablation_black_to_gray/version_0/diagnostics/regression/test_predictions.csv \
-  --run black_to_mean=experiment/default/rgb_ablation_black_to_mean/version_0/diagnostics/regression/test_predictions.csv \
-  --run black_to_blur=experiment/default/rgb_ablation_black_to_blur/version_0/diagnostics/regression/test_predictions.csv \
-  --run soft_center_mask=experiment/default/rgb_ablation_soft_center_mask/version_0/diagnostics/regression/test_predictions.csv \
-  --run inner_crop_resize=experiment/default/rgb_ablation_inner_crop_resize/version_0/diagnostics/regression/test_predictions.csv \
-  --run border_black_feather=experiment/default/rgb_ablation_border_black_feather/version_0/diagnostics/regression/test_predictions.csv \
-  --run border_black_to_gray=experiment/default/rgb_ablation_border_black_to_gray/version_0/diagnostics/regression/test_predictions.csv \
-  --run center_mask_black_to_gray=experiment/default/rgb_ablation_center_mask_black_to_gray/version_0/diagnostics/regression/test_predictions.csv
+  --run rgb=<LOG_DIR>/default/rgb/version_0/diagnostics/regression/test_predictions.csv \
+  --run gray_scale=<LOG_DIR>/default/gray_scale/version_0/diagnostics/regression/test_predictions.csv \
+  --run blur=<LOG_DIR>/default/blur/version_0/diagnostics/regression/test_predictions.csv \
+  --run boundary_erased=<LOG_DIR>/default/boundary_erased/version_0/diagnostics/regression/test_predictions.csv \
+  --run center_mask=<LOG_DIR>/default/center_mask/version_0/diagnostics/regression/test_predictions.csv \
+  --run black_to_gray=<LOG_DIR>/default/rgb_ablation_black_to_gray/version_0/diagnostics/regression/test_predictions.csv \
+  --run black_to_mean=<LOG_DIR>/default/rgb_ablation_black_to_mean/version_0/diagnostics/regression/test_predictions.csv \
+  --run black_to_blur=<LOG_DIR>/default/rgb_ablation_black_to_blur/version_0/diagnostics/regression/test_predictions.csv \
+  --run soft_center_mask=<LOG_DIR>/default/rgb_ablation_soft_center_mask/version_0/diagnostics/regression/test_predictions.csv \
+  --run inner_crop_resize=<LOG_DIR>/default/rgb_ablation_inner_crop_resize/version_0/diagnostics/regression/test_predictions.csv \
+  --run border_black_feather=<LOG_DIR>/default/rgb_ablation_border_black_feather/version_0/diagnostics/regression/test_predictions.csv \
+  --run border_black_to_gray=<LOG_DIR>/default/rgb_ablation_border_black_to_gray/version_0/diagnostics/regression/test_predictions.csv \
+  --run center_mask_black_to_gray=<LOG_DIR>/default/rgb_ablation_center_mask_black_to_gray/version_0/diagnostics/regression/test_predictions.csv
 ```
 
 统一表格的当前排序进一步支持以下判断：
@@ -652,8 +652,8 @@ python scripts/audit_split_integrity.py \
   --split-file /path/to/dataset_split.json \
   --label-dir /path/to/labels \
   --image-root /path/to/aligned/frame/root \
-  --predictions experiment/default/rgb/version_0/diagnostics/regression/test_predictions.csv \
-  --output-dir experiment/default/rgb/version_0/diagnostics/split_integrity
+  --predictions <LOG_DIR>/default/rgb/version_0/diagnostics/regression/test_predictions.csv \
+  --output-dir <LOG_DIR>/default/rgb/version_0/diagnostics/split_integrity
 ```
 
 判读约束：
@@ -728,9 +728,9 @@ reports/alignment_geometry_audit_report.md
 
 ```bash
 python scripts/audit_alignment_geometry.py \
-  --predictions experiment/default/rgb/version_0/diagnostics/regression/test_predictions.csv \
+  --predictions <LOG_DIR>/default/rgb/version_0/diagnostics/regression/test_predictions.csv \
   --openface-root /path/to/openface_csv_root \
-  --output-dir experiment/default/rgb/version_0/diagnostics/alignment_geometry \
+  --output-dir <LOG_DIR>/default/rgb/version_0/diagnostics/alignment_geometry \
   --frame-width 112 \
   --frame-height 112 \
   --sample-step 1

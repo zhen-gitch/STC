@@ -12,6 +12,12 @@ by git and should be created from `local_paths.example.yaml` on each machine.
 `pre/default_config.yaml` is retained as a historical complete config for
 compatibility. Prefer the base + local paths + override layout for new runs.
 
+输出目录由 `configs/local_paths.yaml` 中的 `LOG_DIR` 控制，实际运行目录为：
+
+```text
+<LOG_DIR>/<EXPERIMENT_GROUP>/<EXPERIMENT_NAME>/version_N/
+```
+
 完整脚本使用手册见 `docs/EXPERIMENT_SCRIPT_MANUAL.md`。
 
 MTL-Lite mainline overrides:

@@ -9,12 +9,12 @@ associated with large prediction differences.  See
 Example:
 
     python scripts/audit_task_inconsistency.py \
-        --predictions experiment/default/rgb/diagnostics/test/regression/test_predictions.csv \
-        --black-artifacts-summary experiment/default/rgb/diagnostics/black_artifacts/tables/black_artifact_summary.csv \
-        --openface-quality-summary experiment/default/rgb/diagnostics/shortcut_audit/tables/openface_quality_summary.csv \
-        --alignment-geometry-summary experiment/default/rgb/diagnostics/alignment_geometry/tables/alignment_geometry_summary.csv \
-        --temporal-sampling-summary experiment/default/rgb/diagnostics/temporal_sampling/tables/temporal_sampling_summary.csv \
-        --output-dir experiment/default/rgb/diagnostics/task_inconsistency \
+        --predictions <LOG_DIR>/default/rgb/diagnostics/test/regression/test_predictions.csv \
+        --black-artifacts-summary <LOG_DIR>/default/rgb/diagnostics/black_artifacts/tables/black_artifact_summary.csv \
+        --openface-quality-summary <LOG_DIR>/default/rgb/diagnostics/shortcut_audit/tables/openface_quality_summary.csv \
+        --alignment-geometry-summary <LOG_DIR>/default/rgb/diagnostics/alignment_geometry/tables/alignment_geometry_summary.csv \
+        --temporal-sampling-summary <LOG_DIR>/default/rgb/diagnostics/temporal_sampling/tables/temporal_sampling_summary.csv \
+        --output-dir <LOG_DIR>/default/rgb/diagnostics/task_inconsistency \
         --top-n 20
 """
 

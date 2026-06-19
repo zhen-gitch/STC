@@ -873,10 +873,10 @@ severe_bias
 python scripts/summarize_prediction_runs.py \
   --baseline rgb \
   --output-dir analysis_outputs/rgb_input_ablation_summary \
-  --run rgb=experiment/default/rgb/version_0/diagnostics/regression/test_predictions.csv \
-  --run center_mask=experiment/default/center_mask/version_0/diagnostics/regression/test_predictions.csv \
-  --run border_black_feather=experiment/default/rgb_ablation_border_black_feather/version_0/diagnostics/regression/test_predictions.csv \
-  --run center_mask_black_to_gray=experiment/default/rgb_ablation_center_mask_black_to_gray/version_0/diagnostics/regression/test_predictions.csv
+  --run rgb=<LOG_DIR>/default/rgb/version_0/diagnostics/regression/test_predictions.csv \
+  --run center_mask=<LOG_DIR>/default/center_mask/version_0/diagnostics/regression/test_predictions.csv \
+  --run border_black_feather=<LOG_DIR>/default/rgb_ablation_border_black_feather/version_0/diagnostics/regression/test_predictions.csv \
+  --run center_mask_black_to_gray=<LOG_DIR>/default/rgb_ablation_center_mask_black_to_gray/version_0/diagnostics/regression/test_predictions.csv
 ```
 
 论文判读时应至少同时报告 `prediction_run_summary.csv`、`severity_bias_summary.csv`、`task_consistency_summary.csv` 和 `pairwise_baseline_improvement.csv`。单看整体 MAE 会高估 `center_mask_black_to_gray` 的稳定性，因为该变体改善 minimal/mild 的同时加重 severe 低估。
@@ -921,8 +921,8 @@ python scripts/audit_split_integrity.py \
   --split-file /path/to/dataset_split.json \
   --label-dir /path/to/labels \
   --image-root /path/to/aligned/frame/root \
-  --predictions experiment/default/rgb/version_0/diagnostics/regression/test_predictions.csv \
-  --output-dir experiment/default/rgb/version_0/diagnostics/split_integrity
+  --predictions <LOG_DIR>/default/rgb/version_0/diagnostics/regression/test_predictions.csv \
+  --output-dir <LOG_DIR>/default/rgb/version_0/diagnostics/split_integrity
 ```
 
 最低判读标准：
@@ -1034,9 +1034,9 @@ tests/test_alignment_geometry.py
 
 ```bash
 python scripts/audit_alignment_geometry.py \
-  --predictions experiment/default/rgb/version_0/diagnostics/regression/test_predictions.csv \
+  --predictions <LOG_DIR>/default/rgb/version_0/diagnostics/regression/test_predictions.csv \
   --openface-root /path/to/openface_csv_root \
-  --output-dir experiment/default/rgb/version_0/diagnostics/alignment_geometry \
+  --output-dir <LOG_DIR>/default/rgb/version_0/diagnostics/alignment_geometry \
   --frame-width 112 \
   --frame-height 112 \
   --sample-step 1
@@ -1139,7 +1139,7 @@ Multi-run summary 扩展：
 scripts/summarize_identity_retrieval_runs.py
 ```
 
-输入为多个 identity retrieval 输出目录，例如 `rgb_test=experiment/default/rgb/version_0/diagnostics/identity_retrieval`。脚本应读取每个目录下的：
+输入为多个 identity retrieval 输出目录，例如 `rgb_test=<LOG_DIR>/default/rgb/version_0/diagnostics/identity_retrieval`。脚本应读取每个目录下的：
 
 ```text
 tables/embedding_identity_summary.csv
@@ -1228,8 +1228,8 @@ src/diagnostics/severity_calibration_runs.py
 
 ```text
 --run rgb=logs/severity_calibration
---run middle_crop=experiment/default/middle_crop/version_0/diagnostics/severity_calibration
---run border_black_feather=experiment/default/border_black_feather/version_0/diagnostics/severity_calibration
+--run middle_crop=<LOG_DIR>/default/middle_crop/version_0/diagnostics/severity_calibration
+--run border_black_feather=<LOG_DIR>/default/border_black_feather/version_0/diagnostics/severity_calibration
 ```
 
 建议输出：

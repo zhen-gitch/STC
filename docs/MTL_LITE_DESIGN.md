@@ -501,5 +501,5 @@ python -c "from src.models.task_heads import build_regression_task_head; print('
 python -c "from src.models.mtl_lite import MTLLiteDepressionModel; print('mtl lite import ok')"
 python -m pytest tests/test_mtl_lite_forward.py tests/test_mtl_lite_loss_backward.py
 python scripts/train_mtl_lite.py --override configs/mtl_lite_debug_smoke.yaml
-python scripts/diagnose_mtl_lite.py --run-dir experiment/default/mtl_lite/version_0 --ckpt best
+python scripts/diagnose_mtl_lite.py --run-dir <LOG_DIR>/default/mtl_lite/version_0 --ckpt best
 ```

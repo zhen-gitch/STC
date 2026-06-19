@@ -259,7 +259,7 @@ workflow milestones. Keep entries concise and reproducible.
 - Added behavior baseline val/test prediction export after best-checkpoint test
   evaluation.
 - Prediction CSV files are written under:
-  `experiment/default/behavior_baseline/version_0/diagnostics/behavior/`.
+  `<LOG_DIR>/default/behavior_baseline/version_0/diagnostics/behavior/`.
 - Exported files:
   - `val_predictions.csv`
   - `test_predictions.csv`
@@ -717,8 +717,8 @@ python scripts/audit_split_integrity.py \
   --split-file /path/to/dataset_split.json \
   --label-dir /path/to/labels \
   --image-root /path/to/aligned/frame/root \
-  --predictions experiment/default/rgb/version_0/diagnostics/regression/test_predictions.csv \
-  --output-dir experiment/default/rgb/version_0/diagnostics/split_integrity
+  --predictions <LOG_DIR>/default/rgb/version_0/diagnostics/regression/test_predictions.csv \
+  --output-dir <LOG_DIR>/default/rgb/version_0/diagnostics/split_integrity
 ```
 
 ### P0-B training overfit summary implementation
@@ -788,9 +788,9 @@ python scripts/summarize_training_overfit.py \
 python -m pytest tests/test_alignment_geometry.py
 
 python scripts/audit_alignment_geometry.py \
-  --predictions experiment/default/rgb/version_0/diagnostics/regression/test_predictions.csv \
+  --predictions <LOG_DIR>/default/rgb/version_0/diagnostics/regression/test_predictions.csv \
   --openface-root /path/to/openface_csv_root \
-  --output-dir experiment/default/rgb/version_0/diagnostics/alignment_geometry \
+  --output-dir <LOG_DIR>/default/rgb/version_0/diagnostics/alignment_geometry \
   --frame-width 112 \
   --frame-height 112 \
   --sample-step 1

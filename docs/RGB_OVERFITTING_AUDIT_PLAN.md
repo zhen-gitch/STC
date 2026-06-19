@@ -82,8 +82,8 @@ python scripts/audit_split_integrity.py \
   --split-file /path/to/dataset_split.json \
   --label-dir /path/to/labels \
   --image-root /path/to/aligned/frame/root \
-  --predictions experiment/default/rgb/version_0/diagnostics/regression/test_predictions.csv \
-  --output-dir experiment/default/rgb/version_0/diagnostics/split_integrity
+  --predictions <LOG_DIR>/default/rgb/version_0/diagnostics/regression/test_predictions.csv \
+  --output-dir <LOG_DIR>/default/rgb/version_0/diagnostics/split_integrity
 ```
 
 判读：
@@ -202,10 +202,10 @@ overfit_after_best_val
 ```bash
 python scripts/summarize_training_overfit.py \
   --output-dir analysis_outputs/training_overfit_summary \
-  --run rgb=experiment/default/rgb/version_0/metrics.csv \
-  --run center_mask=experiment/default/center_mask/version_0/metrics.csv \
-  --run center_mask_black_to_gray=experiment/default/center_mask_black_to_gray/version_0/metrics.csv \
-  --run border_black_feather=experiment/default/border_black_feather/version_0/metrics.csv
+  --run rgb=<LOG_DIR>/default/rgb/version_0/metrics.csv \
+  --run center_mask=<LOG_DIR>/default/center_mask/version_0/metrics.csv \
+  --run center_mask_black_to_gray=<LOG_DIR>/default/center_mask_black_to_gray/version_0/metrics.csv \
+  --run border_black_feather=<LOG_DIR>/default/border_black_feather/version_0/metrics.csv
 ```
 
 优先比较：
@@ -261,9 +261,9 @@ landmark_jitter
 
 ```bash
 python scripts/audit_alignment_geometry.py \
-  --predictions experiment/default/rgb/version_0/diagnostics/regression/test_predictions.csv \
+  --predictions <LOG_DIR>/default/rgb/version_0/diagnostics/regression/test_predictions.csv \
   --openface-root /path/to/openface_csv_root \
-  --output-dir experiment/default/rgb/version_0/diagnostics/alignment_geometry \
+  --output-dir <LOG_DIR>/default/rgb/version_0/diagnostics/alignment_geometry \
   --frame-width 112 \
   --frame-height 112 \
   --sample-step 1
