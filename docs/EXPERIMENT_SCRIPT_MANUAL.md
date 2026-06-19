@@ -20,6 +20,8 @@
 2. `configs/local_paths.yaml`（机器相关路径，**不提交到 git**，从 `configs/local_paths.example.yaml` 复制）
 3. 一个或多个 override YAML（如 `configs/mtl_lite_baseline.yaml`）
 
+显卡选择通过 `DEVICES` 列表显式指定，例如 `DEVICES: [0]` 表示使用 0 号卡，`DEVICES: [0, 1]` 表示使用 0、1 号卡。默认 base 配置为 `[0]`；如需换卡，在 override 或 `configs/local_paths.yaml` 中覆盖即可。
+
 创建本地路径配置：
 
 ```bash

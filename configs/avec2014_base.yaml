@@ -4,7 +4,7 @@
 MODE: "mtl_lite"
 
 ACCELERATOR: "gpu"
-DEVICES: 1
+DEVICES: [0]
 STRATEGY: "auto"
 PRECISION: "bf16-mixed"
 
