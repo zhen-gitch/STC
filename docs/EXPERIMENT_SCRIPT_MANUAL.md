@@ -406,6 +406,15 @@ python scripts/train_mtl_lite.py \
   --override configs/regression_only_baseline.yaml \
   --override configs/input_ablation/border_blur_fill.yaml
 
+# 3b. 训练身份抑制与组合消融（Identity x Boundary 2x2）
+python scripts/train_mtl_lite.py \
+  --override configs/regression_only_baseline.yaml \
+  --override configs/input_ablation/identity_texture_suppressed.yaml
+
+python scripts/train_mtl_lite.py \
+  --override configs/regression_only_baseline.yaml \
+  --override configs/input_ablation/identity_texture_suppressed_edge_soften.yaml
+
 # 4. 对 run 生成 test 诊断（单 split 默认即可）
 python scripts/diagnose_mtl_lite.py \
   --run-dir <LOG_DIR>/default/rgb/version_0 --ckpt best
@@ -413,14 +422,16 @@ python scripts/diagnose_mtl_lite.py \
 python scripts/diagnose_mtl_lite.py \
   --run-dir <LOG_DIR>/default/center_mask/version_0 --ckpt best
 
-# 5. 汇总比较
+# 5. 汇总比较（包含 Identity x Boundary 2x2 四组）
 python scripts/summarize_prediction_runs.py \
   --output-dir analysis_outputs/rgb_vs_center_mask \
   --baseline rgb \
   --run rgb=<LOG_DIR>/default/rgb/version_0/diagnostics/regression/test_predictions.csv \
   --run center_mask=<LOG_DIR>/default/center_mask/version_0/diagnostics/regression/test_predictions.csv \
   --run edge_soften_only=<LOG_DIR>/default/edge_soften_only/version_0/diagnostics/regression/test_predictions.csv \
-  --run border_blur_fill=<LOG_DIR>/default/border_blur_fill/version_0/diagnostics/regression/test_predictions.csv
+  --run border_blur_fill=<LOG_DIR>/default/border_blur_fill/version_0/diagnostics/regression/test_predictions.csv \
+  --run identity_texture_suppressed=<LOG_DIR>/default/identity_texture_suppressed/version_0/diagnostics/regression/test_predictions.csv \
+  --run identity_texture_suppressed_edge_soften=<LOG_DIR>/default/identity_texture_suppressed_edge_soften/version_0/diagnostics/regression/test_predictions.csv
 ```
 
 ### 7.2 完整多因素审计工作流

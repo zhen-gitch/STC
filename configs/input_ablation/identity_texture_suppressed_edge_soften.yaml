@@ -1,0 +1,4 @@
+EXPERIMENT_NAME: "identity_texture_suppressed_edge_soften"
+
+DATASET:
+  INPUT_VARIANT: "identity_texture_suppressed_edge_soften"

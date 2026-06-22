@@ -473,8 +473,8 @@ split integrity audit
 - [ ] 固定 case-study anchor：`center_mask` moderate 改善、`center_mask_black_to_gray` severe 崩塌、`border_black_feather` severe 改善但 high-identity、`middle_crop` task consistency 恶化、`rgb` persistent severe underestimation。
 - [ ] 实现 `edge_soften_only`：只降低边界连通黑区与脸部交界处的高梯度，不改变大面积黑区。
 - [ ] 实现 `border_blur_fill`：使用邻近非黑区域的模糊颜色填充边界连通黑区，验证自然过渡是否优于固定灰/硬替换。
-- [ ] 设计并实现 `identity_texture_suppressed`：弱化高频静态身份纹理、胡须/发际线/局部反光等外观线索，避免复用全图 blur 或 grayscale。
-- [ ] 设计组合变体 `identity_texture_suppressed_edge_soften`，在身份弱化基础上加入边界高梯度抑制。
+- [x] 设计并实现 `identity_texture_suppressed`：弱化高频静态身份纹理、胡须/发际线/局部反光等外观线索，避免复用全图 blur 或 grayscale。
+- [x] 设计组合变体 `identity_texture_suppressed_edge_soften`，在身份弱化基础上加入边界高梯度抑制。
 - [ ] 对上述 2x2 变体统一运行 prediction summary、identity retrieval summary 和 severity calibration summary。
 - [ ] 按成功标准判读：identity retrieval 不升高或下降、severity agreement 不下降、CCC 不下降、task consistency 不恶化、severe bias 改善、pred_std 不继续压缩。
 - [ ] 在 2x2 机制消融完成后，再进入 severity-balanced sampler / weighted loss / Huber-CCC mixed loss / ordinal auxiliary head。

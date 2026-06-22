@@ -18,6 +18,8 @@ SUPPORTED_INPUT_VARIANTS = {
     "center_mask_black_to_gray",
     "edge_soften_only",
     "border_blur_fill",
+    "identity_texture_suppressed",
+    "identity_texture_suppressed_edge_soften",
 }
 RESERVED_INPUT_VARIANTS = {"landmark_heatmap"}
 
@@ -40,6 +42,9 @@ def normalize_input_variant(variant):
         "center_mask_gray_border": "center_mask_black_to_gray",
         "edge_soften": "edge_soften_only",
         "border_blur": "border_blur_fill",
+        "identity_suppressed": "identity_texture_suppressed",
+        "id_suppressed": "identity_texture_suppressed",
+        "id_suppressed_edge": "identity_texture_suppressed_edge_soften",
     }
     variant = aliases.get(variant, variant)
     if variant in RESERVED_INPUT_VARIANTS:
@@ -92,6 +97,10 @@ def apply_input_variant(video_tensor, variant):
         return _edge_soften_only(video_tensor)
     if variant == "border_blur_fill":
         return _border_blur_fill(video_tensor)
+    if variant == "identity_texture_suppressed":
+        return _identity_texture_suppressed(video_tensor)
+    if variant == "identity_texture_suppressed_edge_soften":
+        return _identity_texture_suppressed_edge_soften(video_tensor)
     raise AssertionError(f"Unhandled input variant: {variant}")
 
 
@@ -328,3 +337,48 @@ def _border_blur_fill(video_tensor, kernel_size=15, threshold=8, fallback_fill=1
 
     output = torch.where(border_black_mask.expand_as(values), fill, values)
     return _restore_dtype(output, dtype)
+
+
+def _high_frequency_suppress(video_tensor, blur_kernel=15, alpha=0.6):
+    """Suppress high-frequency texture while preserving coarse structure.
+
+    Computes a low-pass version of the frame and removes a fraction ``alpha``
+    of the high-frequency residual.  This is intended to weaken static identity
+    cues (beard, hairline, local glare, fine skin texture) without reducing the
+    frame to a full blur or grayscale image.
+    """
+    dtype = video_tensor.dtype
+    values = video_tensor.to(dtype=torch.float32)
+    low_pass = _blur_video(values, kernel_size=blur_kernel).to(dtype=torch.float32)
+    high_freq = values - low_pass
+    output = values - alpha * high_freq
+    return _restore_dtype(output, dtype)
+
+
+def _identity_texture_suppressed(video_tensor, blur_kernel=15, alpha=0.6):
+    """Identity-texture suppression variant for the 2x2 identity x boundary audit.
+
+    High-frequency texture on the face is suppressed while border-connected
+    black padding pixels are restored to their original values so that the
+    variant isolates identity/texture cues from boundary artifact cues.
+    """
+    dtype = video_tensor.dtype
+    values = video_tensor.to(dtype=torch.float32)
+    border_black_mask = _border_black_pixel_mask(values)
+
+    suppressed = _high_frequency_suppress(video_tensor, blur_kernel=blur_kernel, alpha=alpha)
+    # Restore border-connected black regions; identity suppression should not
+    # change boundary padding.
+    if border_black_mask.any():
+        suppressed = torch.where(
+            border_black_mask.expand_as(suppressed),
+            video_tensor,
+            suppressed,
+        )
+    return _restore_dtype(suppressed, dtype)
+
+
+def _identity_texture_suppressed_edge_soften(video_tensor):
+    """Combined identity suppression + boundary edge softening."""
+    suppressed = _identity_texture_suppressed(video_tensor)
+    return _edge_soften_only(suppressed)

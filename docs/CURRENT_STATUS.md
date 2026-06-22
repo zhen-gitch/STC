@@ -1086,19 +1086,23 @@ calibration_delta_CCC
 
 这条路线完成后，再进入 severity-aware training ablation。否则如果直接测试 sampler/loss，即使 severe bias 改善，也无法判断改善来自真正 severity learning，还是来自 identity / boundary shortcut 的再分配。
 
-## 2026-06-19 Boundary Smoothing 变体实现
+## 2026-06-19 Identity x Boundary 2x2 变体实现
 
-已实现并本地测试通过两个精确边界消融变体：
+已实现并本地测试通过四个 2x2 机制消融变体：
 
 - `edge_soften_only`：仅对边界连通黑区与脸部像素的过渡带做轻微模糊，保持大面积黑区不变。
 - `border_blur_fill`：用邻近非黑像素的局部均值填充边界连通黑区。
+- `identity_texture_suppressed`：对脸部区域做高频纹理抑制，弱化胡须/发际线/局部反光等静态身份线索，同时恢复边界连通黑区，避免与边界 artifact 混淆。
+- `identity_texture_suppressed_edge_soften`：在上述身份抑制基础上再加入边界过渡带软化。
 
-二者已加入 `src/datasets/input_variants.py`、`tests/test_input_variants.py`，并新增 override 配置：
+四者已加入 `src/datasets/input_variants.py`、`tests/test_input_variants.py`，并新增 override 配置：
 
 - `configs/input_ablation/edge_soften_only.yaml`
 - `configs/input_ablation/border_blur_fill.yaml`
+- `configs/input_ablation/identity_texture_suppressed.yaml`
+- `configs/input_ablation/identity_texture_suppressed_edge_soften.yaml`
 
-下一步在服务器使用与 `rgb` / `center_mask` / `border_black_feather` 完全相同的 split、seed、训练入口和 checkpoint 策略运行这两组实验，并接入 `scripts/summarize_prediction_runs.py` / `scripts/summarize_identity_retrieval_runs.py` / `scripts/summarize_severity_calibration_runs.py` 进行三表联合判读。
+下一步在服务器使用与 `rgb` / `center_mask` / `border_black_feather` 完全相同的 split、seed、训练入口和 checkpoint 策略运行四组实验，并接入 `scripts/summarize_prediction_runs.py` / `scripts/summarize_identity_retrieval_runs.py` / `scripts/summarize_severity_calibration_runs.py` 进行三表联合判读。
 
 ## 2026-06-19 Identity Suppression 方法调研与路线确认
 
