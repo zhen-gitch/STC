@@ -467,20 +467,46 @@ split integrity audit
 - [ ] 在输入捷径审计之后，再单独测试 weighted MSE / Huber / CCC loss。
 - [ ] 输出 severity calibration report，避免把整体抬高预测误判为真正泛化提升。
 
-### 下一阶段：Identity Suppression x Boundary Smoothing 机制消融
+### 下一阶段：Shortcut-Regularized MTL 实验规划
 
-- [ ] 构建正式机制总表，将 prediction、identity retrieval、severity calibration 三类 summary 合并为单一 CSV / Markdown 报告。
-- [ ] 固定 case-study anchor：`center_mask` moderate 改善、`center_mask_black_to_gray` severe 崩塌、`border_black_feather` severe 改善但 high-identity、`middle_crop` task consistency 恶化、`rgb` persistent severe underestimation。
-- [ ] 实现 `edge_soften_only`：只降低边界连通黑区与脸部交界处的高梯度，不改变大面积黑区。
-- [ ] 实现 `border_blur_fill`：使用邻近非黑区域的模糊颜色填充边界连通黑区，验证自然过渡是否优于固定灰/硬替换。
-- [x] 设计并实现 `identity_texture_suppressed`：弱化高频静态身份纹理、胡须/发际线/局部反光等外观线索，避免复用全图 blur 或 grayscale。
-- [x] 设计组合变体 `identity_texture_suppressed_edge_soften`，在身份弱化基础上加入边界高梯度抑制。
-- [ ] 对上述 2x2 变体统一运行 prediction summary、identity retrieval summary 和 severity calibration summary。
-- [ ] 按成功标准判读：identity retrieval 不升高或下降、severity agreement 不下降、CCC 不下降、task consistency 不恶化、severe bias 改善、pred_std 不继续压缩。
-- [ ] 在 2x2 机制消融完成后，再进入 severity-balanced sampler / weighted loss / Huber-CCC mixed loss / ordinal auxiliary head。
-### 文献映射后的身份消融任务
+当前正式路线从继续扩展输入变体，调整为 Stage A 收口诊断和 Stage B 双干预。动态面部变化特征暂列 Stage C 待考虑项，不进入当前实验计划。
 
-- [ ] 在 `identity_texture_suppressed` 设计中优先采用输入级高频纹理/轮廓弱化，不直接使用全图 blur、grayscale 或生成式 de-identification。
-- [ ] 为每个 identity suppression 变体报告 same_subject_top1/top5、severity_agree、CCC、pred_std、severe bias 和 task_diff，避免只用 MAE 选择。
-- [ ] 在 2x2 输入机制消融后，再评估是否实现 subject-adversarial GRL；若实现，必须加入稳定性检查和 behavior signal 损伤检查。
+#### Stage A：收口诊断
+
+- [ ] A1 实现 layer-wise identity probe：提取不同 backbone / temporal / shared representation 层的 embedding，输出 same-subject top1/top5、paired rank、subject proxy accuracy 和 severity agreement。
+- [ ] A1 对 RGB baseline 至少运行 test split；若资源允许，补 val split 用于稳定性对照。
+- [ ] A2 实现 prediction error x identity similarity coupling：检查 residual / abs_error 与 identity similarity、paired-task rank、severity neighbor agreement 的关系。
+- [ ] A2 输出 high-error-high-identity case list，用于论文 case-study anchor。
+- [ ] 完成 A1/A2 后关闭 Stage A，不继续扩展普通输入滤镜、黑边替换、灰度/模糊/mask 族。
+
+#### Stage B：正式干预实验
+
+- [ ] B1 实现 severity-balanced regression loss，支持 severity bin count / smoothed count 权重。
+- [ ] B1 配置 `p=0.5` 与 `p=1.0` 两组起始实验；分箱先使用 minimal / mild / moderate / severe。
+- [ ] B1 运行 E1：`RGB baseline + severity-balanced regression`。
+- [ ] B2 实现 Gradient Reversal Layer 和 subject identity adversarial head，接入 MTL-Lite shared representation。
+- [ ] B2 配置 `lambda_id=0.02,0.05,0.10,0.20` sweep。
+- [ ] B2 运行 E2：`RGB baseline + identity-adversarial branch`。
+- [ ] B3 选择最稳的 severity weight 与 identity lambda，运行 E3：`severity-balanced regression + identity-adversarial branch`。
+- [ ] 对 E0/E1/E2/E3 统一运行 prediction summary、identity retrieval summary、severity calibration summary、training overfit summary 和 task consistency summary。
+- [ ] 将 E0/E1/E2/E3 汇总为机制对照表：`MAE/RMSE/CCC/pred_std/severe_bias/task_diff/same_subject_top1/top5/severity_agree/train-val gap`。
+
+#### Stage C：待考虑，暂不执行
+
+- [ ] 暂缓 feature delta / RGB frame delta / AU delta / landmark-pose-gaze delta / static-dynamic fusion。
+- [ ] 仅当 Stage B 后仍存在明显 static appearance shortcut，或 E1/E2/E3 无法改善 severity representation 时，再启动动态特征方案设计。
+- [ ] 暂缓 optical flow、two-stream temporal model 和复杂动态辅助 MTL，避免当前阶段变成多模块堆叠。
+
+#### 判读规则
+
+- [ ] E1 只有在少数 severity 分段 MAE/bias 改善且 CCC、task consistency、identity retrieval 不明显恶化时，才算 severity imbalance mitigation 成功。
+- [ ] E2 只有在 identity retrieval / subject proxy accuracy 下降且 BDI 指标不崩坏时，才算 identity-adversarial 成功。
+- [ ] E3 只有在同时满足 E1/E2 的核心约束，并且 train-val gap 或 task consistency 有改善时，才作为下一阶段主线。
+
+### 文献映射后的身份抑制任务
+
+- [ ] 将输入级 `identity_texture_suppressed` / boundary smoothing 结果作为机制证据保留，不继续扩展为下一阶段主线。
+- [ ] 优先实现 subject-adversarial GRL，并明确普通 subject classification auxiliary head 会强化身份信息，不能作为去身份方案。
+- [ ] 为 identity-adversarial 实验报告 same_subject_top1/top5、subject proxy accuracy、severity_agree、CCC、pred_std、severe bias、task_diff 和 train-val gap。
+- [ ] 保留 local accessory / contour case-study occlusion 作为解释性分析，用于查看眼镜、麦克风、胡须、发际线等是否参与 high-error / high-identity case。
 - [ ] 将 full generative de-identification / complete disentanglement 保留为论文讨论或远期方案，不作为当前 P0/P1 主线。

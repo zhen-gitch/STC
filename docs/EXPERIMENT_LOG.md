@@ -964,3 +964,17 @@ Coordinate scale correction:
 - Mapped them to the current OpenFace aligned face setting.
 - Current recommendation: prioritize input-level `identity_texture_suppressed` and boundary smoothing 2x2 ablation before subject-adversarial GRL or full disentanglement.
 - Added explicit criteria for whether a method moves the model back toward depression-relevant behavior: identity retrieval should not rise, severity agreement and CCC should not drop, prediction std should not compress further, severe bias should improve, and task consistency should not degrade.
+
+### Shortcut-Regularized MTL planning update
+
+- Reframed the next project stage from additional input-filter expansion to a two-mechanism Shortcut-Regularized MTL route.
+- Current formal mechanisms:
+  - subject-level shortcut: handled by an identity-adversarial MTL branch with Gradient Reversal Layer;
+  - severity-level label imbalance: handled by severity-balanced regression loss.
+- Clarified that severity-balanced loss is intended to mitigate score-bin imbalance, not to directly maximize prediction variance.
+- Moved dynamic facial-change features to Stage C as a later candidate direction, not part of the current experiment plan.
+- Updated the planned experimental sequence:
+  - Stage A closure: layer-wise identity probe and prediction error x identity similarity coupling;
+  - Stage B intervention: E0 baseline, E1 severity-balanced regression, E2 identity-adversarial MTL, E3 combined;
+  - Stage C deferred: feature delta / AU delta / landmark-pose-gaze delta / static-dynamic fusion.
+- Updated `CURRENT_STATUS.md`, `RGB_OVERFITTING_AUDIT_PLAN.md`, `OVERFITTING_MECHANISM_ROADMAP.md`, `TODO.md`, and `CODEX_CONTEXT.md` accordingly.

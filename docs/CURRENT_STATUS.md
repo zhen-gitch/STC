@@ -1036,55 +1036,49 @@ Severity calibration summary 进一步确认 post-hoc linear calibration 不是�
 
 当前阶段性论文结论：RGB input ablations can improve overall error by redistributing severity-group bias, but they do not eliminate identity shortcut or severe underestimation. Center-focused inputs provide the most stable artifact-mitigation evidence, while black replacement, boundary smoothing, and temporal cropping expose trade-offs among severity bias, identity retrieval, and task consistency.
 
-## 2026-06-18 下一阶段可行研究路线：Identity Suppression x Boundary Smoothing
+## 2026-06-23 新实验规划：Shortcut-Regularized MTL 收束路线
 
-结合三表联合结果与 identity / boundary 机制讨论，下一阶段不应直接继续堆叠普通 mask，也不应立即把 severity-aware loss 当作主线。更可行的路线是先把两个已显示强信号的机制拆开验证：
+结合最新讨论，当前研究路线从“继续扩展输入滤镜/边界变体”收束为 **Shortcut-Regularized MTL**：把 RGB 静态输入过拟合定义为 subject-level shortcut 与 severity-level shortcut 的共同作用，并用上层多任务约束做可验证干预。
 
-1. **identity/static appearance shortcut**：RGB embedding 已强保留 subject identity，`center_mask` 和 `center_mask_black_to_gray` 也没有降低 same-subject retrieval；`border_black_feather` 甚至进一步增强 identity retrieval。
-2. **OpenFace boundary hard-transition artifact**：`border_black_feather` 改善 severe bias，但同时增强 identity retrieval，说明边界平滑可能改善 artifact noise，也可能保留/强化稳定外观。
+当前正式实验计划只包含两类干预：
 
-因此下一阶段应采用 `identity suppression x boundary smoothing` 的 2x2 机制消融，而不是直接做混合变体：
+1. **identity-adversarial MTL**：保留 backbone 对面部视觉信息的全面提取能力，但通过上层 MTL 中的 identity adversarial branch / GRL 降低共享表征对 subject identity 的可用性。
+2. **severity-balanced regression**：通过 score-bin / severity-bin 权重缓解标签分布不均，避免多数分数段主导反向传播；目标不是人为提高预测方差，而是降低 minimal / severe 等分段 bias，并保持 overall MAE、RMSE、CCC 稳定。
 
-```text
-A. baseline identity + original boundary
-B. baseline identity + smoothed boundary
-C. identity-suppressed input + original boundary
-D. identity-suppressed input + smoothed boundary
-```
+动态面部变化特征暂时降级为 **后续待考虑项**，不进入当前 Stage B 正式实验计划。它仍是潜在 Stage C 方向，用于在身份抑制与 severity imbalance 处理后，进一步验证 facial behavior dynamics 是否能减少 static appearance shortcut。
 
-判读目标：
-
-- B vs A：只检验边界高梯度 / 黑色到肤色硬突变是否是高响应 artifact；
-- C vs A：只检验身份/静态纹理抑制是否降低 same-subject retrieval 且不破坏 severity representation；
-- D vs B/C：检验身份抑制与边界平滑是叠加、冲突，还是同一机制的不同表现。
-
-优先输入变体应保持可解释、低复杂度：
+当前阶段安排：
 
 ```text
-edge_soften_only
-border_blur_fill
-identity_texture_suppressed
-identity_texture_suppressed_edge_soften
+Stage A 收口诊断
+  A1 layer-wise identity probe
+  A2 prediction error x identity similarity coupling
+
+Stage B 正式干预实验
+  E0 RGB MTL-Lite baseline
+  E1 + severity-balanced regression
+  E2 + identity-adversarial MTL branch
+  E3 + severity-balanced regression + identity-adversarial branch
+
+Stage C 待考虑
+  feature delta / AU delta / landmark-pose-gaze delta / static-dynamic fusion
 ```
 
-`identity_texture_suppressed` 不应简单复用全图 blur 或 grayscale，因为既有结果显示二者会损害有效信号。更合适的设计是弱化静态身份纹理和高频局部外观，同时尽量保留眼口、AU 变化、局部运动和整体面部行为结构。候选实现包括：轻量高频纹理抑制、面部轮廓/发际线弱化、局部反光/胡须/饰物区域 case-level occlusion，以及训练时 style / color jitter，而不是测试时粗暴全图模糊。
+Stage A 只做收口，不再继续扩展普通黑边、灰度、模糊、mask 或输入级去身份滤镜。Stage A 完成条件是能够回答：身份信息在哪些层出现、是否与预测错误/严重程度偏置耦合、是否足以支持上层 identity-adversarial MTL。
 
-每个变体必须统一报告：
+Stage B 的最低判读指标固定为：
 
 ```text
 MAE / RMSE / Pearson / CCC
-pred_std / true_std
-minimal / moderate / severe bias
-task_diff_mean
-same_subject_top1 / same_subject_top5
-paired_rank_mean
+pred_mean / pred_std / true_std
+minimal / mild / moderate / severe MAE and bias
+same_subject_top1 / same_subject_top5 / paired_rank_mean
 severity_agree
-calibration_delta_CCC
+task_diff_mean
+train-val generalization gap
 ```
 
-成功标准不能只是 MAE 下降。一个变体只有同时满足 identity retrieval 下降或不升高、severity agreement 不下降、CCC 不下降、task consistency 不恶化、severe bias 改善且 pred_std 不继续压缩，才可被视为更健康的机制方向。
-
-这条路线完成后，再进入 severity-aware training ablation。否则如果直接测试 sampler/loss，即使 severe bias 改善，也无法判断改善来自真正 severity learning，还是来自 identity / boundary shortcut 的再分配。
+成功标准不是单一 MAE 下降，而是：identity retrieval 下降或不升高、少数 severity 分段误差与 bias 改善、CCC 不明显下降、task consistency 不恶化、train-val gap 不扩大。
 
 ## 2026-06-19 Identity x Boundary 2x2 变体实现
 

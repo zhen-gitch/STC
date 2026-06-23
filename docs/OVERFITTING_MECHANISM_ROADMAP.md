@@ -458,68 +458,66 @@ center_mask_soft_boundary_v2
 - 所有 run 的 post-hoc linear calibration 均降低 CCC，进一步支持 severe underestimation 是表征/优化/分布问题，而不是简单输出尺度偏移。
 
 因此，当前机制地图应把 RGB failure 表述为多因素 shortcut 与 severity compression 的交叉，而不是单个 artifact 的因果链。
-## 9. 可行推进路线：先解耦 Identity 与 Boundary，再改训练目标
+## 9. 当前推进路线：Shortcut-Regularized MTL
 
-当前证据要求下一阶段采用机制解耦，而不是继续单点试错。更可行的路线如下：
+最新路线将后续工作从“先解耦 Identity 与 Boundary，再改训练目标”调整为 **Stage A 收口诊断 + Stage B 双干预**。原因是输入级 identity suppression x boundary smoothing 2x2 已经证明：单靠输入处理难以同时降低 identity retrieval、改善 severity bias、保持 CCC 和 task consistency。因此当前更高价值的问题是：能否用 MTL 上层约束让模型保留丰富视觉表征，同时减少对 subject identity 和多数 severity 分段的依赖。
 
-```text
-三表联合证据
--> 机制总表与 case-study anchor
--> identity suppression x boundary smoothing 2x2 消融
--> 三类 summary 复核
--> severity-aware training ablation
--> behavior-oriented validation / fusion
-```
-
-这一路线的核心约束是：任何新实验都必须能回答“身份记忆、边界高响应、severity compression、task context”中的至少一个机制问题。
-
-### Step 1: 机制总表与 case-study anchor
-
-把 prediction、identity retrieval、severity calibration 结果合并为统一机制表，并固定 case study 样本集合。case 类型至少覆盖：
+当前统一问题定义：
 
 ```text
-center_mask moderate 改善样本
-center_mask_black_to_gray severe 崩塌样本
-border_black_feather severe 改善但 high-identity 样本
-middle_crop task consistency 恶化样本
-rgb severe persistent underestimation 样本
+Static RGB depression regression overfits because the model can exploit
+subject-level shortcuts and severity-level label imbalance under small-sample,
+subject-independent evaluation.
 ```
 
-### Step 2: Identity x Boundary 2x2 消融
+### Stage A: 收口诊断
+
+只保留两个诊断任务：
 
 ```text
-A. baseline identity + original boundary
-B. baseline identity + smoothed boundary
-C. identity-suppressed input + original boundary
-D. identity-suppressed input + smoothed boundary
+A1 layer-wise identity probe
+A2 prediction error x identity similarity coupling
 ```
 
-该设计用于判断 identity shortcut 与 boundary artifact 是独立机制还是耦合机制。它比单独新增混合输入变体更可解释。
+A1 用于回答身份信息从哪个层级开始可分；A2 用于回答身份相似性是否参与预测错误和 severity bias。完成后关闭 Stage A，不再增加普通 input mask / blur / grayscale / border variants。
 
-### Step 3: 三类 summary 复核
+### Stage B: 双干预实验
 
-每个新变体都必须同时通过：
+正式实验组：
 
 ```text
-prediction_run_summary
-identity_retrieval_run_summary
-severity_calibration_run_summary
+E0 RGB MTL-Lite baseline
+E1 + severity-balanced regression
+E2 + identity-adversarial MTL branch
+E3 + severity-balanced regression + identity-adversarial branch
 ```
 
-只要一个变体降低 MAE 但加重 severe bias、identity retrieval 或 task inconsistency，就应解释为 bias redistribution，而不是泛化提升。
+机制对应关系：
 
-### Step 4: Severity-aware training
+- `severity-balanced regression` 对应 severity-level label imbalance；
+- `identity-adversarial MTL` 对应 subject-level shortcut；
+- `E3` 检查二者是否互补，而不是把模块简单堆叠。
 
-只有在 identity / boundary 机制被拆清之后，再测试：
+### Stage C: 动态特征待考虑
+
+动态特征目前不进入正式实验计划。它被保留为 Stage C 候选，用于在 Stage B 后仍存在 static appearance shortcut 时，再验证 facial behavior dynamics 是否能提供更稳的抑郁相关线索。
+
+候选方向：
 
 ```text
-severity-balanced sampler
-severity-weighted regression loss
-Huber / CCC / mixed loss
-ordinal severity auxiliary head
+feature delta
+AU delta
+landmark / pose / gaze delta
+static-dynamic fusion
 ```
 
-训练侧实验必须沿用同一三表评估框架，避免把 severe 预测整体抬高误判为真正泛化。
+### 当前停止规则
+
+- 不继续扩展普通 RGB 输入滤镜族。
+- 不把 dynamic feature branch 与 Stage B 一起打包成 full model。
+- 不把 prediction variance 当成训练目标；severity-balanced loss 的目标是缓解 label imbalance。
+- 每个实验必须同时用 prediction、identity retrieval、severity bias、task consistency 和 training overfit 指标判读。
+
 ## 10. 回到正轨的判据：从去身份化到行为化表征
 
 身份消融的目标不是单纯降低 same-subject retrieval，而是避免模型用 subject/static appearance 替代 depression-relevant behavior。当前判据应同时包含：
