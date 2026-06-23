@@ -4,6 +4,32 @@
 
 本文档用于系统梳理 RGB 输入模型过拟合的机制研究路线。它不是新的单点实验清单，而是当前所有审计、消融和论文叙事的上层框架。后续具体实验配置仍放在 `RGB_OVERFITTING_AUDIT_PLAN.md`、`SHORTCUT_AUDIT_DESIGN.md` 和 `TODO.md` 中。
 
+## 当前路线总览
+
+本文档的当前权威路线是 **Shortcut-Regularized MTL**，不是继续累积输入消融。机制审计已经说明：单个 artifact 不能解释全部过拟合，输入处理也无法同时改善 identity retrieval、severity bias、CCC 和 task consistency。因此下一步应将过拟合机制转化为可训练的上层约束。
+
+```text
+已完成证据层：input artifact / temporal / identity / calibration / geometry audits
+        ↓
+Stage A 收口：定位 identity 表征层级 + 证明 identity 与 prediction error 是否耦合
+        ↓
+Stage B 干预：severity-balanced regression + identity-adversarial MTL
+        ↓
+Stage C 候选：动态面部变化特征，暂不进入当前实验计划
+```
+
+当前机制分工：
+
+| 机制问题 | 证据来源 | 当前处理 |
+|---|---|---|
+| subject/static appearance shortcut | identity retrieval、input variants、case frames | identity-adversarial MTL with GRL |
+| severity label imbalance / middle-score collapse | severity bias、calibration summary、pred_std compression | severity-balanced regression |
+| input artifact / black boundary | black artifact audit、boundary variants | 作为历史证据和 case study，不再继续扩展主线 |
+| temporal/task context | temporal sampling、task consistency | 作为混杂因素监控，不列入当前模型改造主线 |
+| dynamic facial behavior | literature / behavior baseline | Stage C 待考虑 |
+
+读本文档时，应把前面 Layer 0-6 理解为证据地图，把第 9 节理解为当前执行路线。若旧段落中的“下一步”与本总览冲突，以本总览和 `RGB_OVERFITTING_AUDIT_PLAN.md` 的最新 Stage A/B/C 为准。
+
 ## 1. 研究目标
 
 当前目标不再是寻找“某一个 artifact 导致过拟合”，而是建立一套可解释、可验证、可复用的机制审计协议：

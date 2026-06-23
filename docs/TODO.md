@@ -2,6 +2,46 @@
 
 > 文档职责：只维护可执行任务和完成状态。不要在此重复长篇实验解释；机制解释见 `RGB_OVERFITTING_AUDIT_PLAN.md`，状态摘要见 `CURRENT_STATUS.md`，文档导航见 `DOCS_GUIDE.md`。
 
+## 当前立即执行任务（权威入口）
+
+本节是当前下一步的权威任务入口。下方较早的阶段任务和 P0/P1/P2 列表保留为历史记录或背景任务；若与本节冲突，以本节为准。
+
+### 当前目标
+
+把 RGB 过拟合研究从输入消融收束到 **Shortcut-Regularized MTL**：先完成身份机制收口诊断，再实现两个上层干预。
+
+```text
+Stage A 收口诊断
+-> Stage B 双干预实验
+-> Stage C 动态特征待考虑
+```
+
+### A. 收口诊断，优先执行
+
+- [ ] A1 确认当前 MTL-Lite / DeiT backbone 是否能导出 layer-wise embedding。
+- [ ] A1 设计 layer list：patch/token embedding、backbone high-level blocks、temporal pooled representation、MTL shared representation。
+- [ ] A1 实现 `audit_layerwise_identity_probe.py` 或等价诊断入口。
+- [ ] A1 输出每层 same-subject top1/top5、paired-task rank、severity agreement、可选 subject proxy accuracy。
+- [ ] A2 实现 error-identity coupling：合并 prediction CSV、identity similarity/rank、severity group 和 residual/abs_error。
+- [ ] A2 输出 high-error-high-identity case list，供后续论文案例分析。
+- [ ] A1/A2 完成后，写入 `CURRENT_STATUS.md` 和 `RGB_OVERFITTING_AUDIT_PLAN.md`，正式关闭 Stage A。
+
+### B. 模型干预，Stage A 后执行
+
+- [ ] B1 实现 severity-balanced regression loss：支持 minimal/mild/moderate/severe 分箱权重。
+- [ ] B1 起始实验：`p=0.5`、`p=1.0`，优先使用 SmoothL1 / MAE 加权，不把提高 prediction variance 作为目标。
+- [ ] B2 实现 Gradient Reversal Layer。
+- [ ] B2 实现 subject identity adversarial head，接入 MTL shared representation。
+- [ ] B2 配置 `lambda_id=0.02,0.05,0.10,0.20` sweep。
+- [ ] B3 跑四组对照：E0 baseline、E1 severity-balanced、E2 identity-adversarial、E3 combined。
+- [ ] B3 统一运行 prediction / identity retrieval / severity calibration / training overfit / task consistency summary。
+
+### C. 暂缓项
+
+- [ ] 暂缓新增 RGB 输入滤镜、黑边替换、灰度、模糊、mask、boundary variants。
+- [ ] 暂缓 dynamic feature branch、feature delta、AU delta、landmark/pose/gaze delta、static-dynamic fusion。
+- [ ] 暂缓 optical flow 和 two-stream temporal model。
+
 ## 当前架构目标
 
 项目采用新架构：

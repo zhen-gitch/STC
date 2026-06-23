@@ -978,3 +978,15 @@ Coordinate scale correction:
   - Stage B intervention: E0 baseline, E1 severity-balanced regression, E2 identity-adversarial MTL, E3 combined;
   - Stage C deferred: feature delta / AU delta / landmark-pose-gaze delta / static-dynamic fusion.
 - Updated `CURRENT_STATUS.md`, `RGB_OVERFITTING_AUDIT_PLAN.md`, `OVERFITTING_MECHANISM_ROADMAP.md`, `TODO.md`, and `CODEX_CONTEXT.md` accordingly.
+
+### Documentation route clarity update
+
+- Front-loaded the current authoritative route in `DOCS_GUIDE.md`, `CURRENT_STATUS.md`, `TODO.md`, `RGB_OVERFITTING_AUDIT_PLAN.md`, and `OVERFITTING_MECHANISM_ROADMAP.md`.
+- Clarified that old RGB input ablations, boundary smoothing, temporal sampling, and identity texture suppression are historical evidence rather than the current main plan.
+- Added a concrete immediate task block for Stage A and Stage B:
+  - A1 layer-wise identity probe;
+  - A2 prediction error x identity similarity coupling;
+  - B1 severity-balanced regression;
+  - B2 identity-adversarial MTL with GRL;
+  - B3 baseline / severity / identity / combined four-run comparison.
+- Explicitly deferred dynamic feature branches and new RGB input filters.

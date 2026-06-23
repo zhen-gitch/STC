@@ -5,6 +5,39 @@
 本文档是当前 RGB 输入模型过拟合研究的主控文档。后续涉及 RGB 过拟合原因、实验优先级、论文叙事和审计结果解释时，优先参考本文档；`CURRENT_STATUS.md` 记录当前状态，`TODO.md` 记录执行清单，`SHORTCUT_AUDIT_DESIGN.md` 记录具体脚本/输出规格，`RESEARCH_NOTES.md` 记录论文背景和研究线索。
 更高层的机制地图见 `docs/OVERFITTING_MECHANISM_ROADMAP.md`。该文档用于统一组织 split、calibration、input artifact、identity/static appearance、local occlusion、OpenFace geometry、temporal/task context 和 behavior validation，避免后续实验零散拼凑。
 
+## 读者先看：当前研究路线与下一步
+
+当前 RGB 过拟合研究已经完成从“输入 artifact 逐项排查”到“上层 MTL 机制干预”的转向。旧的黑边、center mask、boundary smoothing、temporal sampling 和 identity retrieval 实验仍然重要，但它们现在的角色是 **证明存在 shortcut 与 bias redistribution**，不是继续无限扩展输入滤镜。
+
+当前论文问题应表述为：
+
+> 静态 RGB depression regression 在 subject-independent 小样本设置下，会同时利用 subject/static appearance shortcut，并受到 severity label imbalance 的梯度主导；因此需要在 MTL 上层同时进行 identity-adversarial regularization 和 severity-balanced regression。
+
+当前路线：
+
+| 阶段 | 作用 | 当前状态 | 输出 |
+|---|---|---|---|
+| Stage A | 收口诊断，不再扩展输入滤镜 | 下一步立即做 | layer-wise identity probe；error-identity coupling |
+| Stage B | 正式模型干预 | Stage A 后执行 | E0/E1/E2/E3 四组对照 |
+| Stage C | 动态特征候选 | 暂缓 | feature/AU/landmark/pose/gaze delta，仅在 Stage B 后判断 |
+
+当前最重要的下一步：
+
+```text
+A1 layer-wise identity probe
+A2 prediction error x identity similarity coupling
+B1 severity-balanced regression
+B2 identity-adversarial MTL with GRL
+B3 combined E3 experiment
+```
+
+旧实验的定位：
+
+- `center_mask`、`center_mask_black_to_gray`、`border_black_feather`、`middle_crop` 和 2x2 input variants 用于证明输入侧处理会重新分配 bias，但不能单独解决身份记忆和 severe underestimation。
+- `identity_retrieval_summary` 用于证明 RGB embedding 保留 subject/static appearance。
+- `severity_calibration_summary` 用于证明 post-hoc calibration 不能替代训练目标修正。
+- 后续不再优先新增同类 input ablation，除非用于 case study 解释。
+
 ## 核心判断
 
 当前不应把 RGB 过拟合解释为“黑边导致过拟合”。更合理、更有论文价值的表述是：

@@ -2,6 +2,18 @@
 
 本文档是项目文档导航与职责分工。后续开始工作时优先读取本文件，用它决定还需要读取哪些文档，避免反复读取所有长文档。
 
+## 当前权威路线
+
+截至 2026-06-23，当前研究路线是 **Shortcut-Regularized MTL**：
+
+```text
+Stage A: layer-wise identity probe + error-identity coupling
+Stage B: severity-balanced regression + identity-adversarial MTL
+Stage C: dynamic facial-change features 暂缓，仅作为候选
+```
+
+旧的 input artifact、boundary smoothing、temporal sampling 和 identity texture suppression 实验现在主要作为证据背景，不是下一步主线。需要决定“接下来做什么”时，优先看 `TODO.md` 的“当前立即执行任务（权威入口）”。
+
 ## 快速读取策略
 
 ### 只需要了解当前下一步
@@ -10,13 +22,13 @@
 
 1. `docs/DOCS_GUIDE.md`
 2. `docs/TODO.md` 中最新任务段落
-3. `docs/CURRENT_STATUS.md` 最后 1-2 个日期段落
+3. `docs/CURRENT_STATUS.md` 开头的 `当前权威快照` 段落
 
 ### 需要分析 RGB 过拟合机制
 
 读取：
 
-1. `docs/RGB_OVERFITTING_AUDIT_PLAN.md` 的核心判断、三表联合证据、下一阶段研究路线
+1. `docs/RGB_OVERFITTING_AUDIT_PLAN.md` 的 `读者先看：当前研究路线与下一步`、核心判断和三表联合证据
 2. `docs/OVERFITTING_MECHANISM_ROADMAP.md` 的机制层级与最新机制更新
 3. 必要时读取 `docs/SHORTCUT_AUDIT_DESIGN.md` 的具体脚本/输出规格
 
@@ -87,7 +99,7 @@
 DOCS_GUIDE.md
 -> TODO.md 最新任务
 -> CURRENT_STATUS.md 最新段落
--> RGB_OVERFITTING_AUDIT_PLAN.md 三表联合证据与 2x2 路线
+-> RGB_OVERFITTING_AUDIT_PLAN.md Shortcut-Regularized MTL 路线
 -> OVERFITTING_MECHANISM_ROADMAP.md 机制地图
 ```
 
