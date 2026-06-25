@@ -4,18 +4,33 @@
 
 ## 状态日期
 
-2026-06-23
+2026-06-25
 
-## 当前权威快照：Shortcut-Regularized MTL
+## 当前权威快照：RPDF-Net 主线
 
-当前工作已经从“继续寻找新的 RGB 输入变体”转为 **Shortcut-Regularized MTL**。现阶段的核心问题不是黑边、模糊、灰度或某个单一 artifact，而是：静态 RGB 模型在小样本 subject-independent 设定下，同时受到 **subject-level shortcut** 和 **severity-level label imbalance** 影响。
+当前工作已经从 **Shortcut-Regularized MTL** 进一步升级为 **RPDF-Net：风险感知递进式去身份因子分解网络**。这一转移不是推翻既有工作，而是把已有 RGB input ablation、identity retrieval、severity calibration、temporal sampling、alignment geometry 和 black artifact 审计结果，统一作为 RPDF-Net 的问题证据与支线验证基础。
 
-当前主线只保留三个层级：
+RPDF-Net 的核心目标是：不再简单要求模型“删除身份”，而是建立一个可审计的信息分流机制：
 
 ```text
-Stage A 收口诊断：证明身份信息在何处出现，以及是否参与预测错误
-Stage B 正式干预：identity-adversarial MTL + severity-balanced regression
-Stage C 待考虑：动态面部变化特征，仅在 Stage B 后仍有必要时启动
+H0 -> z_dep, z_m, z_id, z_art, z_res
+```
+
+其中：
+
+- `z_dep`：低身份风险的抑郁主因子；
+- `z_m`：身份-抑郁交叠因子，层间和最终预测中都必须受控传递；
+- `z_id`：身份信息出口，用于吸收 subject/static appearance；
+- `z_art`：OpenFace 对齐、黑边、裁切、confidence、bbox、tracking failure 等伪迹/域因素出口；
+- `z_res`：残差信息出口，避免所有重建压力回流到 `z_dep`。
+
+当前主线分为四层：
+
+```text
+Stage A 证据收口：证明 identity / artifact / severity imbalance 是否确实参与错误模式
+Stage B RPDF-lite：单级因子分解，验证 z_dep / z_m / z_id / z_art / z_res 是否有用
+Stage C 递进分解：两级 RPDF，验证身份风险是否随层级下降且 BDI 性能可保持
+Stage D 支线验证：z_art、受控 z_m、severity-balanced loss、multi-attacker、dynamic features
 ```
 
 ### 现在已经完成什么
@@ -24,23 +39,25 @@ Stage C 待考虑：动态面部变化特征，仅在 Stage B 后仍有必要时
 - 现有输入变体能改变 overall MAE、severity bias 和 task consistency，但没有任何变体同时解决 identity retrieval、severe underestimation、CCC 和 task consistency。
 - 输入级 `identity_texture_suppressed` / boundary smoothing 2x2 作为机制证据保留，不再作为下一阶段主线继续扩展。
 - Post-hoc linear calibration 全部降低 CCC，因此只作为 prediction compression 诊断，不作为模型方案。
+- `Shortcut-Regularized MTL` 保留为重要基线：`severity-balanced regression` 和 `identity-adversarial MTL` 将作为 RPDF-Net 前置对照和支线消融。
 
 ### 当前正在推进什么
 
-当前应推进 Stage A 的两个收口任务，然后进入 Stage B：
+当前应先完成 Stage A，然后进入 RPDF-lite：
 
 1. **A1 layer-wise identity probe**：提取不同层 embedding，检查 identity 信息从哪个层级开始可分。
 2. **A2 error-identity coupling**：检查 prediction residual / abs_error 是否与 identity similarity、paired-task rank 或 severity neighbor agreement 耦合。
-3. **B1 severity-balanced regression**：用 severity / score bin 权重缓解标签分布不均。
-4. **B2 identity-adversarial MTL**：用 GRL 和 identity head 约束共享表征，避免普通 identity classification 分支强化身份记忆。
-5. **B3 combined experiment**：组合最稳的 severity weight 和 identity adversarial lambda。
+3. **A3 artifact weak-label audit**：整理 OpenFace confidence、bbox、center offset、black-border、edge gradient、valid ratio 等弱标签，作为 `z_art` 的监督来源。
+4. **A4 severity imbalance summary**：确认 severity-balanced regression 作为 RPDF 支线是否仍必要。
+5. **B1 RPDF-lite 单级分解**：先实现 `H0 -> z_dep,z_m,z_id,z_art,z_res`，最终预测优先使用 `z_dep + controlled z_m`。
 
 ### 当前不做什么
 
+- 不直接实现完整多级、多损失、多门控 RPDF-Net。
+- 不让 `z_m` 无控制地进入下一层或最终预测；层间传递应为 `H_k = Phi([z_dep^k, alpha_k * z_m^k])`。
 - 不继续扩展普通 RGB mask、灰度、模糊、黑边替换或新的输入滤镜族。
-- 不把动态特征、feature delta、AU delta、landmark/pose/gaze delta 列入当前正式实验。
-- 不把提高 prediction variance 当作训练目标；severity-balanced loss 的目标是缓解 label imbalance。
-- 不仅凭 MAE 选择模型，必须同时检查 CCC、severity bias、identity retrieval、task consistency 和 train-val gap。
+- 不把动态特征、feature delta、AU delta、landmark/pose/gaze delta 列入第一版 RPDF-lite。
+- 不仅凭 MAE 选择模型，必须同时检查 CCC、severity bias、identity risk、artifact risk、task consistency 和 train-val gap。
 
 ## 当前项目状态
 
@@ -408,7 +425,7 @@ DATASET:
 - 已新增 `scripts/compare_behavior_predictions.py`，可将 RGB/MTL-Lite prediction CSV 与 behavior-only prediction CSV 对齐比较。
 - 比较工具输出 `rgb_behavior_prediction_comparison.csv` 和 `rgb_behavior_prediction_summary.csv`，用于检查整体指标、severity 分组和逐样本谁更好。
 
-## 2026-06-23 RGB 黑填充伪迹方向更新
+## 2026-06-25 RGB 黑填充伪迹方向更新
 
 已完成第一轮 RGB 输入消融复盘。各变体训练配置保持同一 split、seed、backbone、冻结策略、时序长度和主要训练入口，测试结果的核心结论如下：
 
@@ -455,7 +472,7 @@ python scripts/audit_black_artifacts.py \
 4. 将 severe 低估继续作为独立问题保留，不能把它完全归因于黑边伪迹。
 5. 在完成上述证据前，暂不优先推进 RGB + behavior late fusion 或新的复杂辅助任务。
 
-## 2026-06-23 黑伪迹审计后的实验安排
+## 2026-06-25 黑伪迹审计后的实验安排
 
 黑伪迹审计已完整匹配 100 个测试视频，`Missing videos = 0`，结果可以解释。审计显示 aligned frame 中黑区非常普遍：整体黑像素均值约 `0.24`，边界黑区均值约 `0.44`。但最大绝对相关只有约 `0.207`，说明黑区不是单独决定 BDI 或预测误差的强变量。
 
@@ -483,7 +500,7 @@ case study 优先集合：
 - `black_to_gray` 改善明显：`250_1`、`344_2`、`242_1`；
 - `black_to_gray` 恶化明显：`206_2`、`226_2`、`210_2`。
 
-## 2026-06-23 RGB 过拟合多因素判断
+## 2026-06-25 RGB 过拟合多因素判断
 
 当前不应把 RGB 过拟合单独归因于黑边。更合理的论文判断是：RGB 模型可能同时利用身份静态外观、OpenFace 对齐几何、边界填充、姿态/追踪质量、视频长度/采样、任务语境差异和标签分布造成的 prediction compression。
 
@@ -572,7 +589,7 @@ python scripts/train_mtl_lite.py \
 
 若 `uniform_512` 或 `uniform_1024` 触发 OOM，应先降低 `EXTRACT_FEATURE.BATCH_SIZE` 或 `EXTRACT_FEATURE.CHUNK_SIZE`，不要同时改动其他训练超参数。
 
-## 2026-06-23 边界连通黑区消融结果
+## 2026-06-25 边界连通黑区消融结果
 
 三组更精确的边界连通黑区消融已经完成，配置与前序 RGB 消融可比，区别仅在 `DATASET.INPUT_VARIANT`。
 
@@ -631,7 +648,7 @@ python scripts/summarize_prediction_runs.py \
 - `gray_scale`、`blur`、`inner_crop_resize` 和 `black_to_mean` 未能改善整体结果，说明过拟合不能简单解释为颜色、纹理或外围区域单因素；
 - 所有较好变体的 `pred_std` 仍低于 `true_std`，severe 低估仍需作为 calibration / severity imbalance 问题单独处理。
 
-## 2026-06-23 高优先级过拟合验证审查
+## 2026-06-25 高优先级过拟合验证审查
 
 当前不建议继续把主要精力放在新增 RGB mask 变体上。黑边/黑填充已被证明是可见风险入口，但不是单一充分解释；继续增加局部 mask 容易变成经验试错，论文价值不如系统审计过拟合机制。
 
@@ -1072,9 +1089,9 @@ Severity calibration summary 进一步确认 post-hoc linear calibration 不是�
 
 当前阶段性论文结论：RGB input ablations can improve overall error by redistributing severity-group bias, but they do not eliminate identity shortcut or severe underestimation. Center-focused inputs provide the most stable artifact-mitigation evidence, while black replacement, boundary smoothing, and temporal cropping expose trade-offs among severity bias, identity retrieval, and task consistency.
 
-## 2026-06-23 新实验规划：Shortcut-Regularized MTL 收束路线
+## 历史阶段：2026-06-25 Shortcut-Regularized MTL 收束路线（已被 RPDF-Net 吸收）
 
-结合最新讨论，当前研究路线从“继续扩展输入滤镜/边界变体”收束为 **Shortcut-Regularized MTL**：把 RGB 静态输入过拟合定义为 subject-level shortcut 与 severity-level shortcut 的共同作用，并用上层多任务约束做可验证干预。
+本节保留为历史阶段记录。该阶段曾将研究路线从“继续扩展输入滤镜/边界变体”收束为 **Shortcut-Regularized MTL**；截至 2026-06-25，它已被 RPDF-Net 主线吸收，作为 RPDF-Net 的对照基线和支线验证。历史阶段判断为：RGB 静态输入过拟合可被定义为 subject-level shortcut 与 severity-level shortcut 的共同作用，并可用上层多任务约束做可验证干预。
 
 当前正式实验计划只包含两类干预：
 
@@ -1118,7 +1135,7 @@ train-val generalization gap
 
 ## 历史阶段记录说明
 
-以下 2026-06-19 相关段落保留为历史证据，说明 input-level identity suppression / boundary smoothing 2x2 的实现与当时路线。它们不再覆盖当前权威路线。当前下一步以本文开头的 `当前权威快照：Shortcut-Regularized MTL` 和 `TODO.md` 的 `当前立即执行任务（权威入口）` 为准。
+以下 2026-06-19 相关段落保留为历史证据，说明 input-level identity suppression / boundary smoothing 2x2 的实现与当时路线。它们不再覆盖当前权威路线。当前下一步以本文开头的 `当前权威快照：RPDF-Net 主线` 和 `TODO.md` 的 `当前立即执行任务（权威入口）` 为准。
 
 ## 2026-06-19 Identity x Boundary 2x2 变体实现
 
@@ -1136,11 +1153,11 @@ train-val generalization gap
 - `configs/input_ablation/identity_texture_suppressed.yaml`
 - `configs/input_ablation/identity_texture_suppressed_edge_soften.yaml`
 
-历史当时计划：在服务器使用与 `rgb` / `center_mask` / `border_black_feather` 完全相同的 split、seed、训练入口和 checkpoint 策略运行四组 input-level 2x2 实验，并接入 `scripts/summarize_prediction_runs.py` / `scripts/summarize_identity_retrieval_runs.py` / `scripts/summarize_severity_calibration_runs.py` 进行三表联合判读。该计划已被当前 Shortcut-Regularized MTL 路线取代，不再作为下一步主线。
+历史当时计划：在服务器使用与 `rgb` / `center_mask` / `border_black_feather` 完全相同的 split、seed、训练入口和 checkpoint 策略运行四组 input-level 2x2 实验，并接入 `scripts/summarize_prediction_runs.py` / `scripts/summarize_identity_retrieval_runs.py` / `scripts/summarize_severity_calibration_runs.py` 进行三表联合判读。该计划已被当前 RPDF-Net 主线取代，不再作为下一步主线。
 
 ## 2026-06-19 Identity Suppression 方法调研与路线确认
 
-已将现有 identity suppression / disentanglement / adversarial learning / behavior representation 研究映射到当前项目。历史当时结论是：输入级身份纹理弱化与边界平滑的 2x2 机制消融更适合作为第一步；该结论已经被 2026-06-23 的 Shortcut-Regularized MTL 路线更新，当前优先级转为 Stage A layer-wise / error-identity 诊断和 Stage B subject-adversarial GRL。
+已将现有 identity suppression / disentanglement / adversarial learning / behavior representation 研究映射到当前项目。历史当时结论是：输入级身份纹理弱化与边界平滑的 2x2 机制消融更适合作为第一步；该结论已经被 2026-06-25 的 RPDF-Net 主线更新，当前优先级转为 RPDF Stage A 证据收口和 Stage B RPDF-lite 单级因子分解。
 
 原因：AVEC2014 样本小，RGB severity signal 与 subject/static appearance 可能纠缠。过早使用 adversarial identity removal 可能同时抹除有效行为线索。更稳妥的方式是先用 `edge_soften_only`、`border_blur_fill`、`identity_texture_suppressed`、`identity_texture_suppressed_edge_soften` 检验 identity shortcut 与 boundary artifact 是独立还是耦合。
 

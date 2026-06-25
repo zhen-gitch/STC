@@ -15,6 +15,34 @@
 - last1/last2 结果提示问题不只是 backbone 可训练层数，而更可能是输入表征和监督信号没有充分约束模型关注抑郁相关面部行为；
 - 当前 ordinal BDI 辅助任务本质上仍来自同一个 BDI 标签，可能不足以强迫模型学习 AU、landmark motion、gaze、pose 等行为线索。
 
+## 当前主线：RPDF-Net 理论支撑与研究定位
+
+截至 2026-06-25，当前研究主线应表述为 **RPDF-Net：Risk-aware Progressive De-identification Factorization Network（风险感知递进式去身份因子分解网络）**。它不是简单把输入滤镜、GRL、重加权和动态特征堆在一起，而是把已有实验中反复出现的过拟合现象整理成一个统一问题：静态 RGB aligned face 同时包含抑郁相关面部线索、身份线索、OpenFace artifact/domain 线索、severity 分布偏置和任务语境混杂，模型需要在上层显式分流这些信息。
+
+理论依据可以按以下几条线组织：
+
+| 理论线索 | 对本项目的支撑 | RPDF-Net 中的落点 |
+|---|---|---|
+| Shortcut learning | 深度模型会优先学习身份、采集条件、裁剪边界、质量差异等容易但不可迁移的线索 | 先做 layer-wise identity probe、error-identity coupling 和 artifact weak-label audit，再进入模型干预 |
+| Disentanglement / factorization | 端到端共享 embedding 难以解释，显式因子有助于把可用信息和风险信息分开审计 | `z_dep/z_m/z_id/z_art/z_res` 单级分解，再逐步扩展为两级递进分解 |
+| Domain-adversarial / privacy-preserving representation | 对抗分支可降低表征中 subject identity 的可用性，但可能误伤有效行为线索 | subject-adversarial GRL 作为 RPDF 对照基线和支线，不作为唯一主线 |
+| Privacy-utility trade-off | 完全去身份可能损失年龄、表情基线、面部活动幅度等与抑郁相关的交叠信息 | 保留 `z_m` 作为身份-抑郁交叠因子，并用 `alpha` 或门控受控传递 |
+| Imbalanced regression / long-tail severity | BDI 分数段不均会使多数分段主导梯度，造成 minimal/severe 系统偏置 | severity-balanced regression 作为 RPDF 支线，目标是缓解分段不均而不是人为提高方差 |
+| Facial behavior depression literature | 抑郁线索更多体现在表情活动、AU、landmark motion、pose/gaze 等行为模式中 | dynamic / behavior features 暂列 Stage D，等 RPDF-lite 证明静态表征瓶颈后再启动 |
+| OpenFace artifact and occlusion literature | aligned crop、黑边、麦克风、眼镜、胡须、追踪失败和几何尺度都会产生稳定非抑郁线索 | `z_art` 与 artifact weak labels 用于审计和分离这类风险 |
+
+当前实验推进逻辑：
+
+```text
+已完成证据层：input artifact / temporal / identity / calibration / geometry audits
+-> Stage A: RPDF 证据收口
+-> Stage B: RPDF-lite 单级因子分解
+-> Stage C: 两级递进分解 + controlled z_m transfer
+-> Stage D: 支线验证与行为动态扩展
+```
+
+因此，后续论文叙事应强调“从过拟合机制审计到风险感知因子分解”的连续性：已有消融不是零散失败记录，而是在逐步证明单一输入处理无法解释全部泛化问题，从而引出 RPDF-Net 作为更系统的解决框架。
+
 ## OpenFace 版本与数据约定
 
 当前主数据版本来自已有 OpenFace 裁剪对齐流程，所用 OpenFace 版本可能不是最新版。短期内不建议直接升级 OpenFace 并覆盖已有数据，因为这会改变 crop、landmark、AU、pose、confidence 等分布，相当于更换数据版本。
@@ -77,7 +105,7 @@
 - PCGrad: https://arxiv.org/abs/2001.06782
 - 这些方法不是当前 MTL-Lite 主线的第一优先级，但在引入 AU、landmark、pose、gaze 等辅助任务后，可作为负迁移控制和任务权重消融。
 
-## 下一阶段实验方向
+## 历史阶段：早期 behavior / shortcut 实验方向（已被 RPDF-Net 吸收）
 
 ### P0：诊断模型是否学习了非抑郁捷径
 
@@ -149,9 +177,9 @@
 7. `E6_multiscale_temporal`：多尺度 clip/video temporal aggregation。
 8. `E7_loss_balancing`：在行为辅助任务稳定后，再做 uncertainty weighting、GradNorm、PCGrad 或任务权重消融。
 
-## 当前结论
+## 历史结论：多因素 RGB 过拟合审计（已作为 RPDF 证据层）
 
-下一阶段不应继续主要押注 `FINETUNE_LAST_N_BLOCKS` 的层数搜索，也不应过早进入 RGB + behavior late fusion。更高价值的路线是先完成 RGB 过拟合多因素审计：
+本节保留 2026-06 中旬的阶段性判断。该判断已经完成其历史任务：它把项目从单纯调 backbone 或直接 late fusion，推进到 RGB 过拟合多因素审计。当前这些审计结果已经被吸收为 RPDF-Net 的证据层。历史当时的路线为：
 
 ```text
 split integrity audit

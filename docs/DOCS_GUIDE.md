@@ -4,15 +4,27 @@
 
 ## 当前权威路线
 
-截至 2026-06-23，当前研究路线是 **Shortcut-Regularized MTL**：
+截至 2026-06-25，当前研究路线正式更新为 **RPDF-Net：Risk-aware Progressive De-identification Factorization Network**，中文为 **风险感知递进式去身份因子分解网络**。
+
+当前主线不是继续扩展输入滤镜，也不是只做简单 GRL，而是：
 
 ```text
-Stage A: layer-wise identity probe + error-identity coupling
-Stage B: severity-balanced regression + identity-adversarial MTL
-Stage C: dynamic facial-change features 暂缓，仅作为候选
+已完成证据层：input artifact / temporal / identity / calibration / geometry audits
+        ↓
+Stage A: RPDF 证据收口
+        layer-wise identity probe + error-identity coupling + artifact weak-label audit
+        ↓
+Stage B: RPDF-lite 单级因子分解
+        H0 -> z_dep, z_m, z_id, z_art, z_res
+        ↓
+Stage C: 两级递进分解与受控 z_m 传递
+        H_k = Phi([z_dep^k, alpha_k * z_m^k])
+        ↓
+Stage D: 支线有效性验证
+        z_art / z_m gate / multi-attacker / severity-balanced loss / dynamic features
 ```
 
-旧的 input artifact、boundary smoothing、temporal sampling 和 identity texture suppression 实验现在主要作为证据背景，不是下一步主线。需要决定“接下来做什么”时，优先看 `TODO.md` 的“当前立即执行任务（权威入口）”。
+旧的 input artifact、boundary smoothing、temporal sampling、identity retrieval 和 Shortcut-Regularized MTL 方案现在主要作为 RPDF-Net 的证据基础、对照基线和支线验证，不再作为最终主线。需要决定“接下来做什么”时，优先看 `TODO.md` 的“当前立即执行任务（权威入口）”。
 
 ## 快速读取策略
 
@@ -21,7 +33,7 @@ Stage C: dynamic facial-change features 暂缓，仅作为候选
 读取：
 
 1. `docs/DOCS_GUIDE.md`
-2. `docs/TODO.md` 中最新任务段落
+2. `docs/TODO.md` 开头的 `当前立即执行任务（权威入口）` 段落
 3. `docs/CURRENT_STATUS.md` 开头的 `当前权威快照` 段落
 
 ### 需要分析 RGB 过拟合机制
@@ -97,9 +109,9 @@ Stage C: dynamic facial-change features 暂缓，仅作为候选
 
 ```text
 DOCS_GUIDE.md
--> TODO.md 最新任务
+-> TODO.md 当前立即执行任务
 -> CURRENT_STATUS.md 最新段落
--> RGB_OVERFITTING_AUDIT_PLAN.md Shortcut-Regularized MTL 路线
+-> RGB_OVERFITTING_AUDIT_PLAN.md RPDF-Net 主线
 -> OVERFITTING_MECHANISM_ROADMAP.md 机制地图
 ```
 

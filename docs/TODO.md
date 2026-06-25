@@ -8,15 +8,16 @@
 
 ### 当前目标
 
-把 RGB 过拟合研究从输入消融收束到 **Shortcut-Regularized MTL**：先完成身份机制收口诊断，再实现两个上层干预。
+把未来主线正式设为 **RPDF-Net：风险感知递进式去身份因子分解网络**，并在研究中逐步验证各个支线的有效性。当前不直接实现完整 RPDF-Net，而是按证据收口、RPDF-lite、两级递进、支线验证的顺序推进。
 
 ```text
-Stage A 收口诊断
--> Stage B 双干预实验
--> Stage C 动态特征待考虑
+Stage A RPDF 证据收口
+-> Stage B RPDF-lite 单级分解
+-> Stage C 两级递进分解 + 受控 z_m 传递
+-> Stage D 支线有效性验证
 ```
 
-### A. 收口诊断，优先执行
+### A. RPDF 证据收口，优先执行
 
 - [ ] A1 确认当前 MTL-Lite / DeiT backbone 是否能导出 layer-wise embedding。
 - [ ] A1 设计 layer list：patch/token embedding、backbone high-level blocks、temporal pooled representation、MTL shared representation。
@@ -24,23 +25,41 @@ Stage A 收口诊断
 - [ ] A1 输出每层 same-subject top1/top5、paired-task rank、severity agreement、可选 subject proxy accuracy。
 - [ ] A2 实现 error-identity coupling：合并 prediction CSV、identity similarity/rank、severity group 和 residual/abs_error。
 - [ ] A2 输出 high-error-high-identity case list，供后续论文案例分析。
-- [ ] A1/A2 完成后，写入 `CURRENT_STATUS.md` 和 `RGB_OVERFITTING_AUDIT_PLAN.md`，正式关闭 Stage A。
+- [ ] A3 整理 `z_art` 弱标签候选：OpenFace confidence、success、bbox scale、center offset、black-border ratio、edge gradient、valid ratio、landmark failure / jitter。
+- [ ] A4 汇总 severity-bin imbalance、minimal/severe bias 和 prediction compression，决定 RPDF-lite 是否同时启用 severity-balanced regression。
+- [ ] A1-A4 完成后，写入 `CURRENT_STATUS.md` 和 `RGB_OVERFITTING_AUDIT_PLAN.md`，正式关闭 RPDF Stage A。
 
-### B. 模型干预，Stage A 后执行
+### B. RPDF-lite 单级模型
 
-- [ ] B1 实现 severity-balanced regression loss：支持 minimal/mild/moderate/severe 分箱权重。
-- [ ] B1 起始实验：`p=0.5`、`p=1.0`，优先使用 SmoothL1 / MAE 加权，不把提高 prediction variance 作为目标。
-- [ ] B2 实现 Gradient Reversal Layer。
-- [ ] B2 实现 subject identity adversarial head，接入 MTL shared representation。
-- [ ] B2 配置 `lambda_id=0.02,0.05,0.10,0.20` sweep。
-- [ ] B3 跑四组对照：E0 baseline、E1 severity-balanced、E2 identity-adversarial、E3 combined。
-- [ ] B3 统一运行 prediction / identity retrieval / severity calibration / training overfit / task consistency summary。
+- [ ] B1 设计 `FactorBlock` 最小接口：`H0 -> z_dep, z_m, z_id, z_art, z_res`。
+- [ ] B1 第一版不启用多级递进，不启用 learned mutual gate，不启用 dynamic features。
+- [ ] B1 实现单级输出头：`dep_head(z_dep)`、`id_head(z_id)`、`art_head(z_art)`、可选 `mutual_dep/id_head(z_m)`。
+- [ ] B1 实现低权重 current-input reconstruction，避免重建压力迫使身份信息回流到 `z_dep`。
+- [ ] B1 实现基础 factor separation loss，先用低权重协方差/正交约束。
+- [ ] B2 实现受控 `z_m` 传递/预测消融：`alpha in {0, 0.25, 0.5, 1.0}`。
+- [ ] B2 主方案使用 `Head([z_dep, alpha * z_m])`，并报告 z_m 带来的 BDI 增益和 identity risk 增量。
+- [ ] B3 将 `identity-adversarial MTL` 与 `severity-balanced regression` 作为 RPDF-lite 对照基线，而不是替代 RPDF 主线。
 
-### C. 暂缓项
+### C. 两级递进 RPDF
 
+- [ ] C1 在单级稳定后实现两级递进：`H1 = Phi([z_dep^1, alpha_1 * z_m^1])`，再分解得到第二级因子。
+- [ ] C1 比较 `z_dep^1` 与 `z_dep^2` 的 identity risk、artifact risk、BDI metrics、severity bias 和 task consistency。
+- [ ] C2 比较层间传递策略：`z_dep only`、`z_dep + controlled z_m`、`z_dep + full z_m`。
+- [ ] C3 仅当两级有效时，再考虑 `K_max=3`。
+
+### D. 支线有效性验证
+
+- [ ] D1 `z_art` 支线：验证 artifact weak labels 是否被 `z_art` 吸收，且 `z_dep` 的 artifact attack accuracy 下降。
+- [ ] D2 `z_m` 支线：验证 controlled z_m 是否提升 BDI 且 identity risk 增量可控。
+- [ ] D3 severity-balanced 支线：验证 weighted SmoothL1 / MAE 是否改善 minimal/severe bias，并检查是否与 RPDF 因子分解互补。
+- [ ] D4 multi-attacker 支线：使用 kNN / SVM or logistic / MLP / paired-task retrieval 报告最强 identity attacker，避免假安全。
+- [ ] D5 dynamic feature 支线：暂缓，仅当 RPDF-lite 和两级 RPDF 仍无法保留足够抑郁行为线索时再启动。
+
+### 暂缓项
+
+- [ ] 暂缓完整五因子多级门控全开版 RPDF-Net。
 - [ ] 暂缓新增 RGB 输入滤镜、黑边替换、灰度、模糊、mask、boundary variants。
-- [ ] 暂缓 dynamic feature branch、feature delta、AU delta、landmark/pose/gaze delta、static-dynamic fusion。
-- [ ] 暂缓 optical flow 和 two-stream temporal model。
+- [ ] 暂缓 optical flow、two-stream temporal model 和复杂 dynamic branch。
 
 ## 当前架构目标
 
@@ -507,9 +526,9 @@ split integrity audit
 - [ ] 在输入捷径审计之后，再单独测试 weighted MSE / Huber / CCC loss。
 - [ ] 输出 severity calibration report，避免把整体抬高预测误判为真正泛化提升。
 
-### 下一阶段：Shortcut-Regularized MTL 实验规划
+### 历史阶段：Shortcut-Regularized MTL 实验规划（已被 RPDF-Net 吸收）
 
-当前正式路线从继续扩展输入变体，调整为 Stage A 收口诊断和 Stage B 双干预。动态面部变化特征暂列 Stage C 待考虑项，不进入当前实验计划。
+本节保留为历史任务记录。当前正式路线已经升级为 RPDF-Net；本节中的 severity-balanced regression 与 identity-adversarial branch 应作为 RPDF-Net 的对照基线和支线验证，而不是最终主线。
 
 #### Stage A：收口诊断
 

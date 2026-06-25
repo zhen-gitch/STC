@@ -990,3 +990,14 @@ Coordinate scale correction:
   - B2 identity-adversarial MTL with GRL;
   - B3 baseline / severity / identity / combined four-run comparison.
 - Explicitly deferred dynamic feature branches and new RGB input filters.
+
+### RPDF-Net mainline update
+
+- Promoted RPDF-Net (Risk-aware Progressive De-identification Factorization Network) to the future main research route.
+- Repositioned Shortcut-Regularized MTL as a baseline and branch validation path rather than the final mainline.
+- Updated the current staged plan:
+  - Stage A: RPDF evidence closure with layer-wise identity probe, error-identity coupling, artifact weak-label audit, and severity imbalance summary;
+  - Stage B: RPDF-lite single-level factorization `H0 -> z_dep,z_m,z_id,z_art,z_res`;
+  - Stage C: two-level progressive factorization with controlled `z_m` transfer `H_k = Phi([z_dep^k, alpha_k * z_m^k])`;
+  - Stage D: branch validation for `z_art`, controlled `z_m`, severity-balanced regression, multi-attacker privacy evaluation, and deferred dynamic features.
+- Clarified that `z_m` must be controlled during layer transfer and final prediction, rather than freely propagated.

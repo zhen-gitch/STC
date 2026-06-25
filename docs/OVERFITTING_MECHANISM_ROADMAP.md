@@ -6,29 +6,36 @@
 
 ## 当前路线总览
 
-本文档的当前权威路线是 **Shortcut-Regularized MTL**，不是继续累积输入消融。机制审计已经说明：单个 artifact 不能解释全部过拟合，输入处理也无法同时改善 identity retrieval、severity bias、CCC 和 task consistency。因此下一步应将过拟合机制转化为可训练的上层约束。
+本文档的当前权威路线正式更新为 **RPDF-Net：Risk-aware Progressive De-identification Factorization Network**。机制审计已经说明：单个 artifact 不能解释全部过拟合，简单输入处理也无法同时改善 identity retrieval、severity bias、CCC 和 task consistency。因此下一步不再只是给共享表征加一个普通约束，而是将过拟合机制转化为可审计的信息分流结构。
 
 ```text
 已完成证据层：input artifact / temporal / identity / calibration / geometry audits
         ↓
-Stage A 收口：定位 identity 表征层级 + 证明 identity 与 prediction error 是否耦合
+Stage A: RPDF 证据收口
+        layer-wise identity probe + error-identity coupling + artifact weak-label audit
         ↓
-Stage B 干预：severity-balanced regression + identity-adversarial MTL
+Stage B: RPDF-lite 单级因子分解
+        H0 -> z_dep, z_m, z_id, z_art, z_res
         ↓
-Stage C 候选：动态面部变化特征，暂不进入当前实验计划
+Stage C: 两级递进分解与受控 z_m 传递
+        H_k = Phi([z_dep^k, alpha_k * z_m^k])
+        ↓
+Stage D: 支线有效性验证
+        z_art / z_m gate / severity-balanced loss / multi-attacker / dynamic features
 ```
 
 当前机制分工：
 
-| 机制问题 | 证据来源 | 当前处理 |
+| 机制问题 | 证据来源 | RPDF-Net 中的处理 |
 |---|---|---|
-| subject/static appearance shortcut | identity retrieval、input variants、case frames | identity-adversarial MTL with GRL |
-| severity label imbalance / middle-score collapse | severity bias、calibration summary、pred_std compression | severity-balanced regression |
-| input artifact / black boundary | black artifact audit、boundary variants | 作为历史证据和 case study，不再继续扩展主线 |
-| temporal/task context | temporal sampling、task consistency | 作为混杂因素监控，不列入当前模型改造主线 |
-| dynamic facial behavior | literature / behavior baseline | Stage C 待考虑 |
+| subject/static appearance shortcut | identity retrieval、input variants、case frames | `z_id` 身份出口 + `z_dep` identity risk evaluation |
+| 身份-抑郁交叠 | 表情基线、头动/眼动习惯、个体行为风格 | `z_m` 交叠因子，受控层间传递和预测使用 |
+| severity label imbalance / middle-score collapse | severity bias、calibration summary、pred_std compression | severity-balanced regression 作为 RPDF 支线 |
+| input artifact / black boundary / OpenFace quality | black artifact、alignment geometry、confidence、bbox、valid ratio | `z_art` 伪迹/域因子与 artifact weak-label attack |
+| temporal/task context | temporal sampling、task consistency | 混杂监控；不是第一版 RPDF-lite 的模型主线 |
+| dynamic facial behavior | literature / behavior baseline | Stage D 待考虑，先不进入 RPDF-lite |
 
-读本文档时，应把前面 Layer 0-6 理解为证据地图，把第 9 节理解为当前执行路线。若旧段落中的“下一步”与本总览冲突，以本总览和 `RGB_OVERFITTING_AUDIT_PLAN.md` 的最新 Stage A/B/C 为准。
+读本文档时，应把前面 Layer 0-6 理解为证据地图，把第 9 节理解为当前执行路线。若旧段落中的“下一步”与本总览冲突，以本总览和 `RGB_OVERFITTING_AUDIT_PLAN.md` 的最新 RPDF-Net Stage A-D 为准。
 
 ## 1. 研究目标
 
@@ -484,65 +491,75 @@ center_mask_soft_boundary_v2
 - 所有 run 的 post-hoc linear calibration 均降低 CCC，进一步支持 severe underestimation 是表征/优化/分布问题，而不是简单输出尺度偏移。
 
 因此，当前机制地图应把 RGB failure 表述为多因素 shortcut 与 severity compression 的交叉，而不是单个 artifact 的因果链。
-## 9. 当前推进路线：Shortcut-Regularized MTL
+## 9. 当前推进路线：RPDF-Net 主线
 
-最新路线将后续工作从“先解耦 Identity 与 Boundary，再改训练目标”调整为 **Stage A 收口诊断 + Stage B 双干预**。原因是输入级 identity suppression x boundary smoothing 2x2 已经证明：单靠输入处理难以同时降低 identity retrieval、改善 severity bias、保持 CCC 和 task consistency。因此当前更高价值的问题是：能否用 MTL 上层约束让模型保留丰富视觉表征，同时减少对 subject identity 和多数 severity 分段的依赖。
+当前推进路线已经从 Shortcut-Regularized MTL 升级为 RPDF-Net。该转移不是否定前一阶段，而是把 identity-adversarial MTL、severity-balanced regression、input artifact audit、identity retrieval 和 calibration summary 全部纳入 RPDF-Net 的证据层、对照基线和支线验证。
 
-当前统一问题定义：
+### Step 1: RPDF 证据收口
 
-```text
-Static RGB depression regression overfits because the model can exploit
-subject-level shortcuts and severity-level label imbalance under small-sample,
-subject-independent evaluation.
-```
-
-### Stage A: 收口诊断
-
-只保留两个诊断任务：
+目标：在实现因子分解模块前，证明各因子和支线有必要存在。
 
 ```text
 A1 layer-wise identity probe
 A2 prediction error x identity similarity coupling
+A3 artifact weak-label audit
+A4 severity imbalance / prediction compression summary
 ```
 
-A1 用于回答身份信息从哪个层级开始可分；A2 用于回答身份相似性是否参与预测错误和 severity bias。完成后关闭 Stage A，不再增加普通 input mask / blur / grayscale / border variants。
+对应因子：
 
-### Stage B: 双干预实验
+- A1/A2 支撑 `z_id` 与 `z_dep` identity risk evaluation；
+- A3 支撑 `z_art`；
+- A4 支撑 severity-balanced branch；
+- existing identity retrieval / calibration / alignment / black artifact summaries 作为证据底座。
 
-正式实验组：
+### Step 2: RPDF-lite 单级因子分解
+
+第一版只实现单级，不直接启用完整递进网络：
 
 ```text
-E0 RGB MTL-Lite baseline
-E1 + severity-balanced regression
-E2 + identity-adversarial MTL branch
-E3 + severity-balanced regression + identity-adversarial branch
+H0 -> z_dep, z_m, z_id, z_art, z_res
 ```
 
-机制对应关系：
+核心验证：
 
-- `severity-balanced regression` 对应 severity-level label imbalance；
-- `identity-adversarial MTL` 对应 subject-level shortcut；
-- `E3` 检查二者是否互补，而不是把模块简单堆叠。
+- `z_dep` 是否保持 BDI 预测能力且降低 identity / artifact risk；
+- `z_id` 是否吸收 subject/static appearance；
+- `z_art` 是否吸收 OpenFace artifact / quality weak labels；
+- `z_m` 是否在受控使用时提供 BDI 增益，且 identity risk 增量可解释；
+- `z_res` 是否缓解重建压力，避免所有信息回流到 `z_dep`。
 
-### Stage C: 动态特征待考虑
+### Step 3: 受控 z_m 传递与两级递进
 
-动态特征目前不进入正式实验计划。它被保留为 Stage C 候选，用于在 Stage B 后仍存在 static appearance shortcut 时，再验证 facial behavior dynamics 是否能提供更稳的抑郁相关线索。
-
-候选方向：
+层间传递不应是 `z_dep only` 的硬去身份，也不应是无约束传递 `z_m`。当前主方案为：
 
 ```text
-feature delta
-AU delta
-landmark / pose / gaze delta
-static-dynamic fusion
+H_k = Phi([z_dep^k, alpha_k * z_m^k])
 ```
 
-### 当前停止规则
+必须消融：
 
-- 不继续扩展普通 RGB 输入滤镜族。
-- 不把 dynamic feature branch 与 Stage B 一起打包成 full model。
-- 不把 prediction variance 当成训练目标；severity-balanced loss 的目标是缓解 label imbalance。
-- 每个实验必须同时用 prediction、identity retrieval、severity bias、task consistency 和 training overfit 指标判读。
+```text
+z_dep only
+z_dep + controlled z_m
+z_dep + full z_m
+```
+
+只有当 controlled z_m 同时提升或保持 BDI、且 identity risk 增量可控时，才进入两级递进 RPDF。
+
+### Step 4: 支线有效性验证
+
+RPDF-Net 不是一次性打开所有模块，而是逐项验证支线：
+
+```text
+z_art branch
+controlled z_m branch
+severity-balanced branch
+multi-attacker privacy evaluation
+dynamic feature branch, deferred
+```
+
+每条支线必须报告对 BDI、identity risk、artifact risk、severity bias、task consistency 和 train-val gap 的影响。若某支线只改善 MAE 但加重身份/伪迹风险，则不作为主模型组成。
 
 ## 10. 回到正轨的判据：从去身份化到行为化表征
 

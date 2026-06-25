@@ -7,36 +7,39 @@
 
 ## 读者先看：当前研究路线与下一步
 
-当前 RGB 过拟合研究已经完成从“输入 artifact 逐项排查”到“上层 MTL 机制干预”的转向。旧的黑边、center mask、boundary smoothing、temporal sampling 和 identity retrieval 实验仍然重要，但它们现在的角色是 **证明存在 shortcut 与 bias redistribution**，不是继续无限扩展输入滤镜。
+当前 RGB 过拟合研究已经从“输入 artifact 逐项排查”和 “Shortcut-Regularized MTL” 进一步转向 **RPDF-Net：风险感知递进式去身份因子分解网络**。旧的黑边、center mask、boundary smoothing、temporal sampling、identity retrieval 和 severity calibration 实验仍然重要，但它们现在的角色是 **支撑 RPDF-Net 的问题定义、因子设计、支线验证和对照基线**。
 
 当前论文问题应表述为：
 
-> 静态 RGB depression regression 在 subject-independent 小样本设置下，会同时利用 subject/static appearance shortcut，并受到 severity label imbalance 的梯度主导；因此需要在 MTL 上层同时进行 identity-adversarial regularization 和 severity-balanced regression。
+> 静态 RGB depression regression 在 subject-independent 小样本设置下，会同时利用 subject/static appearance shortcut、OpenFace artifact proxy 和 severity label imbalance。为避免简单删除身份导致抑郁线索损失，本文将共享表征分解为低风险抑郁因子、受控身份-抑郁交叠因子、身份因子、伪迹因子和残差因子，并通过递进式风险评估选择隐私-效用更优的表征。
 
-当前路线：
+当前主线：
 
 | 阶段 | 作用 | 当前状态 | 输出 |
 |---|---|---|---|
-| Stage A | 收口诊断，不再扩展输入滤镜 | 下一步立即做 | layer-wise identity probe；error-identity coupling |
-| Stage B | 正式模型干预 | Stage A 后执行 | E0/E1/E2/E3 四组对照 |
-| Stage C | 动态特征候选 | 暂缓 | feature/AU/landmark/pose/gaze delta，仅在 Stage B 后判断 |
+| Stage A | RPDF 证据收口 | 下一步立即做 | layer-wise identity probe；error-identity coupling；artifact weak labels |
+| Stage B | RPDF-lite 单级分解 | Stage A 后执行 | `z_dep/z_m/z_id/z_art/z_res` 与 controlled `z_m` 消融 |
+| Stage C | 两级递进 RPDF | RPDF-lite 稳定后执行 | identity/artifact risk 是否逐层下降，BDI 是否保持 |
+| Stage D | 支线有效性验证 | 逐步执行 | z_art、z_m gate、severity-balanced loss、multi-attacker、dynamic feature |
 
 当前最重要的下一步：
 
 ```text
 A1 layer-wise identity probe
 A2 prediction error x identity similarity coupling
-B1 severity-balanced regression
-B2 identity-adversarial MTL with GRL
-B3 combined E3 experiment
+A3 artifact weak-label audit for z_art
+A4 severity imbalance summary for severity-balanced branch
+B1 RPDF-lite single-level factorization
+B2 controlled z_m transfer ablation: alpha in {0, 0.25, 0.5, 1.0}
 ```
 
 旧实验的定位：
 
 - `center_mask`、`center_mask_black_to_gray`、`border_black_feather`、`middle_crop` 和 2x2 input variants 用于证明输入侧处理会重新分配 bias，但不能单独解决身份记忆和 severe underestimation。
-- `identity_retrieval_summary` 用于证明 RGB embedding 保留 subject/static appearance。
-- `severity_calibration_summary` 用于证明 post-hoc calibration 不能替代训练目标修正。
-- 后续不再优先新增同类 input ablation，除非用于 case study 解释。
+- `identity_retrieval_summary` 用于证明 RGB embedding 保留 subject/static appearance，是 `z_id` 和 identity risk evaluation 的前置证据。
+- `severity_calibration_summary` 用于证明 post-hoc calibration 不能替代训练目标修正，是 severity-balanced branch 的前置证据。
+- `alignment_geometry`、`black_artifact` 和 temporal/task audits 是 `z_art` 与 artifact weak-label 设计的前置证据。
+- `identity-adversarial MTL` 和 `severity-balanced regression` 不再是最终主线本身，而是 RPDF-Net 的重要对照基线与支线验证。
 
 ## 核心判断
 
@@ -546,9 +549,9 @@ P1 只在 P0 证据完成后启动，避免继续经验试错。
 5. 所有 post-hoc linear calibration 均降低 CCC 并压缩 prediction std，因此 calibration 只能作为机制诊断，不应作为最终模型改进。
 
 由此，当前 RGB 过拟合不应被解释为单一黑边、单一边界或单一 temporal sampling 问题，而应解释为 input artifact mitigation、identity/static appearance shortcut、severity range compression 和 task-context confound 的组合。
-## 当前正式实验规划：Shortcut-Regularized MTL
+## 历史阶段：Shortcut-Regularized MTL 方案（已被 RPDF-Net 主线吸收）
 
-最新规划将下一阶段从输入变体扩展收束为 **Shortcut-Regularized MTL**。研究问题不再写成“哪个 RGB 输入滤镜最好”，而应写成：
+本节保留为历史阶段记录。该方案曾将下一阶段从输入变体扩展收束为 **Shortcut-Regularized MTL**；截至 2026-06-25，它已被 RPDF-Net 主线吸收，其中 identity-adversarial MTL 与 severity-balanced regression 作为 RPDF-Net 的对照基线和支线验证。历史问题表述为：
 
 > 静态 RGB depression regression 是否因为 subject-level shortcut 与 severity-level shortcut 学到非因果表征，从而导致泛化不稳定、身份记忆和中间分数段塌缩？
 
@@ -700,20 +703,43 @@ task_consistency_summary
 - 若 E3 没有优于 E1/E2，则不要继续堆更多模块，应回到 Stage A case-level coupling 分析。
 - 在完成 Stage B 之前，不启动动态特征分支、optical flow、two-stream fusion 或新的输入滤镜族。
 
-## Identity Suppression 方法选择与项目适配
+## RPDF-Net 与 Identity Suppression 方法谱系
 
-基于现有研究、三表结果和 MTL 上层结构，当前身份记忆抑制从输入级滤镜转向 **identity-adversarial MTL**。输入级 `identity_texture_suppressed` 和 boundary smoothing 2x2 已作为机制证据保留，但不再作为下一阶段主线继续扩展。
+当前身份记忆抑制不再以单独的输入滤镜或单独的 GRL 作为最终主线，而是作为 RPDF-Net 的信息分流问题处理：模型允许 backbone 和底层视觉表征充分保留面部信息，但要求上层共享表征把与预测相关、身份相关、artifact/domain 相关和残余噪声分开审计。
 
-当前方法优先级：
+方法谱系在本项目中的定位如下：
+
+| 方法族 | 本项目角色 | 当前结论 |
+|---|---|---|
+| 输入级身份/边界弱化 | 机制证据与对照 | 已证明 artifact mitigation 有价值，但不能单独解决身份记忆、severe bias 和 task context confound |
+| subject-adversarial GRL | RPDF-Net 对照基线/支线 | 可验证“上层抑制身份可用性”是否有效，但不是最终结构本身 |
+| severity-balanced regression | RPDF-Net 支线 | 用于缓解 BDI score-bin / severity-bin 不均衡，目标是降低少数分段偏置，而不是人为提高预测方差 |
+| factorized disentanglement | RPDF-Net 主线 | 将共享表示分解为 `z_dep/z_m/z_id/z_art/z_res`，用可审计损失和风险指标验证每个因子的作用 |
+| dynamic facial behavior | Stage D 待考虑项 | 只有当 RPDF-lite 仍无法保留足够抑郁行为线索时，再作为行为支线启动 |
+
+RPDF-lite 的第一版应保持克制：
 
 ```text
-layer-wise identity probe
--> prediction error x identity similarity coupling
--> subject-adversarial GRL in MTL shared representation
--> local accessory / contour case-study occlusion as explanatory analysis
--> full disentanglement / de-identification 仅作为远期讨论
+H0 -> z_dep, z_m, z_id, z_art, z_res
+prediction = Head([z_dep, alpha * z_m])
+alpha in {0, 0.25, 0.5, 1.0}
 ```
 
-采用 GRL 的理由是：backbone 应保留全面面部表征，真正需要约束的是上层共享表征对 subject identity 的可用性。普通 subject classification auxiliary head 会强化身份信息，因此不能作为去身份方案；identity head 必须以 adversarial 方式接入。
+其中 `z_m` 表示身份-抑郁交叠因子。它不能被完全否定，也不能无约束传递；应通过 `alpha` 或门控机制受控进入预测和下一层。后续两级递进版本再验证：
 
-使模型回到正轨的目标不是“让 embedding 完全无法识别 subject”，而是降低抑郁预测分支对 subject/static appearance shortcut 的依赖，同时保持 severity representation。判定时必须同时检查 identity retrieval、severity agreement、CCC、pred_std、severe bias、task consistency 和 train-val gap。
+```text
+H_k = Phi([z_dep^k, alpha_k * z_m^k])
+```
+
+判定模型是否“回到正轨”不能只看 BDI MAE/RMSE，也不能只看 identity retrieval 是否下降。每个关键实验都需要同时报告：
+
+```text
+BDI: MAE / RMSE / CCC
+identity risk: same-subject top1/top5, paired rank, subject proxy accuracy
+artifact risk: confidence/success, black/border ratio, geometry, edge gradient, center offset
+severity bias: minimal/mild/moderate/severe MAE and bias, pred_std, calibration effect
+task consistency: Freeform vs Northwind prediction agreement and task_diff
+training behavior: train-val gap, best epoch, overfit speed
+```
+
+停止规则：若某个方法降低 identity retrieval 但明显损伤 CCC、severity agreement 或 task consistency，不能称为有效去身份；若某个方法改善 MAE 但 severe bias 或 prediction compression 更严重，也不能作为主线推进。RPDF-Net 的研究价值在于把这些风险放入同一个可检验框架，而不是继续零散堆叠输入处理、GRL、重加权和动态特征。
