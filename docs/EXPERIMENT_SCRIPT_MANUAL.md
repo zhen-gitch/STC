@@ -517,10 +517,214 @@ python scripts/audit_task_inconsistency.py \
 | `summarize_identity_retrieval_runs.py` | `<output_dir>/` | `identity_retrieval_run_summary.csv`、报告 |
 | `summarize_severity_calibration_runs.py` | `<output_dir>/` | `severity_calibration_run_summary.csv`、报告 |
 | `summarize_mechanism.py` | `<output_dir>/` | `mechanism_summary.csv`、`mechanism_report.md` |
+| `audit_layerwise_identity_probe.py` | `<output_dir>/` | `test_layerwise_features.npz`、`tables/layerwise_identity_summary.csv`、报告 |
+| `audit_error_identity_coupling.py` | `<output_dir>/` | `tables/error_identity_correlation.csv`、`high_error_high_identity_cases.csv`、报告 |
+| `audit_artifact_weaklabels.py` | `<output_dir>/` | `tables/artifact_weaklabel_summary.csv`、`tables/artifact_weaklabel_correlation.csv`、报告 |
+| `summarize_severity_imbalance.py` | `<output_dir>/` | `tables/severity_imbalance_summary.csv`、报告 |
 
 ---
 
-## 9. 常见问题
+## 9. RPDF Stage A 证据收口
+
+Stage A 是 RPDF-Net 主线的前置证据，必须在实现 FactorBlock 前完成。四个诊断回答四个问题：
+
+```text
+A1 身份信息在哪些层可分？           -> z_id 接入层 / identity attacker 接入层
+A2 预测错误是否与身份相似性耦合？   -> identity-adversarial 是强抑制还是仅监控
+A3 OpenFace artifact 是否与误差耦合？-> z_art 是否进 RPDF-lite 第一版
+A4 分数段不均是否驱动 minimal/severe bias？-> severity-balanced 是 Stage B 基线还是 Stage D 支线
+```
+
+核心逻辑约束：**A1 只证"embedding 有身份"，A2 才证"prediction 用了身份"**。只有 A1+A2 同时成立，才进入 Stage B 的强 identity suppression。
+
+所有 Stage A 脚本均为离线诊断：只读 checkpoint + 数据，不污染 val/test，不改训练 forward/loss/checkpoint。详细脚本/输出规格见 `docs/SHORTCUT_AUDIT_DESIGN.md` 第 13 节。
+
+### 9.1 前置：确保 run 已生成基础诊断产物
+
+Stage A 的 A2/A3/A4 依赖已有的 `test_predictions.csv` 和 P0 审计 summary。先对 RGB baseline run 跑标准诊断与审计：
+
+```bash
+RUN_DIR=<LOG_DIR>/default/rgb/version_0
+
+# 1. 导出 test 预测 + 最终 pooled embedding（A1 的 layer_shared 对照基线来自这里）
+python scripts/diagnose_mtl_lite.py \
+  --run-dir $RUN_DIR \
+  --ckpt best \
+  --split test
+
+# 2. P0 审计（A3 整合这些 summary，A4 整合 prediction/severity/calibration summary）
+python scripts/audit_black_artifacts.py \
+  --predictions $RUN_DIR/diagnostics/regression/test_predictions.csv \
+  --image-root <IMAGE_ROOT> \
+  --output-dir $RUN_DIR/diagnostics/black_artifacts \
+  --sample-step 10
+
+python scripts/audit_alignment_geometry.py \
+  --predictions $RUN_DIR/diagnostics/regression/test_predictions.csv \
+  --openface-root <OPENFACE_CSV_ROOT> \
+  --output-dir $RUN_DIR/diagnostics/alignment_geometry \
+  --frame-width 640 --frame-height 480
+
+python scripts/audit_shortcuts.py \
+  --predictions $RUN_DIR/diagnostics/regression/test_predictions.csv \
+  --openface-root <OPENFACE_CSV_ROOT> \
+  --output-dir $RUN_DIR/diagnostics/shortcut_audit
+
+python scripts/audit_temporal_sampling.py \
+  --predictions $RUN_DIR/diagnostics/regression/test_predictions.csv \
+  --image-root <IMAGE_ROOT> \
+  --output-dir $RUN_DIR/diagnostics/temporal_sampling \
+  --sample-step 10 --max-seq-len 2000
+
+# 3. severity calibration（A4 需要 delta_ccc）
+python scripts/audit_severity_calibration.py \
+  --run-dir $RUN_DIR \
+  --ckpt best \
+  --output-dir $RUN_DIR/diagnostics/severity_calibration
+```
+
+### 9.2 A1 Layer-wise Identity Probe
+
+逐层导出 embedding，复用 `compute_identity_retrieval_metrics` 做同 subject 检索。定位身份信息来自 backbone 哪一层。
+
+```bash
+python scripts/audit_layerwise_identity_probe.py \
+  --run-dir $RUN_DIR \
+  --ckpt best \
+  --split test \
+  --output-dir $RUN_DIR/diagnostics/layerwise_identity \
+  --top-k 5
+```
+
+可选参数：
+
+- `--layers layer_stem,layer_block_3,layer_block_6,layer_block_9,layer_block_11,layer_shared`：只跑指定层（默认全部 `LAYERWISE_PROBE_LAYERS`）。
+- `--device cuda` / `--batch-size 4`：诊断设备与 batch。
+- `--predictions $RUN_DIR/diagnostics/regression/test_predictions.csv`：可选，用于 metadata enrichment。
+
+输出：
+
+```text
+test_layerwise_features.npz                    # 多键 NPZ（features_<layer_name>）
+tables/layerwise_identity_summary.csv          # 每层 same_subject_top1/3/5、paired_rank、severity/task agree
+tables/layerwise_identity_per_query.csv        # 逐 query 逐层（A2 输入）
+reports/layerwise_identity_report.md
+```
+
+注意：backbone 若不暴露 `patch_embed`/`blocks`（如 CNN），脚本会跳过无法解析的层并打印 `[LAYER-PROBE] Skipped unresolved layers`，不会硬失败。
+
+### 9.3 A2 Prediction Error x Identity Similarity Coupling
+
+证明预测"使用了"身份，而非仅 embedding"包含"身份。
+
+```bash
+python scripts/audit_error_identity_coupling.py \
+  --features-npz $RUN_DIR/diagnostics/layerwise_identity/test_layerwise_features.npz \
+  --predictions $RUN_DIR/diagnostics/regression/test_predictions.csv \
+  --per-query-csv $RUN_DIR/diagnostics/layerwise_identity/tables/layerwise_identity_per_query.csv \
+  --output-dir $RUN_DIR/diagnostics/error_identity_coupling \
+  --max-cases 20
+```
+
+可选参数：
+
+- `--per-query-csv`：可选。提供后额外计算 paired_rank / severity_agree 的秩相关；不提供则只报连续 identity similarity 的 Pearson 相关。
+- `--layers layer_shared`：只分析指定层。
+
+输出：
+
+```text
+tables/error_identity_correlation.csv          # 每层 corr(|err|,id_sim)、corr(res,rank) 等
+tables/severity_bin_identity_error_summary.csv # 按 minimal/mild/moderate/severe 分段
+tables/high_error_high_identity_cases.csv      # coupling_score 最高的 case（论文 case-study anchor）
+reports/identity_error_coupling_report.md
+```
+
+判读：`corr(|err|, id_sim) > 0` 表示高身份相似伴随大误差 → 预测用了身份；耦合集中在 severe bin → 支持"severe 低估与身份记忆耦合"；相关≈0 → 身份仅在 embedding，Stage B 转为风险监控。
+
+### 9.4 A3 Artifact Weak-label Audit (for z_art)
+
+整合 4 个 P0 审计 summary，决定 z_art 监督来源。
+
+```bash
+python scripts/audit_artifact_weaklabels.py \
+  --predictions $RUN_DIR/diagnostics/regression/test_predictions.csv \
+  --black-artifacts $RUN_DIR/diagnostics/black_artifacts/tables/black_artifact_summary.csv \
+  --alignment-geometry $RUN_DIR/diagnostics/alignment_geometry/tables/alignment_geometry_summary.csv \
+  --openface-quality $RUN_DIR/diagnostics/shortcut_audit/tables/openface_quality_summary.csv \
+  --temporal-sampling $RUN_DIR/diagnostics/temporal_sampling/tables/temporal_sampling_summary.csv \
+  --output-dir $RUN_DIR/diagnostics/artifact_weaklabels \
+  --coupling-threshold 0.2
+```
+
+可选：4 个 source CSV 任一缺失都能跑（只整合提供的）。`--coupling-threshold` 控制 |corr(abs_error)| 阈值（默认 0.2）。
+
+输出：
+
+```text
+tables/artifact_weaklabel_summary.csv          # 每视频弱标签 join 预测误差
+tables/artifact_weaklabel_correlation.csv      # 每弱标签与 4 个目标的相关（按 |corr(abs_error)| 降序）
+reports/artifact_weaklabel_report.md           # 含 z_art 进入决策三分类
+```
+
+判读（报告自动给出）：|corr(abs_error)| ≥ 阈值 → z_art 进 RPDF-lite v1 训练监督；只与 true_bdi 耦合 → 采集偏置，z_art 仅作 attack/evaluation；无弱标签过阈值 → z_art v1 仅审计出口。
+
+### 9.5 A4 Severity Imbalance / Prediction Compression Summary
+
+决定 severity-balanced regression 是 Stage B 必跑基线还是 Stage D 支线。
+
+先准备跨 run summary（若尚未生成）：
+
+```bash
+# prediction + severity bias summary
+python scripts/summarize_prediction_runs.py \
+  --baseline rgb \
+  --output-dir analysis_outputs/rgb_input_ablation_summary \
+  --run rgb=$RUN_DIR/diagnostics/regression/test_predictions.csv
+
+# severity calibration multi-run summary（A4 需要 delta_ccc）
+python scripts/summarize_severity_calibration_runs.py \
+  --output-dir analysis_outputs/severity_calibration_summary \
+  --run rgb=$RUN_DIR/diagnostics/severity_calibration
+```
+
+再跑 A4：
+
+```bash
+python scripts/summarize_severity_imbalance.py \
+  --prediction-summary analysis_outputs/rgb_input_ablation_summary/tables/prediction_run_summary.csv \
+  --severity-bias analysis_outputs/rgb_input_ablation_summary/tables/severity_bias_summary.csv \
+  --calibration-summary analysis_outputs/severity_calibration_summary/tables/severity_calibration_run_summary.csv \
+  --output-dir analysis_outputs/severity_imbalance_summary
+```
+
+可选：`--run rgb --run center_mask` 显式指定包含的 run（默认取三源并集）。
+
+输出：
+
+```text
+tables/severity_imbalance_summary.csv          # 每 run 的 imbalance_ratio、compression、minimal/severe residual、推荐
+reports/severity_imbalance_report.md           # 含 stage_b_baseline / stage_d_side_branch / stage_d_optional 三档
+```
+
+判读：`imbalance_ratio ≥ 2.0` + minimal 高估 + severe 低估 + calibration 不改善 → `stage_b_baseline`（E2 必跑）；否则降为 Stage D 支线或 optional。
+
+### 9.6 Stage A 收口
+
+A1-A4 运行完毕后，在 `CURRENT_STATUS.md` 和 `RGB_OVERFITTING_AUDIT_PLAN.md` 写出四个结论并关闭 Stage A：
+
+```text
+1. 身份存在（A1）：身份信息主要来自哪一层，强度如何
+2. 身份参与预测（A2）：身份相似性是否与预测误差/偏置耦合
+3. 伪迹参与错误（A3）：哪些 artifact 弱标签进入 z_art 监督
+4. severity 失衡（A4）：severity-balanced regression 是 Stage B 必跑还是 Stage D 支线
+```
+
+只有 1+2 同时成立才进入 Stage B 的 identity-adversarial / z_id 强抑制路径；若只有 1，identity 仅作风险监控。关闭后不再扩展普通输入滤镜、黑边替换、灰度/模糊/mask 族。
+
+---
+
+## 10. 常见问题
 
 **Q: 训练输出没有生成 `version_0` 而是覆盖到了旧目录？**
 
