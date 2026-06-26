@@ -19,15 +19,46 @@ Stage A RPDF 证据收口
 
 ### A. RPDF 证据收口，优先执行
 
-- [ ] A1 确认当前 MTL-Lite / DeiT backbone 是否能导出 layer-wise embedding。
-- [ ] A1 设计 layer list：patch/token embedding、backbone high-level blocks、temporal pooled representation、MTL shared representation。
-- [ ] A1 实现 `audit_layerwise_identity_probe.py` 或等价诊断入口。
-- [ ] A1 输出每层 same-subject top1/top5、paired-task rank、severity agreement、可选 subject proxy accuracy。
-- [ ] A2 实现 error-identity coupling：合并 prediction CSV、identity similarity/rank、severity group 和 residual/abs_error。
-- [ ] A2 输出 high-error-high-identity case list，供后续论文案例分析。
-- [ ] A3 整理 `z_art` 弱标签候选：OpenFace confidence、success、bbox scale、center offset、black-border ratio、edge gradient、valid ratio、landmark failure / jitter。
-- [ ] A4 汇总 severity-bin imbalance、minimal/severe bias 和 prediction compression，决定 RPDF-lite 是否同时启用 severity-balanced regression。
-- [ ] A1-A4 完成后，写入 `CURRENT_STATUS.md` 和 `RGB_OVERFITTING_AUDIT_PLAN.md`，正式关闭 RPDF Stage A。
+> 详细脚本/输出规格见 `docs/SHORTCUT_AUDIT_DESIGN.md` 第 13 节。核心约束：A1 只证"embedding 有身份"，A2 才证"prediction 用了身份"；只有 A1+A2 同时成立才进入强 identity suppression。
+
+#### A1 Layer-wise Identity Probe
+
+- [x] A1-1 在 `src/models/mtl_lite.py` 增加诊断用 `register_layer_hooks(layer_names)` 与逐层特征导出 forward（不动训练 `forward`/`compute_losses`/checkpoint）。已新增 `LAYERWISE_PROBE_LAYERS`、`resolve_layer_module`、`register_layer_hooks`/`clear_layer_hooks`/`_collect_layer_features`，`forward` 增 `return_layer_features` 参数；`MTLLiteOutput` 增 `layer_features` 槽位。
+- [ ] A1-2 设计 layer list：`layer_stem`、`layer_block_0/3/6/9/11`、`layer_backbone_out`、`layer_temporal`、`layer_shared`（对照基线）。
+- [x] A1-3 实现 `scripts/audit_layerwise_identity_probe.py`：逐层导出 NPZ，复用 `compute_identity_retrieval_metrics` 检索。新增 `src/diagnostics/layerwise_identity.py`（多键 NPZ 读写 + 逐层检索聚合，纯 numpy 可单测），script 负责 load config/model/data + hook 注册 + batch 收集 + 调用聚合。本地 `pytest tests/test_layerwise_identity.py` 6/6 通过，`--help` 与 import smoke 通过。
+- [ ] A1-4 输出每层 same-subject top1/top3/top5、paired-task rank、severity/task neighbor agreement、可选 subject proxy accuracy（kNN）。
+- [x] A1-5 新增 `tests/test_layerwise_identity.py` 与 `tests/test_layerwise_identity_probe.py`，覆盖 hook 注册、多键 NPZ 读写、逐层检索聚合、layer 排序、训练路径零干扰、无 hook 回退、valid 帧切分、clear。本地 `pytest` 全部通过（6 + 6 = 12 个新测试），既有 36 个诊断测试 + 4 个 MTL-Lite 测试零回归。
+- [ ] A1-6 服务器对 RGB baseline 至少跑 test split，资源允许补 val。
+
+#### A2 Prediction Error x Identity Similarity Coupling
+
+- [x] A2-1 实现 `src/diagnostics/error_identity_coupling.py`：合并 A1 per-query 检索结果 + prediction CSV（residual/abs_error）+ severity group。读 A1 多键 NPZ 重算 paired-task identity similarity（连续），可选 join A1 per_query CSV 的 rank/agreement（离散）。
+- [x] A2-2 输出 `error_identity_correlation.csv`、`severity_bin_identity_error_summary.csv`、`high_error_high_identity_cases.csv`、报告。
+- [x] A2-3 实现 `scripts/audit_error_identity_coupling.py` 入口。
+- [x] A2-4 新增 `tests/test_error_identity_coupling.py`（7 个测试，本地全过）。
+- [ ] A2-5 明确写出"身份存在"与"身份参与预测"是否同时成立（需服务器在 RGB baseline 上运行 A1+A2 后填写）。
+
+#### A3 Artifact Weak-label Audit (for z_art)
+
+- [x] A3-1 实现 `src/diagnostics/artifact_weaklabels.py`：整合 `black_artifacts`/`alignment_geometry`/`openface_quality`/`temporal_sampling` 弱标签。按 normalized video_id join 4 个 summary CSV + prediction CSV，弱标签用 `source:field` 前缀防碰撞。
+- [x] A3-2 输出 `artifact_weaklabel_summary.csv`、`artifact_weaklabel_correlation.csv`、`artifact_weaklabel_report.md`。相关性按 |corr(abs_error)| 降序，报告含 z_art 进入决策（error-coupled / label-only confound / 仅审计）。
+- [x] A3-3 实现 `scripts/audit_artifact_weaklabels.py` 入口。
+- [x] A3-4 新增 `tests/test_artifact_weaklabels.py`（8 个测试，本地全过）。
+- [ ] A3-5 决定 `z_art` 是否进入 RPDF-lite 第一版（需服务器在 RGB baseline 上运行 A3 后填写结论）。
+
+#### A4 Severity Imbalance / Prediction Compression Summary
+
+- [x] A4-1 实现 `src/diagnostics/severity_imbalance.py`：复用 `prediction_run_summary`/`severity_bias_summary`/`severity_calibration_run_summary` join 成单表，计算 bin count/ratio、imbalance_ratio、pred_compression_ratio、minimal/severe residual、calibration delta_ccc。
+- [x] A4-2 输出 `severity_imbalance_summary.csv`、`severity_imbalance_report.md`。报告含 stage_b_baseline / stage_d_side_branch / stage_d_optional 三档推荐及判据。
+- [x] A4-3 实现 `scripts/summarize_severity_imbalance.py` 入口。
+- [x] A4-4 新增 `tests/test_severity_imbalance.py`（7 个测试，本地全过）。
+- [ ] A4-5 决定 severity-balanced regression 是 Stage B 必跑基线（E2）还是 Stage D 支线（需服务器在真实 run summary 上运行 A4 后填写结论）。
+
+#### A0 Stage A 收口
+
+- [ ] A0-1 服务器对 RGB baseline 运行 A1-A4。
+- [ ] A0-2 在 `CURRENT_STATUS.md` 和 `RGB_OVERFITTING_AUDIT_PLAN.md` 写出四个结论：身份存在层级、身份是否参与预测、z_art 是否进第一版、severity-balanced 定位。
+- [ ] A0-3 正式关闭 RPDF Stage A，不再扩展普通输入滤镜、黑边替换、灰度/模糊/mask 族。
 
 ### B. RPDF-lite 单级模型
 
@@ -467,17 +498,18 @@ src/diagnostics/        # 独立诊断与可视化系统
 - [x] P0-D embedding 身份信息审计：已对 `rgb`、`center_mask`、`center_mask_black_to_gray`、`border_black_feather`、`middle_crop` 的 test/val 输出运行 paired-task retrieval。
 - [x] P0-D 输出 `embedding_identity_retrieval.csv`、`embedding_identity_report.md`，报告 same-subject top-k retrieval、paired-task rank、severity neighbor agreement 与 task neighbor agreement。
 
-- [ ] 构建 `scripts/summarize_identity_retrieval_runs.py`，用于汇总多个 identity retrieval 输出目录。
-- [ ] 新增 `src/diagnostics/identity_retrieval_runs.py`，输出 `identity_retrieval_run_summary.csv`、`identity_retrieval_severity_summary.csv` 和 `identity_retrieval_runs_report.md`。
-- [ ] 为 identity retrieval multi-run summary 添加聚焦测试，覆盖 summary CSV、severity group summary 和 report 输出。
-- [ ] 将 identity retrieval summary 与 prediction summary 合并为论文核心表，至少包含 `MAE/RMSE/CCC/pred_std/severe_bias/task_diff/same_subject_top1/same_subject_top5/severity_agree/paired_rank_mean`。
+- [x] 构建 `scripts/summarize_identity_retrieval_runs.py`，用于汇总多个 identity retrieval 输出目录。
+- [x] 新增 `src/diagnostics/identity_retrieval_runs.py`，输出 `identity_retrieval_run_summary.csv`、`identity_retrieval_severity_summary.csv` 和 `identity_retrieval_runs_report.md`。
+- [x] 为 identity retrieval multi-run summary 添加聚焦测试，覆盖 summary CSV、severity group summary 和 report 输出。
+- [x] 将 identity retrieval summary 与 prediction summary 合并为论文核心表，至少包含 `MAE/RMSE/CCC/pred_std/severe_bias/task_diff/same_subject_top1/same_subject_top5/severity_agree/paired_rank_mean`。已由 `src/diagnostics/mechanism_summary.py`（P0-G.1 机制总表）落地，join prediction/severity_bias/task_consistency/identity/calibration 五表。
 - [ ] 生成 high-identity / high-error case study，重点检查 `border_black_feather` severe 高身份样本、`middle_crop` 身份下降但 task diff 上升样本、moderate identity retrieval 失败样本。
 - [x] P0-E severity calibration 验证：已对 RGB baseline 使用 val predictions 拟合 post-hoc linear calibration，并应用到 test，检查 severe 低估和 minimal 高估是否缓解。
 - [x] P0-E 输出 `severity_calibration_report.md`、`severity_calibration_fit.csv`、`severity_calibration_test_summary.csv`，并明确该实验只用于验证 prediction compression，不作为最终模型调参结论。
-- [ ] 构建 `scripts/summarize_severity_calibration_runs.py`，汇总多个 severity calibration 输出目录。
-- [ ] 新增 `src/diagnostics/severity_calibration_runs.py`，输出 `severity_calibration_run_summary.csv`、`severity_calibration_group_bias_summary.csv` 和 `severity_calibration_runs_report.md`。
+- [x] 构建 `scripts/summarize_severity_calibration_runs.py`，汇总多个 severity calibration 输出目录。
+- [x] 新增 `src/diagnostics/severity_calibration_runs.py`，输出 `severity_calibration_run_summary.csv`、`severity_calibration_group_bias_summary.csv` 和 `severity_calibration_runs_report.md`。
 - [x] 对 `rgb`、`middle_crop`、`border_black_feather`、`center_mask`、`center_mask_black_to_gray` 运行统一 severity calibration summary。
-- [x] 已联合审阅 severity calibration summary、prediction summary 和 identity retrieval summary，完成当前机制结论整理；正式机制总表文件是否落地另行审阅。
+- [x] 已联合审阅 severity calibration summary、prediction summary 和 identity retrieval summary，完成当前机制结论整理。
+- [x] 正式机制总表已落地：新增 `src/diagnostics/mechanism_summary.py`、`scripts/summarize_mechanism.py`、`tests/test_mechanism_summary.py`（P0-G.1），join prediction/severity_bias/task_consistency/identity/calibration 五表为 `mechanism_summary.csv` 与 `mechanism_report.md`。
 - [ ] 设计 severity-aware training ablation：severity-balanced sampler、severity-weighted regression loss、ordinal severity auxiliary head、Huber/CCC/mixed loss；所有结果必须同时报告 identity retrieval 与 task consistency。
 - [ ] P0-F task inconsistency 混杂审计：将 Freeform/Northwind 差异与 frame_count、black-border、confidence、pose/gaze、alignment geometry 相关联。
 - [ ] P0-F 输出 `task_artifact_correlation.csv` 与 `task_inconsistency_manifest.csv`。

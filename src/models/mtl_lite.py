@@ -1,4 +1,5 @@
 import math
+from typing import Dict, List, Optional
 
 import pytorch_lightning as pl
 import torch
@@ -33,6 +34,68 @@ def _get_nested_config_value(configs, section_name, nested_section_name, key, de
     if nested_section is None:
         return default
     return getattr(nested_section, key, default)
+
+
+# RPDF Stage A1: suggested layer-wise probe targets.
+#
+# These are attribute paths resolved against ``self.backbone`` (for the
+# ``layer_*`` backbone layers) and against the model itself (for
+# ``layer_temporal`` / ``layer_shared``).  ``resolve_layer_module`` returns
+# ``None`` for any path that does not exist on the actual backbone, so the
+# probe degrades gracefully across DeiT / ViT / ResNet / iresnet backbones
+# rather than hard-coding a single architecture.
+LAYERWISE_PROBE_LAYERS = (
+    "layer_stem",          # backbone.patch_embed output (patch + pos + cls token)
+    "layer_block_0",       # backbone.blocks[0]
+    "layer_block_3",       # backbone.blocks[3]
+    "layer_block_6",       # backbone.blocks[6]
+    "layer_block_9",       # backbone.blocks[9]
+    "layer_block_11",      # backbone.blocks[11] (deit_tiny has 12 blocks)
+    "layer_backbone_out",  # backbone final output (== extract_frame_features)
+    "layer_temporal",      # GRU encoded + masked, before pooling
+    "layer_shared",        # MTL shared representation (pooled), the P0-D baseline
+)
+
+
+def _resolve_backbone_block(backbone, index):
+    """Return ``backbone.blocks[index]`` if available, else ``None``."""
+    blocks = getattr(backbone, "blocks", None)
+    if blocks is None:
+        return None
+    try:
+        block_list = list(blocks)
+    except TypeError:
+        return None
+    if 0 <= index < len(block_list):
+        return block_list[index]
+    return None
+
+
+def resolve_layer_module(model, layer_name):
+    """Resolve a probe layer name to a concrete ``nn.Module`` or ``None``.
+
+    Backbone layers are resolved against ``model.backbone``; ``layer_temporal``
+    and ``layer_shared`` have no single module (they are intermediate forward
+    results) and return ``None`` here -- they are captured directly in
+    :meth:`MTLLiteDepressionModel.forward` rather than via hooks.
+    """
+    backbone = getattr(model, "backbone", None)
+    if backbone is None:
+        return None
+
+    if layer_name == "layer_stem":
+        return getattr(backbone, "patch_embed", None)
+    if layer_name == "layer_backbone_out":
+        # The backbone module itself; its forward output is the final feature.
+        return backbone
+    if layer_name.startswith("layer_block_"):
+        try:
+            index = int(layer_name[len("layer_block_"):])
+        except ValueError:
+            return None
+        return _resolve_backbone_block(backbone, index)
+    # layer_temporal / layer_shared are handled inline in forward(), not hooked.
+    return None
 
 
 class MTLLiteDepressionModel(pl.LightningModule):
@@ -116,6 +179,13 @@ class MTLLiteDepressionModel(pl.LightningModule):
         self.test_mae = torchmetrics.MeanAbsoluteError()
         self.test_ccc = ConcordanceCorrCoefMetric()
 
+        # RPDF Stage A1: layer-wise probe state.  Hooks are only registered by
+        # an explicit diagnostic call; the training path never touches these,
+        # so forward()/training_step behaviour is unchanged when inactive.
+        self._layer_probe_handles: List = []
+        self._layer_probe_cache: Dict[str, torch.Tensor] = {}
+        self._layer_probe_active: bool = False
+
     @staticmethod
     def _set_module_trainable(module, trainable):
         for param in module.parameters():
@@ -158,12 +228,126 @@ class MTLLiteDepressionModel(pl.LightningModule):
             f"{unfrozen_blocks} high-level blocks trainable: {trainable}/{total} parameters."
         )
 
+    # ------------------------------------------------------------------
+    # RPDF Stage A1: layer-wise identity probe hooks.
+    #
+    # These methods are diagnostic-only.  They register forward hooks on
+    # backbone sub-modules so that a subsequent ``forward(...,
+    # return_layer_features=True)`` can collect per-layer embeddings for the
+    # layer-wise identity retrieval audit.  The training path never calls
+    # ``register_layer_hooks`` and ``_layer_probe_active`` stays False, so
+    # ``forward`` and ``training_step`` behaviour is identical to before.
+    # ------------------------------------------------------------------
+
+    def clear_layer_hooks(self):
+        """Remove all previously registered layer-probe hooks."""
+        for handle in self._layer_probe_handles:
+            try:
+                handle.remove()
+            except Exception:
+                pass
+        self._layer_probe_handles = []
+        self._layer_probe_cache = {}
+        self._layer_probe_active = False
+
+    def register_layer_hooks(self, layer_names=None):
+        """Register forward hooks to capture intermediate backbone activations.
+
+        Args:
+            layer_names: Iterable of layer names (see ``LAYERWISE_PROBE_LAYERS``).
+                If ``None``, all names in ``LAYERWISE_PROBE_LAYERS`` are
+                attempted.  Names that cannot be resolved to a module on the
+                current backbone are skipped with a warning, so the probe works
+                across DeiT / ViT / ResNet / iresnet backbones.
+
+        ``layer_temporal`` and ``layer_shared`` are captured inline in
+        :meth:`forward`, not via hooks; they are still accepted here so callers
+        can pass the full ``LAYERWISE_PROBE_LAYERS`` list without filtering.
+        """
+        if layer_names is None:
+            layer_names = LAYERWISE_PROBE_LAYERS
+
+        self.clear_layer_hooks()
+
+        registered = []
+        skipped = []
+        for layer_name in layer_names:
+            # layer_temporal / layer_shared are handled in forward(), not hooked.
+            if layer_name in ("layer_temporal", "layer_shared"):
+                registered.append(layer_name)
+                continue
+            module = resolve_layer_module(self, layer_name)
+            if module is None:
+                skipped.append(layer_name)
+                continue
+            handle = module.register_forward_hook(self._make_layer_hook(layer_name))
+            self._layer_probe_handles.append(handle)
+            registered.append(layer_name)
+
+        self._layer_probe_active = bool(registered)
+        if skipped:
+            print(
+                f"[LAYER-PROBE] Skipped unresolved layers on this backbone: {skipped}"
+            )
+        if registered:
+            print(f"[LAYER-PROBE] Registered hooks for layers: {registered}")
+        else:
+            print("[LAYER-PROBE] No layers registered; backbone has no hookable targets.")
+        return registered
+
+    def _make_layer_hook(self, layer_name):
+        """Create a forward hook that *accumulates* the module output.
+
+        ``extract_frame_features`` calls the backbone in chunks (and the
+        backbone's internal sub-modules are therefore invoked once per chunk),
+        so a single assignment would be overwritten by the last chunk.  Instead
+        we concatenate each chunk's output along the batch dimension, preserving
+        the valid-frame order, and slice back to per-video vectors in forward().
+        """
+
+        def hook(_module, _inputs, output):
+            tensor = output
+            if isinstance(tensor, tuple):
+                tensor = tensor[0]
+            if tensor is None:
+                return
+            tensor = tensor.detach()
+            existing = self._layer_probe_cache.get(layer_name)
+            if existing is None:
+                self._layer_probe_cache[layer_name] = tensor
+            else:
+                # Concatenate along the frame (batch) dimension.  Both tensors
+                # share the same trailing shape from the same module.
+                self._layer_probe_cache[layer_name] = torch.cat([existing, tensor], dim=0)
+
+        return hook
+
+    @staticmethod
+    def _pool_layer_frame_features(frame_features, mask, eps=1e-8):
+        """Pool per-frame layer activations to one video-level vector.
+
+        Args:
+            frame_features: Tensor of shape (T, ...) for the valid frames of one
+                video, where T is the number of valid frames.  Trailing dims are
+                flattened so transformer token outputs and CNN feature maps are
+                both reduced by mean over the spatial/token dimension first.
+            mask: Unused here (valid frames are already selected by the caller),
+                kept for API symmetry with :func:`masked_mean_pool`.
+        """
+        flat = frame_features.reshape(frame_features.size(0), -1)
+        return flat.mean(dim=0)
+
     def extract_frame_features(self, video_tensor, mask):
         """Extract per-frame visual features while preserving padded positions."""
         batch_size, seq_len, channels, height, width = video_tensor.shape
         flat_video = video_tensor.reshape(batch_size * seq_len, channels, height, width)
         valid_indices = mask.reshape(-1).bool()
         valid_frames = flat_video[valid_indices]
+
+        # Reset the layer-probe cache so accumulated hook outputs start fresh
+        # for this batch.  No-op when the probe is inactive (cache stays empty).
+        if self._layer_probe_active:
+            self._layer_probe_cache = {}
 
         if valid_frames.numel() == 0:
             return torch.zeros(
@@ -197,7 +381,7 @@ class MTLLiteDepressionModel(pl.LightningModule):
         pooled = masked_mean_pool(temporal_features, mask)
         return self.dropout_layer(pooled)
 
-    def forward(self, video_tensor, mask, return_features=False):
+    def forward(self, video_tensor, mask, return_features=False, return_layer_features=False):
         frame_features = self.extract_frame_features(video_tensor, mask)
         temporal_features = self.encode_temporal_features(frame_features, mask)
         shared_features = self.pool_video_features(temporal_features, mask)
@@ -205,11 +389,97 @@ class MTLLiteDepressionModel(pl.LightningModule):
         ordinal_logits = None
         if self.ordinal_task_head is not None:
             ordinal_logits = self.ordinal_task_head(shared_features)
+
+        layer_features = None
+        if return_layer_features:
+            layer_features = self._collect_layer_features(
+                frame_features=frame_features,
+                temporal_features=temporal_features,
+                shared_features=shared_features,
+                mask=mask,
+            )
+
         return MTLLiteOutput(
             bdi_pred=bdi_pred,
             ordinal_logits=ordinal_logits,
             shared_features=shared_features if return_features else None,
+            layer_features=layer_features,
         )
+
+    def _collect_layer_features(self, frame_features, temporal_features, shared_features, mask):
+        """Build per-layer video-level embeddings for the layer-wise probe.
+
+        Hook-captured backbone activations are accumulated in valid-frame order
+        (see :meth:`extract_frame_features`), so they are sliced back to
+        per-video vectors using each video's valid-frame count and pooled.
+
+        ``layer_temporal`` and ``layer_shared`` are taken from the inline
+        forward results (no hook), and ``layer_backbone_out`` falls back to the
+        already-computed ``frame_features`` when the backbone hook captured
+        nothing (e.g. when the backbone was called in a code path the hook did
+        not cover).  Layers with no usable data are omitted from the result.
+        """
+        layer_features: Dict[str, torch.Tensor] = {}
+
+        # Always available inline results.
+        layer_features["layer_temporal"] = shared_features.detach()
+        layer_features["layer_shared"] = shared_features.detach()
+
+        # layer_backbone_out: prefer the frame_features already pooled under the
+        # mask (reliable, identical to extract_frame_features output).
+        layer_features["layer_backbone_out"] = masked_mean_pool(
+            frame_features, mask
+        ).detach()
+
+        # Hooked backbone sub-modules (layer_stem, layer_block_*).
+        if self._layer_probe_active and self._layer_probe_cache:
+            valid_counts = mask.reshape(mask.size(0), -1).sum(dim=1).long().tolist()
+            for layer_name, cached in self._layer_probe_cache.items():
+                if layer_name in ("layer_temporal", "layer_shared", "layer_backbone_out"):
+                    continue
+                pooled = self._pool_cached_layer(cached, valid_counts, shared_features)
+                if pooled is not None:
+                    layer_features[layer_name] = pooled
+
+        return layer_features
+
+    def _pool_cached_layer(self, cached, valid_counts, reference):
+        """Slice an accumulated hook cache into per-video pooled vectors.
+
+        Args:
+            cached: Tensor of shape (total_valid_frames, ...) accumulated by the
+                hook in valid-frame order.
+            valid_counts: List of per-video valid frame counts, summing to
+                ``cached.size(0)``.
+            reference: A tensor whose device/dtype the output should match.
+        """
+        if cached is None or cached.size(0) == 0:
+            return None
+        total_cached = cached.size(0)
+        total_expected = int(sum(valid_counts))
+        if total_cached != total_expected:
+            # Frame-count mismatch means the hook did not capture every chunk
+            # (e.g. an exception mid-loop).  Skip this layer rather than emit
+            # misaligned embeddings.
+            print(
+                f"[LAYER-PROBE] Frame count mismatch for a hooked layer: "
+                f"cached={total_cached} expected={total_expected}; skipping."
+            )
+            return None
+
+        vectors = []
+        cursor = 0
+        feature_dim = cached.reshape(cached.size(0), -1).size(-1)
+        for count in valid_counts:
+            count = int(count)
+            if count <= 0:
+                # No valid frames: emit a zero vector matching this layer's dim.
+                vectors.append(torch.zeros(feature_dim, device=reference.device, dtype=reference.dtype))
+                continue
+            segment = cached[cursor:cursor + count]
+            cursor += count
+            vectors.append(self._pool_layer_frame_features(segment, None))
+        return torch.stack(vectors, dim=0).to(device=reference.device, dtype=reference.dtype)
 
     def prepare_labels(self, labels):
         true_bdi = labels["bdi_score"].float()

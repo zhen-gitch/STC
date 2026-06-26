@@ -1255,3 +1255,243 @@ severe_residual_original / severe_residual_calibrated
 ccc_delta
 severe_residual_delta
 ```
+
+## 13. RPDF Stage A 证据收口设计
+
+本节是 RPDF-Net 主线 Stage A 的诊断规格。Stage A 不是普通诊断，而是决定 RPDF-lite 五因子分解是否成立的前置证据。完成 Stage A 后才进入 Stage B `H0 -> z_dep,z_m,z_id,z_art,z_res`。
+
+核心逻辑约束：**A1 只能证明 embedding 中存在身份信息，A2 才能证明 prediction head 可能使用了身份相关 shortcut。只有 A1 没有 A2，论文说服力不足，不应直接进入强 identity suppression。**
+
+### 13.0 现状与复用基础
+
+代码侧已有但需扩展的入口：
+
+```text
+src/models/mtl_lite.py            forward(return_features=True) 仅返回最终 pooled shared_features
+scripts/diagnose_mtl_lite.py      collect_predictions_and_features 仅导出单一 video-level embedding
+src/diagnostics/identity_retrieval.py
+  compute_identity_retrieval_metrics(records, features, top_k=5)
+  -> 接受任意 (N,D) features 数组 + records，与特征来源解耦，可逐层复用
+  run_embedding_identity_retrieval_audit(features_npz, output_dir, predictions_csv, top_k)
+src/diagnostics/io.py
+  save_features_npz 仅存单一 features 字段
+```
+
+Stage A 的代码改动原则：
+
+- 不改训练 `forward` / `compute_losses` / `training_step` / checkpoint 策略；
+- backbone 中间层 hook 只在诊断路径启用，训练路径零开销；
+- 所有诊断只读已有 checkpoint + 数据，不接触 val/test 标签反向影响训练；
+- 复用 `identity_retrieval.py` 检索核心，不重写。
+
+### 13.1 A1 Layer-wise Identity Probe
+
+目的：定位身份信息在模型层级中的出现位置，判断身份可分性主要来自 backbone 中下层表征，还是上层 temporal/MTL head 的利用。决定 `z_id` 出口和 identity attacker 的接入层。
+
+#### 层级列表
+
+```text
+layer_stem            patch embedding + 早期 token (backbone.patch_embed / cls_token 后)
+layer_block_0         DeiT transformer block 0 输出
+layer_block_3         DeiT transformer block 3 输出（中下层）
+layer_block_6         DeiT transformer block 6 输出（中层）
+layer_block_9         DeiT transformer block 9 输出（高层，deit_tiny 共 12 block）
+layer_block_11        DeiT transformer block 11 输出（最高层）
+layer_backbone_out    backbone 最终输出（等价 extract_frame_features 当前结果）
+layer_temporal        GRU 编码后、pool 前（encode_temporal_features 输出按 mask pooled）
+layer_shared          MTL shared representation（当前 return_features 返回值，作为对照基线）
+```
+
+实现要点：
+
+- 在 `MTLLiteDepressionModel` 增加可选 forward hook 注册接口 `register_layer_hooks(layer_names)`，仅在诊断脚本调用；hook 收集每层 per-frame 特征。
+- per-frame 特征需按 mask 做 `masked_mean_pool` 得到 video-level 向量，与 `layer_shared` 同维度对齐后再送检索。
+- 逐层导出 NPZ：每层一个 `features` 字段，或单个 NPZ 用 `features_<layer_name>` 多键存储（推荐后者，避免文件爆炸）。
+- 复用 `compute_identity_retrieval_metrics(records, features, top_k=5)` 逐层计算，不改动其签名。
+
+#### 输出
+
+```text
+tables/layerwise_identity_summary.csv
+  columns: layer_name, num_queries, same_subject_top1_rate,
+           same_subject_top3_rate, same_subject_top5_rate,
+           paired_task_rank_mean, paired_task_rank_median,
+           paired_task_in_top1_rate, paired_task_in_top3_rate,
+           paired_task_in_top5_rate,
+           severity_neighbor_agreement_top5_mean,
+           task_neighbor_agreement_top5_mean,
+           optional: subject_proxy_accuracy
+tables/layerwise_identity_per_query.csv   # 逐 query 逐层，供 case 分析
+reports/layerwise_identity_report.md
+```
+
+#### 可选 subject proxy accuracy
+
+对每层 embedding 训练一个轻量 subject 分类器（kNN / logistic / MLP），用 leave-one-subject-out 或 paired-task 交叉验证报告 top-1 subject 预测准确率。仅作为身份可分性的旁证，不替代 paired-task retrieval。第一版可只跑 kNN，避免引入复杂训练。
+
+#### 判读
+
+- 若 `layer_block_3` 及以下已有强 same-subject top-1（如 >0.5），身份信息来自 backbone 中下层，`z_id` 出口需靠后；
+- 若身份可分性随层级上升而增强，主要来自上层 temporal/shared 表征利用，`z_id` 应接 shared representation 之后；
+- `layer_shared` 的检索率即当前 P0-D 基线（rgb top1≈0.66），作为对照锚点。
+
+#### 服务器运行示例
+
+```bash
+python scripts/audit_layerwise_identity_probe.py \
+  --run-dir <LOG_DIR>/default/rgb/version_0 \
+  --ckpt best \
+  --split test \
+  --output-dir <LOG_DIR>/default/rgb/version_0/diagnostics/layerwise_identity \
+  --layers layer_stem,layer_block_0,layer_block_3,layer_block_6,layer_block_9,layer_block_11,layer_backbone_out,layer_temporal,layer_shared \
+  --top-k 5
+```
+
+### 13.2 A2 Prediction Error x Identity Similarity Coupling
+
+目的：证明"预测使用了身份"，而非仅"embedding 能识别身份"。检查 residual / abs_error 是否随 identity similarity、same-subject rank、severity agreement 系统变化。
+
+#### 输入
+
+```text
+A1 的 layerwise_identity_per_query.csv  （每 query 的 paired rank / top-k 命中 / severity agree）
+prediction CSV                          （video_id, subject_id, task_name, true_bdi, pred_bdi, residual, abs_error, severity_group）
+identity similarity matrix              （可选，来自 A1，用于连续 coupling 分析）
+```
+
+#### 输出
+
+```text
+tables/error_identity_correlation.csv
+  columns: layer_name, metric,
+           corr_abs_error_vs_identity_sim,
+           corr_residual_vs_identity_sim,
+           corr_abs_error_vs_paired_rank,
+           corr_residual_vs_severity_agree,
+           corr_abs_error_vs_severity_agree,
+           n
+tables/severity_bin_identity_error_summary.csv
+  columns: severity_group, layer_name,
+           mean_abs_error, mean_identity_sim,
+           mean_paired_rank, mean_severity_agree, n
+tables/high_error_high_identity_cases.csv
+  columns: video_id, subject_id, task_name, true_bdi, pred_bdi,
+           residual, abs_error, severity_group,
+           identity_sim_to_paired, paired_rank, severity_agree,
+           layer_name (主要分析 layer_shared 与最强身份层)
+reports/identity_error_coupling_report.md
+```
+
+#### 判读
+
+- 若 abs_error 与 identity similarity 正相关、与 paired_rank 负相关（高身份相似 -> 低 rank -> 但误差大），说明高身份样本被"认出来"但预测仍错，身份参与预测但未正确映射到 BDI；
+- 若 high-error-high-identity case 集中在 severe 组，支持"severe 低估与身份记忆耦合"；
+- 若 coupling 不显著，则身份仅存在于 embedding 但未被 prediction head 利用，Stage B 的 identity-adversarial / `z_id` 必要性降低，应转为风险监控而非强抑制。
+
+### 13.3 A3 Artifact Weak-label Audit (for z_art)
+
+目的：整理 `z_art` 的监督来源，决定 z_art 是否进入 RPDF-lite 第一版。
+
+#### 弱标签候选
+
+```text
+OpenFace confidence 均值 / 方差 / 低置信帧比例
+success 失败帧比例
+bbox scale / width / height / aspect ratio
+face center offset (x, y)
+eye distance / face scale
+black_border_ratio_mean
+black_center_ratio_mean
+edge_gradient_strength (border black/face boundary)
+valid_ratio / padding_ratio
+landmark failure / jitter (landmark displacement std)
+```
+
+#### 复用基础
+
+```text
+src/diagnostics/black_artifacts.py        -> black/border ratio, edge gradient
+src/diagnostics/alignment_geometry.py     -> bbox, center offset, eye distance, scale, jitter
+src/diagnostics/openface_quality.py       -> confidence, success, pose, gaze
+src/diagnostics/temporal_sampling.py      -> frame_count, valid_ratio, padding_ratio
+```
+
+#### 输出
+
+```text
+tables/artifact_weaklabel_summary.csv
+  columns: video_id, subject_id, task_name, true_bdi, pred_bdi,
+           residual, abs_error, severity_group,
+           <每个弱标签列>
+tables/artifact_weaklabel_correlation.csv
+  columns: weaklabel_name, corr_with_true_bdi, corr_with_pred_bdi,
+           corr_with_residual, corr_with_abs_error, n
+reports/artifact_weaklabel_report.md
+```
+
+#### 判读
+
+- 若某弱标签与 abs_error / residual 中等以上相关（|r| > 0.2），则该伪迹参与错误模式，`z_art` 应进入 RPDF-lite 第一版并吸收该弱标签；
+- 若弱标签只与 true_bdi 相关但与误差无关，说明伪迹与抑郁标签本身混杂（采集偏置），`z_art` 应作为 attack/evaluation 而非训练监督分支；
+- 若整体耦合弱，`z_art` 第一版不进训练，仅保留为审计出口。
+
+### 13.4 A4 Severity Imbalance / Prediction Compression Summary
+
+目的：确认 severity-balanced regression 是 Stage B 必跑基线还是 Stage D 支线。
+
+#### 复用基础
+
+```text
+src/diagnostics/prediction_runs.py        -> pred_std, true_std, severity bias
+src/diagnostics/severity_calibration.py   -> post-hoc calibration effect
+src/diagnostics/mechanism_summary.py      -> pred_compression_ratio
+```
+
+#### 输出
+
+```text
+tables/severity_imbalance_summary.csv
+  columns: run_name, severity_bin_count_minimal, _mild, _moderate, _severe,
+           bin_ratio_minimal, _mild, _moderate, _severe,
+           mean_residual_minimal, _mild, _moderate, _severe,
+           pred_compression_ratio, calibration_ccc_delta
+reports/severity_imbalance_report.md
+```
+
+#### 判读
+
+- 若 minimal/severe 分段样本比例严重失衡且对应 mean_residual 系统偏置（minimal 高估 / severe 低估），severity imbalance 是独立机制，severity-balanced regression 应作为 Stage B 必跑基线（E2）；
+- 若分段比例失衡但偏置不强，或 calibration 能缓解，则降为 Stage D 支线。
+
+### 13.5 Stage A 收口判据
+
+A1-A4 完成后，必须在 `CURRENT_STATUS.md` 和 `RGB_OVERFITTING_AUDIT_PLAN.md` 明确写出以下四个结论：
+
+```text
+1. 身份存在（A1）：身份信息主要来自哪一层，强度如何
+2. 身份参与预测（A2）：身份相似性是否与预测误差/偏置耦合
+3. 伪迹参与错误（A3）：哪些 artifact 弱标签进入 z_art 监督
+4. severity 失衡（A4）：severity-balanced regression 是 Stage B 必跑还是 Stage D 支线
+```
+
+只有 1+2 同时成立，才进入 Stage B 的 identity-adversarial / `z_id` 强抑制路径；若只有 1，则 identity 仅作风险监控。Stage A 关闭后不再扩展普通输入滤镜、黑边替换、灰度/模糊/mask 族。
+
+### 13.6 实现任务清单（对应 TODO A1-A4）
+
+```text
+A1-1 [ ] mtl_lite.py 增加 register_layer_hooks / 诊断用 forward 返回逐层特征
+A1-2 [ ] scripts/audit_layerwise_identity_probe.py 逐层导出 + 复用检索
+A1-3 [ ] tests/test_layerwise_identity_probe.py 覆盖 hook 注册、逐层 NPZ、检索输出
+A2-1 [ ] src/diagnostics/error_identity_coupling.py 合并 A1 + prediction 计算 coupling
+A2-2 [ ] scripts/audit_error_identity_coupling.py
+A2-3 [ ] tests/test_error_identity_coupling.py
+A3-1 [ ] src/diagnostics/artifact_weaklabels.py 整合 black/geometry/quality/temporal 弱标签
+A3-2 [ ] scripts/audit_artifact_weaklabels.py
+A3-3 [ ] tests/test_artifact_weaklabels.py
+A4-1 [ ] src/diagnostics/severity_imbalance.py 汇总 bin count / bias / compression
+A4-2 [ ] scripts/summarize_severity_imbalance.py
+A4-3 [ ] tests/test_severity_imbalance.py
+A0   [ ] 服务器对 RGB baseline 运行 A1-A4，写入结论，关闭 Stage A
+```
+
+所有新增诊断脚本遵循既有约定：只读 checkpoint + 数据，不污染 val/test，不改训练超参，输出到 `<run_dir>/diagnostics/<audit_name>/`。
