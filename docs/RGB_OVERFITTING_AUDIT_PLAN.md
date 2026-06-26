@@ -7,6 +7,83 @@
 
 ## 读者先看：当前研究路线与下一步
 
+## 路线进一步细化：从证据闭环到 RPDF-lite
+
+当前路线应按四个闭环推进，避免把 RPDF-Net 实现成一次性打开所有模块的复杂模型。
+
+### 闭环 1：证据闭环，回答“风险是否真的进入预测”
+
+Stage A 不只是普通诊断，而是决定 RPDF-lite 是否成立的前置证据。四个问题必须分别回答：
+
+| 任务 | 关键问题 | 决定后续结构 |
+|---|---|---|
+| A1 layer-wise identity probe | 身份信息在哪些层开始可分？ | `z_id` 和 identity attacker 接入层 |
+| A2 error-identity coupling | 预测错误是否与身份相似性耦合？ | 是否需要强 identity branch，还是只做风险监控 |
+| A3 artifact weak-label audit | OpenFace artifact 是否与预测/误差耦合？ | `z_art` 是否进入第一版 RPDF-lite |
+| A4 severity imbalance summary | 分数段不均是否驱动 minimal/severe bias？ | severity-balanced loss 是否作为 Stage B 支线 |
+
+最关键的逻辑是：A1 只能证明 embedding 中有身份信息，A2 才能证明 prediction head 可能使用了身份相关 shortcut。只有 A1 没有 A2，论文说服力不足。
+
+### 闭环 2：最小模型闭环，回答“因子分流是否比共享表征更合理”
+
+RPDF-lite 第一版只验证单级分解：
+
+```text
+H0 -> FactorBlock -> z_dep, z_m, z_id, z_art, z_res
+prediction = Head([z_dep, alpha * z_m])
+alpha in {0, 0.25, 0.5, 1.0}
+```
+
+第一版暂不加入 learned mutual gate、多级递进、复杂 reconstruction、dynamic branch 或新的输入滤镜。这样当实验失败时，可以判断是因子分流本身无效，还是某个支线损伤了 BDI 表征。
+
+建议固定对照组：
+
+```text
+E0 RGB MTL-Lite baseline
+E1 identity-adversarial MTL baseline
+E2 severity-balanced regression baseline
+E3 RPDF-lite alpha=0
+E4 RPDF-lite alpha=0.25
+E5 RPDF-lite alpha=0.5
+E6 RPDF-lite alpha=1.0
+```
+
+若 `alpha=0.25/0.5` 优于 `alpha=0` 和 `alpha=1.0`，将支持一个较强论文结论：身份-抑郁交叠信息不应被简单删除，而应受控保留。
+
+### 闭环 3：递进验证闭环，回答“风险是否逐层下降”
+
+只有当 RPDF-lite 满足以下条件时，才进入两级递进 RPDF：
+
+```text
+z_dep identity risk 低于 baseline shared representation
+controlled z_m 能保持或提升 BDI / CCC
+z_id 或 z_art 至少有一个分支能吸收对应风险
+Freeform/Northwind task consistency 不恶化
+```
+
+两级阶段比较：
+
+```text
+z_dep only
+z_dep + controlled z_m
+z_dep + full z_m
+```
+
+核心问题是：递进分解是否能让 identity/artifact risk 随层级下降，同时保持 depression utility。
+
+### 闭环 4：支线归因闭环，回答“哪些机制值得纳入最终模型”
+
+所有支线都必须作为可验证机制存在，而不是默认并入主模型：
+
+| 支线 | 进入条件 | 成功条件 |
+|---|---|---|
+| `z_art` | A3 证明 artifact 与预测/误差耦合 | `z_art` 吸收 artifact，`z_dep` artifact attack risk 下降 |
+| severity-balanced | A4 证明 severity-bin bias 明显 | minimal/severe bias 改善，CCC 和 identity risk 不恶化 |
+| multi-attacker | 任意去身份结论出现 | 最强 attacker 下 identity risk 仍下降或可控 |
+| dynamic feature | RPDF-lite 降低风险后 BDI 表现仍受限 | BDI/CCC 改善且不重新引入身份/static shortcut |
+
+因此，最终模型应由证据逐步筛选，而不是一次性堆叠所有支线。
+
 当前 RGB 过拟合研究已经从“输入 artifact 逐项排查”和 “Shortcut-Regularized MTL” 进一步转向 **RPDF-Net：风险感知递进式去身份因子分解网络**。旧的黑边、center mask、boundary smoothing、temporal sampling、identity retrieval 和 severity calibration 实验仍然重要，但它们现在的角色是 **支撑 RPDF-Net 的问题定义、因子设计、支线验证和对照基线**。
 
 当前论文问题应表述为：

@@ -43,6 +43,98 @@
 
 因此，后续论文叙事应强调“从过拟合机制审计到风险感知因子分解”的连续性：已有消融不是零散失败记录，而是在逐步证明单一输入处理无法解释全部泛化问题，从而引出 RPDF-Net 作为更系统的解决框架。
 
+## 现有研究调研：RPDF-Net 路线的必要性与可行性
+
+本节用于支撑论文叙事：RPDF-Net 不是把多个模块简单相加，而是把已有实验暴露出的 RGB 过拟合机制，组织成一个由证据驱动的风险感知表征分流问题。
+
+### 1. Shortcut learning 支持“先审计、再建模”
+
+Shortcut learning 研究指出，深度模型会优先使用训练分布中稳定、容易学习但不可迁移的线索。对本项目而言，OpenFace aligned face 中的黑边、裁剪硬边界、麦克风遮挡、眼镜反光、胡须、几何尺度、视频长度和任务语境，都可能成为比面部行为更容易利用的 shortcut。
+
+参考：
+
+- Shortcut Learning in Deep Neural Networks: https://arxiv.org/abs/2004.07780
+
+对 RPDF-Net 的含义：Stage A 必须先做 layer-wise identity probe、error-identity coupling 和 artifact weak-label audit。否则直接改模型，只能得到“某个实验指标变好/变坏”，无法证明模型是否真的减少了非抑郁捷径。
+
+### 2. 小样本 ViT/DeiT 风险支持 patch-level shortcut 审计
+
+当前 RGB backbone 属于 patch-based transformer。小样本视觉 Transformer 通常更依赖数据规模、正则化和监督约束；当输入为 `112 x 112` 且 patch size 为 `16` 时，一帧只有约 `7 x 7` 个 patch，黑边、局部遮挡、眼镜、胡须和裁剪残留都可能占据完整 patch。
+
+参考：
+
+- Efficient Training of Visual Transformers with Small Datasets: https://arxiv.org/abs/2106.03746
+- Training data-efficient image transformers & distillation through attention: https://arxiv.org/abs/2012.12877
+
+对 RPDF-Net 的含义：问题不应只归因于“上层 head 参数过多”或“backbone 微调层数不对”。更合理的做法是让 backbone 保留面部表征能力，同时在上层显式审计和分流 identity/artifact/severity 风险。
+
+### 3. Domain-adversarial 与隐私表征支持身份风险分支，但不能替代 RPDF
+
+DANN/GRL 说明可以通过 adversarial branch 降低共享表征对某一 nuisance factor 的可用性。这为 identity-adversarial MTL、subject attacker 和 multi-attacker evaluation 提供了技术基础。
+
+参考：
+
+- Domain-Adversarial Training of Neural Networks: https://arxiv.org/abs/1505.07818
+
+对 RPDF-Net 的含义：GRL 是必要对照，但不应成为最终主线。原因是抑郁相关面部线索可能与个体表情基线、活动幅度、头动/眼动习惯部分交叠；简单压制所有身份可识别信息，可能损伤有效抑郁线索。因此需要 `z_m` 作为身份-抑郁交叠因子，并用 `alpha` 或门控机制受控使用。
+
+### 4. 表征解耦研究支持因子分流，但必须接受不可完全可辨识风险
+
+面部表情识别、隐私保护表征和 disentanglement 研究都支持把任务相关信息和身份、姿态、域因素分开建模。但在真实数据中，因子通常无法完全独立，尤其是身份、年龄、面部活动习惯和抑郁表现可能存在统计交叠。
+
+对 RPDF-Net 的含义：`z_dep/z_m/z_id/z_art/z_res` 的价值不在于宣称完全可辨识，而在于建立可审计出口：
+
+```text
+z_dep: low-risk depression factor
+z_m: identity-depression mutual factor, controlled use
+z_id: subject/static appearance outlet
+z_art: OpenFace artifact/domain outlet
+z_res: residual outlet, preventing all pressure from returning to z_dep
+```
+
+第一版应做 RPDF-lite，而不是直接上完整多级多门控结构。
+
+### 5. 连续标签不均衡研究支持 severity-balanced 支线
+
+BDI 是连续分数，且 minimal/mild/moderate/severe 分段通常不均衡。Deep Imbalanced Regression 和 Balanced MSE 相关研究说明，连续标签分布不均会使多数分段主导梯度，造成少数分段系统偏置。
+
+参考：
+
+- Delving into Deep Imbalanced Regression: https://arxiv.org/abs/2102.09554
+- Balanced MSE for Imbalanced Visual Regression: https://arxiv.org/abs/2203.16427
+
+对 RPDF-Net 的含义：severity-balanced regression 的目标是缓解 score-bin / severity-bin 不均衡，而不是人为提高预测值方差。它应作为 RPDF-Net 的支线验证：若它改善 minimal/severe bias 且不恶化 identity risk、CCC 和 task consistency，则说明 severity imbalance 是独立机制；否则不能把它并入主模型。
+
+### 6. OpenFace/LibreFace 与面部行为研究支持 artifact weak labels 与后续 dynamic 支线
+
+OpenFace/LibreFace/OpenFace 3.0 说明 landmark、AU、pose、gaze、confidence、success 本身就是可量化的面部行为与质量变量。抑郁识别相关研究也强调 AU、landmark temporal dynamics 和面部行为模式的重要性。
+
+参考：
+
+- LibreFace: https://arxiv.org/abs/2308.10713
+- OpenFace 3.0: https://arxiv.org/abs/2506.02891
+- FacialPulse: https://arxiv.org/abs/2408.03499
+- Exploring Facial Biomarkers for Depression through Temporal Analysis of Action Units: https://arxiv.org/abs/2407.13753
+
+对 RPDF-Net 的含义：
+
+- `z_art` 可以用 confidence、success、bbox scale、center offset、black-border ratio、edge gradient、landmark jitter 等弱标签进行审计；
+- dynamic facial behavior 有理论价值，但应暂列 Stage D。只有当 RPDF-lite 已经降低 identity/artifact risk 而 BDI 表现仍受限时，才启动 dynamic branch。
+
+### 7. 当前路线的论文贡献表达
+
+推荐表述：
+
+```text
+We propose a mechanism-audited, risk-aware factorization framework for RGB facial depression prediction. Instead of treating de-identification, artifact mitigation, severity balancing, and behavioral dynamics as independent modules, we first audit how identity, OpenFace artifacts, temporal/task context, and severity imbalance enter the prediction process, and then factorize the shared representation into depression, mutual identity-depression, identity, artifact, and residual factors.
+```
+
+中文表达：
+
+```text
+本文提出一种机制审计驱动的风险感知因子分解框架。该框架不把去身份、伪迹处理、严重程度重加权和动态特征视作彼此独立的模块堆叠，而是先审计身份、OpenFace 伪迹、时序/任务语境和分数段不均衡如何进入预测过程，再将共享表征分解为抑郁因子、身份-抑郁交叠因子、身份因子、伪迹因子和残差因子。
+```
+
 ## OpenFace 版本与数据约定
 
 当前主数据版本来自已有 OpenFace 裁剪对齐流程，所用 OpenFace 版本可能不是最新版。短期内不建议直接升级 OpenFace 并覆盖已有数据，因为这会改变 crop、landmark、AU、pose、confidence 等分布，相当于更换数据版本。

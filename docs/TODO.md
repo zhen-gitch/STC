@@ -55,6 +55,15 @@ Stage A RPDF 证据收口
 - [ ] D4 multi-attacker 支线：使用 kNN / SVM or logistic / MLP / paired-task retrieval 报告最强 identity attacker，避免假安全。
 - [ ] D5 dynamic feature 支线：暂缓，仅当 RPDF-lite 和两级 RPDF 仍无法保留足够抑郁行为线索时再启动。
 
+### 路线细化后的执行闭环
+
+- [ ] A1/A2 完成后，明确写出“身份存在”和“身份参与预测”是否同时成立；若只成立 A1，不直接进入强 identity suppression。
+- [ ] A3 完成后，决定 `z_art` 是否进入 RPDF-lite 第一版；若 artifact 与误差耦合弱，则先作为 attack/evaluation 而非训练分支。
+- [ ] A4 完成后，决定 severity-balanced regression 是 Stage B 必跑基线，还是 Stage D 支线。
+- [ ] B0 固定 Stage B 对照：`RGB baseline`、`identity-adversarial MTL`、`severity-balanced regression`、`RPDF-lite alpha={0,0.25,0.5,1.0}`。
+- [ ] B0 固定统一报告：BDI metrics、severity bias、identity risk、artifact risk、task consistency、train-val gap。
+- [ ] C0 仅当 RPDF-lite 通过 identity/artifact risk 与 BDI utility 双重判据后，再启动两级递进。
+
 ### 暂缓项
 
 - [ ] 暂缓完整五因子多级门控全开版 RPDF-Net。

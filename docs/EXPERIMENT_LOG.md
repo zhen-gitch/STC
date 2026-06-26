@@ -1001,3 +1001,9 @@ Coordinate scale correction:
   - Stage C: two-level progressive factorization with controlled `z_m` transfer `H_k = Phi([z_dep^k, alpha_k * z_m^k])`;
   - Stage D: branch validation for `z_art`, controlled `z_m`, severity-balanced regression, multi-attacker privacy evaluation, and deferred dynamic features.
 - Clarified that `z_m` must be controlled during layer transfer and final prediction, rather than freely propagated.
+### RPDF-Net route and literature consolidation
+
+- Consolidated the current RPDF-Net route into four execution loops: evidence closure, RPDF-lite minimal model, progressive validation, and branch attribution.
+- Added a literature-grounded rationale covering shortcut learning, small-sample ViT risk, DANN/GRL, disentanglement, imbalanced regression, OpenFace/LibreFace artifact variables, and facial behavior dynamics.
+- Clarified that identity-adversarial MTL and severity-balanced regression are controlled baselines/branches, while RPDF-lite tests whether `z_dep/z_m/z_id/z_art/z_res` factorization is more appropriate than a single shared representation.
+- Added fixed Stage B comparison groups and evaluation requirements: BDI metrics, severity bias, identity risk, artifact risk, task consistency, and train-val gap.

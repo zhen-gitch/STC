@@ -575,3 +575,29 @@ task consistency 不恶化
 ```
 
 因此，`middle_crop` 虽然降低 identity retrieval，但不算回到正轨，因为它损害 severity agreement 和 task consistency；`border_black_feather` 虽然缓解 severe bias，也不算充分回到正轨，因为它增强 identity retrieval。真正可接受的方向必须在三表评估中同时通过 prediction、identity 和 calibration 约束。
+
+## 11. 研究路线细化：必要性、可行性与中长期边界
+
+当前 RPDF-Net 路线的必要性来自三点：
+
+1. 已有输入消融说明，单一黑边、单一边界或单一 temporal sampling 都不能解释全部失败模式；
+2. identity retrieval、severity calibration 和 task consistency 结果说明，模型失败同时涉及身份记忆、prediction compression 和任务语境混杂；
+3. OpenFace aligned face 不是干净行为输入，而是同时携带面部行为、身份纹理、对齐几何、质量/追踪状态和局部遮挡的混合输入。
+
+可行性来自四个已有基础：
+
+1. 现有 MTL-Lite / DeiT pipeline 已能训练和导出 prediction，为 layer-wise embedding audit 提供入口；
+2. 现有 identity retrieval、severity calibration、alignment geometry 和 black artifact 脚本已经形成 Stage A 的大部分数据基础；
+3. OpenFace CSV 和 aligned frames 可以产生 `z_art` 弱标签；
+4. GRL、deep imbalanced regression、multi-attacker evaluation 和 factor separation loss 都可以作为低侵入支线逐步接入。
+
+中长期边界：
+
+```text
+短期：完成 Stage A，证明身份/artifact/severity 风险如何进入预测
+中期：实现 RPDF-lite，验证 z_dep/z_m/z_id/z_art/z_res 是否有用
+中长期：仅在 RPDF-lite 有效后进入两级递进，验证风险逐层下降
+长期：根据支线证据选择 severity-balanced、z_art、multi-attacker 或 dynamic feature
+```
+
+论文叙事的关键不是“提出更多模块”，而是“每个模块都有前置证据、进入条件、成功标准和停止规则”。若某个支线只改善 MAE，却恶化 identity risk、severe bias、CCC 或 task consistency，则它应被作为机制反例记录，而不是进入最终主模型。

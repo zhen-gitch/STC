@@ -51,6 +51,10 @@ Stage D 支线验证：z_art、受控 z_m、severity-balanced loss、multi-attac
 4. **A4 severity imbalance summary**：确认 severity-balanced regression 作为 RPDF 支线是否仍必要。
 5. **B1 RPDF-lite 单级分解**：先实现 `H0 -> z_dep,z_m,z_id,z_art,z_res`，最终预测优先使用 `z_dep + controlled z_m`。
 
+### 当前路线细化补充
+
+最新研究路线进一步明确为四个闭环：证据闭环、最小模型闭环、递进验证闭环和支线归因闭环。短期不直接实现完整 RPDF-Net，而是先完成 A1/A2，证明 identity 不仅存在于 embedding 中，而且可能与 prediction error 耦合；随后根据 A3/A4 决定 `z_art` 与 severity-balanced branch 是否进入 RPDF-lite 第一版。Stage B 固定比较 RGB baseline、identity-adversarial MTL、severity-balanced regression 和 RPDF-lite `alpha={0,0.25,0.5,1.0}`，所有实验同时报告 BDI、identity risk、artifact risk、severity bias、task consistency 和 train-val gap。
+
 ### 当前不做什么
 
 - 不直接实现完整多级、多损失、多门控 RPDF-Net。
