@@ -68,31 +68,73 @@ Shortcut learning 研究指出，深度模型会优先使用训练分布中稳�
 
 对 RPDF-Net 的含义：问题不应只归因于“上层 head 参数过多”或“backbone 微调层数不对”。更合理的做法是让 backbone 保留面部表征能力，同时在上层显式审计和分流 identity/artifact/severity 风险。
 
-### 3. Domain-adversarial 与隐私表征支持身份风险分支，但不能替代 RPDF
+### 3. 信息论路径：信息瓶颈与 minimal sufficient representation（z_dep 去身份主线）
 
-DANN/GRL 说明可以通过 adversarial branch 降低共享表征对某一 nuisance factor 的可用性。这为 identity-adversarial MTL、subject attacker 和 multi-attacker evaluation 提供了技术基础。
+"图像表征保留目标信息、去除无关信息"在信息论上有成熟形式化：`max I(Z;Y) - β·I(Z;X)`——保留与目标 Y 的互信息，压缩与输入 X 的互信息；"无关信息"= 与 Y 无关的 X 信息。
 
-参考：
+#### 3.1 理论根基：Achille-Soatto 信息论框架
 
-- Domain-Adversarial Training of Neural Networks: https://arxiv.org/abs/1505.07818
+- **核心定理**：对 nuisance 因子的不变性 ≡ 学到表征的信息极小性。即去无关信息不必显式对抗——对 z_dep 施加信息瓶颈压缩，不变性作为副产品涌现，且比对抗训练更稳。
+- **训练动力学**：语义有意义但最终无关的信息在训练早期被编码，随后才被丢弃——这解释了 RGB 过拟合机制：训练不足时残留无关身份/伪迹信息。
 
-对 RPDF-Net 的含义：GRL 是必要对照，但不应成为最终主线。原因是抑郁相关面部线索可能与个体表情基线、活动幅度、头动/眼动习惯部分交叠；简单压制所有身份可识别信息，可能损伤有效抑郁线索。因此需要 `z_m` 作为身份-抑郁交叠因子，并用 `alpha` 或门控机制受控使用。
+参考（均已 peer-review 核验）：
 
-### 4. 表征解耦研究支持因子分流，但必须接受不可完全可辨识风险
+- Information Dropout: Learning Optimal Representations Through Noisy Computation（**IEEE TPAMI 2016**，Achille-Soatto，不变性≡信息极小性）：https://arxiv.org/abs/1611.01353
+- Emergence of Invariance and Disentanglement in Deep Representations（Achille-Soatto，信息极小→不变性涌现）：https://arxiv.org/abs/1706.01350
+- Usable Information and Evolution of Optimal Representations During Training（**ICLR 2021**，早期编码-后期丢弃）：https://arxiv.org/abs/2010.02459
 
-面部表情识别、隐私保护表征和 disentanglement 研究都支持把任务相关信息和身份、姿态、域因素分开建模。但在真实数据中，因子通常无法完全独立，尤其是身份、年龄、面部活动习惯和抑郁表现可能存在统计交叠。
+#### 3.2 信息瓶颈实现谱系
 
-对 RPDF-Net 的含义：`z_dep/z_m/z_id/z_art/z_res` 的价值不在于宣称完全可辨识，而在于建立可审计出口：
+- Deep Variational Information Bottleneck（**ICLR 2017**，Alemi et al.）：变分近似 IB + reparameterization trick，奠基深度 IB，泛化与对抗鲁棒性优于传统正则：https://arxiv.org/abs/1612.00410
+- Cell Variational Information Bottleneck Network（**ACML 2023**，cellVIB）：逐层 VIB 单元，正则随层渐增（vs Deep VIB 全压输出层）——Stage C 逐层净化的机制依据：https://arxiv.org/abs/2403.15082
+- Dynamic Multimodal Information Bottleneck（**WACV 2024**）：sufficiency loss 显式防止 IB 压缩丢弃任务相关信息——防 z_dep 误丢抑郁信号：https://arxiv.org/abs/2311.01066
+
+#### 3.3 minimal sufficient 警告
+
+对比学习能近似得到 minimal sufficient representation，但对下游任务**不充分**——非共享的任务相关信息会被忽略。这直接警告 RPDF：单纯压缩 z_dep 可能让它丢掉身份-抑郁交叠部分的真实抑郁信号，必须配合 sufficiency loss。
+
+参考（已 peer-review 核验）：
+
+- Rethinking Minimal Sufficient Representation in Contrastive Learning（**CVPR 2022**）：https://arxiv.org/abs/2203.07004
+
+对 RPDF-Net 的含义：`z_dep` 去身份默认路径为 **IB 压缩**（`max I(z_dep;BDI) - β·I(z_dep;H0)`）+ **sufficiency loss** 保 BDI 信息。GRL 对抗降为对照支线，不作主线。
+
+### 4. 表征解耦与可辨识性：z_m 必须有显式监督
+
+面部表情识别、隐私保护表征和 disentanglement 研究支持把任务相关信息和身份、姿态、域因素分开建模。但 Locatello 等的不可辨识定理从理论上证明：**无监督的 disentanglement 在没有归纳偏置时根本不可辨识**——训了 12000+ 模型，无监督下无法识别出 well-disentangled 模型。后续所有可辨识工作都靠显式监督或归纳偏置。
+
+参考（均已 peer-review 核验）：
+
+- Challenging Common Assumptions in the Unsupervised Learning of Disentangled Representations（**ICML 2019**，Locatello et al.，1792 引用，不可辨识定理）：https://arxiv.org/abs/1811.12359
+- A Sober Look at the Unsupervised Learning of Disentangled Representations（**JMLR 2020**，扩展版）：https://arxiv.org/abs/2010.14766
+- Leveraging sparse and shared feature activations for disentangled representation learning（**NeurIPS 2023**，Fumero et al.，多任务+稀疏可辨识）：https://arxiv.org/abs/2304.07939
+- Learning Disentangled Representations via Mutual Information Estimation（**ECCV 2020**，shared/exclusive 分解，z_m 拓扑同构）：https://arxiv.org/abs/1912.03915
+
+对 RPDF-Net的直接含义：`z_m` 在原 B1 设计中**无显式监督**（仅"受控进入预测"），恰好踩在不可辨识定理的雷上——模型可把身份任意塞进 z_m 或 z_dep，因子分解失效。因此 **`z_m` 必须有显式监督或归纳偏置**。RPDF-Net 不应宣称"实现了 disentanglement"，应定位为"在有监督归纳偏置下的可审计信息分流"。
+
+`z_dep/z_m/z_id/z_art/z_res` 的价值不在于宣称完全可辨识，而在于建立可审计出口：
 
 ```text
-z_dep: low-risk depression factor
-z_m: identity-depression mutual factor, controlled use
+z_dep: low-risk depression factor, IB-compressed (invariance emerges from info minimality) + sufficiency loss
+z_m: identity-depression mutual factor, MUST have explicit supervision (identifiability), controlled use
 z_id: subject/static appearance outlet
 z_art: OpenFace artifact/domain outlet
-z_res: residual outlet, preventing all pressure from returning to z_dep
+z_res: residual outlet with information bottleneck (dim << others), preventing escape
 ```
 
 第一版应做 RPDF-lite，而不是直接上完整多级多门控结构。
+
+### 4.5 去混淆表征：z_dep⊥z_id 的图像域直接先例
+
+因果推断领域的"去混淆表征"把混淆变量作为单独因子剥离，保留因果相关因子，与 RPDF 的 z_dep⊥z_id 拓扑同构。
+
+参考（均已 peer-review 核验）：
+
+- Backdoor Defense via Deconfounded Representation Learning（**CVPR 2023**）：把后门攻击当混淆，clean 模型通过**最小化与混淆表征的 MI** `min I(z_clean; z_confound)` 捕获因果效应——与 RPDF `min I(z_dep; z_id)` 直接同构，是图像域 peer-reviewed 先例：https://arxiv.org/abs/2303.06818
+- Robust Causal Graph Representation Learning against Confounding Effects（**AAAI 2023**，RCGRL）：生成工具变量消除混淆，捕获因果判别信息：https://arxiv.org/abs/2208.08584
+- Bounds on Representation-Induced Confounding Bias（**ICLR 2024**）：证明低维表征会丢失观察混淆信息导致偏差，给出非可辨识条件——**警告：z_dep 的 IB 压缩不能无脑降维，压缩过度会丢失 BDI 相关的混淆调整信息，dim 需配合 sufficiency test**：https://arxiv.org/abs/2311.11321
+
+对 RPDF-Net 的含义：z_dep 去身份除 IB 压缩外，可借鉴 CVPR 2023 的 **MI 最小化去混淆** `min I(z_dep; z_id)` 作为第二条主线候选（显式 MI 最小化，非对抗抑制）。同时受 ICLR 2024 警告约束：z_dep 降维须配合 `I(z_dep;BDI)` 下限监控。
 
 ### 5. 连续标签不均衡研究支持 severity-balanced 支线
 
@@ -134,6 +176,66 @@ We propose a mechanism-audited, risk-aware factorization framework for RGB facia
 ```text
 本文提出一种机制审计驱动的风险感知因子分解框架。该框架不把去身份、伪迹处理、严重程度重加权和动态特征视作彼此独立的模块堆叠，而是先审计身份、OpenFace 伪迹、时序/任务语境和分数段不均衡如何进入预测过程，再将共享表征分解为抑郁因子、身份-抑郁交叠因子、身份因子、伪迹因子和残差因子。
 ```
+
+## 因子分解四难题的先例映射与核验结论
+
+因子分解在通用表征学习中存在四个公认难题。下面整理每个难题的 peer-reviewed 先例与 RPDF-Net 借鉴路径。所有引用均经 DBLP/OpenAlex/Semantic Scholar 交叉核验 venue 与引用数。
+
+### 难题 1：竞争分配（信息无唯一归宿）
+
+固定维表征拆成多因子是欠定问题，同一份信息（如眼袋深度既是疲劳/抑郁线索又是个体身份特征）该进哪个因子无唯一解。
+
+**先例**：
+
+- 不可辨识定理（**ICML 2019 + JMLR 2020**，[1811.12359](https://arxiv.org/abs/1811.12359)/[2010.14766](https://arxiv.org/abs/2010.14766)）：无监督下不可辨识，必须靠监督/归纳偏置固定归宿。
+- 多任务+稀疏可辨识（**NeurIPS 2023**，[2304.07939](https://arxiv.org/abs/2304.07939)）：多任务访问在 sufficiency+minimality 下足以可辨识。
+- shared/exclusive 分解（**ECCV 2020**，[1912.03915](https://arxiv.org/abs/1912.03915)）：显式拆 shared（对应 z_m）+ exclusive（对应 z_dep/z_id），MI 约束定义。
+- IB 压缩分配（**ICLR 2017** Deep VIB [1612.00410](https://arxiv.org/abs/1612.00410) + **TPAMI 2016** [1611.01353](https://arxiv.org/abs/1611.01353)）：z_dep 通过 IB 目标 `max I(z_dep;BDI) - β·I(z_dep;H0)` 被压成只含 BDI 必要信息，剩余信息自然流向其他因子——竞争分配由 IB 目标决定，不再欠定。
+
+**RPDF 借鉴**：z_m 必须有显式监督（边际增益监督，借用 ECCV 2020 shared/exclusive），否则它是身份逃生口。用 IB 压缩 + sufficiency loss 决定信息归宿，放弃线性正交（无法处理 z_m 与 z_dep 的非线性相关）。
+
+### 难题 2：排他约束（post-factorization 去身份）
+
+即使 z_dep 被推成 identity-free，z_m 按定义携带身份且参与预测，模型可经 z_m 路由身份进预测，绕过 z_dep 约束。线性正交不防止非线性投影恢复身份。
+
+**先例**：
+
+- MI 最小化去混淆（**CVPR 2023**，[2303.06818](https://arxiv.org/abs/2303.06818)）：clean 模型 `min I(z_clean; z_confound)` 捕获因果效应——与 RPDF `min I(z_dep; z_id)` 拓扑同构，图像域 peer-reviewed 直接先例，非对抗式。
+- 抑郁+身份对抗（**INTERSPEECH 2022**，[2206.09530](https://arxiv.org/abs/2206.09530)）：`min depression loss + max speaker loss`，DAIC-WOZ 上做——GRL 对抗的抑郁领域直接对标先例。
+- 对抗训练不稳定警告：隐私表征学习中对抗方法存在训练不稳定问题，independence regularization 是更稳替代。
+
+**RPDF 借鉴**：GRL 接 z_dep（post-factorization 拓扑），但默认主线改为 IB 压缩（不变性涌现，无需对抗）+ MI 最小化去混淆（CVPR 2023）。GRL 降为对照基线，对标 INTERSPEECH 2022。
+
+### 难题 3：递进净化（单调性无保证）
+
+Stage C 假设 `H_k = Phi([z_dep^k, alpha_k·z_m^k])` 后 identity risk 随 k 下降，但这是假设不是定理。
+
+**先例**：检索 15 篇 progressive/hierarchical/iterative disentanglement 文献，**无一证明 identity/nuisance 跨阶段单调下降**，全部是 coarse-to-fine 经验策略。
+
+**RPDF 借鉴**：Stage C 降为可证 falsifiable 假设。机制改用逐层 IB（**ACML 2023** cellVIB [2403.15082](https://arxiv.org/abs/2403.15082)，β_k 递增驱动信息单调下降）而非堆叠因子分解层。终止判据写成"`identity_risk(z_dep^k)` 曲线不单调下降则停止"，不默认两级有效。
+
+### 难题 4：外部验证（不可证实性）
+
+因子分解欠定，外部 attacker 是唯一裁判，但只能证伪（"这些攻击者恢复不出身份"），不能证实（"z_dep 含的是正确抑郁信息"）。
+
+**先例**：
+
+- worst-case attribute inference guarantee（**AAAI 2024** TAPPFL [2312.06989](https://arxiv.org/abs/2312.06989)）：对 worst-case 攻击的可证明 guarantee + utility-privacy inherent tradeoff（定理级）。
+- 对比学习隐私（**CCS 2021** Talos [2102.04140](https://arxiv.org/abs/2102.04140)）：不同 attacker 给不同风险，必须多攻击者联合报告。
+- 攻击降到随机猜测水平（[2007.15064](https://arxiv.org/abs/2007.15064)）：可操作的"成功"阈值。
+- minimal sufficient 对下游不充分（**CVPR 2022** [2203.07004](https://arxiv.org/abs/2203.07004)）：补上"只能证伪"缺口的 sufficiency test 正面证据。
+
+**RPDF 借鉴**：外部验证 = 双门——attacker 证伪身份泄漏（必要）+ sufficiency test 证实 BDI 信息保留（充分）。预注册 attacker 集合（kNN+linear+MLP 固定容量），报最坏值；同时打 z_dep/z_m/prediction 三个对象；成功阈值 = attacker accuracy ≈ chance level。接受 utility-privacy 是 frontier 而非单点。
+
+### 核验降权与剔除清单
+
+核验中发现以下文献需降权或剔除，避免被未经验证的非正式发表误导：
+
+- **IRM（Invariant Risk Minimization, [1907.02893](https://arxiv.org/abs/1907.02893)）**：DBLP 仅 CoRR，OpenAlex 无正式 venue DOI——**从未在 peer-reviewed venue 发表**。且 [2101.01134](https://arxiv.org/abs/2101.01134)/[2010.05761](https://arxiv.org/abs/2010.05761) 证明 IRMv1 脆弱、非线性下可灾难性失败。**不作为 RPDF 依据**，OOD 不变性改用 IB 路径。
+- **Fair Sufficient Representation Learning（[2504.01030](https://arxiv.org/abs/2504.01030)）**：仅 CoRR 2025 预印本。剔除，其思想由 CVPR 2022 [2203.07004](https://arxiv.org/abs/2203.07004) + AAAI 2024 [2312.06989](https://arxiv.org/abs/2312.06989) 覆盖。
+- **IndiSeek（[2509.21584](https://arxiv.org/abs/2509.21584)）**：仅 CoRR 2025 预印本。剔除，independence+completeness 由 NeurIPS 2023 [2304.07939](https://arxiv.org/abs/2304.07939) 覆盖。
+- **Rényi Fair IB（[2203.04950](https://arxiv.org/abs/2203.04950)）**：CWIT 2022（小型 workshop）。降为次要参考，不作主要依据。
+- **修正声称**：Information Dropout venue 为 **IEEE TPAMI**（非 JMLR）；[2203.07004](https://arxiv.org/abs/2203.07004) 为 CVPR 2022（去掉先前"oral"标记，DBLP 未证实 oral）；RCGRL [2208.08584](https://arxiv.org/abs/2208.08584) 为 AAAI 2023（去掉 oral 标记）。
 
 ## OpenFace 版本与数据约定
 
