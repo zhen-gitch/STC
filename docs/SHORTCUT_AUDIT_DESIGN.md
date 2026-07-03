@@ -188,7 +188,8 @@ OpenFace quality + pose + gaze + video quality -> BDI
 rgb                # 当前 OpenFace aligned RGB
 grayscale          # 去除颜色捷径
 blur               # 弱化身份纹理
-center_mask        # 保留面部中央区域
+center_mask        # 历史小椭圆遮挡：主要保留鼻梁/鼻子/鼻下区域
+central_face_mask  # 新中心脸遮挡：保留眼、鼻、嘴和主要脸颊区域
 boundary_erased    # 弱化裁剪边界、头发、衣服残留
 black_to_gray      # 将近黑填充/遮挡区域替换为中性灰
 black_to_mean      # 将近黑区域替换为当前帧非黑像素均值
@@ -461,7 +462,8 @@ recommended_diagnostics
 rgb                # 当前 OpenFace aligned RGB baseline
 grayscale          # 弱化颜色和肤色捷径
 blur               # 弱化身份纹理、皱纹、皮肤细节
-center_mask        # 保留面部中心行为区域
+center_mask        # 历史小椭圆遮挡：主要保留鼻梁/鼻子/鼻下区域
+central_face_mask  # 新中心脸遮挡：保留眼、鼻、嘴和主要脸颊区域
 boundary_erased    # 弱化裁剪边界、黑边、头发、衣物残留
 black_to_gray      # 将近黑填充/遮挡区域替换为中性灰
 black_to_mean      # 将近黑区域替换为当前帧非黑像素均值
@@ -483,7 +485,7 @@ landmark_heatmap   # 用几何结构替代 RGB 纹理
 
 - 已新增 `src/datasets/input_variants.py`；
 - 已在 `AVECDataset` 中接入 `DATASET.INPUT_VARIANT`，默认值为 `rgb`，因此不改变既有训练行为；
-- 当前 RGB dataset 已支持 `rgb`、`grayscale`、`blur`、`center_mask`、`boundary_erased`、`black_to_gray`、`black_to_mean`、`black_to_blur`、`soft_center_mask`、`inner_crop_resize`；
+- 当前 RGB dataset 已支持 `rgb`、`grayscale`、`blur`、`center_mask`、`central_face_mask`、`boundary_erased`、`black_to_gray`、`black_to_mean`、`black_to_blur`、`soft_center_mask`、`inner_crop_resize`；
 - `landmark_heatmap` 被显式保留为 OpenFace landmark/behavior baseline 路径，当前如果在 RGB dataset 中配置该值会报错，避免伪造 landmark 输入；
 - 已在 `configs/avec2014_base.yaml` 中加入 `DATASET.INPUT_VARIANT: "rgb"` 作为默认约定；
 - 已新增 `tests/test_input_variants.py`，用于验证输入变体的形状、dtype、alias 和保留值行为。
@@ -496,6 +498,14 @@ landmark_heatmap   # 用几何结构替代 RGB 纹理
 2. 模型依赖黑色遮挡块和面部之间的硬像素突变；
 3. `center_mask` 改善来自去除黑伪迹，而不一定来自保留面部中心行为；
 4. 硬 mask 本身可能制造新的边界，因此需要软 mask 对照。
+
+2026-07-03 对真实输入帧的审查进一步修正了第 3 点：历史 `center_mask` 实际只保留鼻梁、鼻子和鼻下/上唇附近的小椭圆，不应称为面部中心行为区域。新增 `central_face_mask` 作为反证消融，用于验证旧结论是否仍能在保留眼、鼻、嘴和主要脸颊的中心脸区域时成立。
+
+判读：
+
+- 若 `central_face_mask` 接近或优于历史 `center_mask`，说明原结论可升级为“外围/边界/轮廓线索是风险入口，中心脸主体仍有可用信息”；
+- 若 `central_face_mask` 明显弱于历史 `center_mask`，说明历史收益可能来自极强遮挡或鼻口局部偶然线索，不能作为中心脸行为证据；
+- 无论哪种情况，都必须同时报告 identity retrieval、severity bias、task consistency 和 train-val gap，不能只凭 overall MAE 判定。
 
 新增黑伪迹审计：
 

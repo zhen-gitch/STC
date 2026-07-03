@@ -39,13 +39,42 @@ def test_blur_variant_preserves_shape_and_changes_values():
 def test_mask_variants_preserve_center_and_erase_boundaries():
     video = torch.full((1, 3, 16, 16), 255, dtype=torch.uint8)
     center_masked = apply_input_variant(video, "center_mask")
+    central_face_masked = apply_input_variant(video, "central_face_mask")
     boundary_erased = apply_input_variant(video, "boundary_erased")
 
     assert center_masked[:, :, 8, 8].sum() > 0
+    assert central_face_masked[:, :, 8, 8].sum() > 0
     assert boundary_erased[:, :, 8, 8].sum() > 0
     assert center_masked[:, :, 0, 0].sum() == 0
+    assert central_face_masked[:, :, 0, 0].sum() == 0
     assert boundary_erased[:, :, 0, 0].sum() == 0
+    assert central_face_masked.sum() > boundary_erased.sum()
     assert boundary_erased.sum() > center_masked.sum()
+
+
+def test_central_face_mask_covers_face_landmark_regions_more_broadly():
+    video = torch.full((1, 3, 112, 112), 255, dtype=torch.uint8)
+
+    center_masked = apply_input_variant(video, "center_mask")
+    central_face_masked = apply_input_variant(video, "central_face_mask")
+
+    # Current center_mask is intentionally preserved as a tiny nose/mouth patch
+    # for historical ablation reproducibility.
+    assert center_masked[:, :, 31, 35].sum() == 0
+    assert center_masked[:, :, 80, 56].sum() == 0
+
+    # central_face_mask is the new control: it retains approximate eye, nose,
+    # mouth, and cheek regions while still erasing image corners.
+    assert central_face_masked[:, :, 31, 35].sum() > 0
+    assert central_face_masked[:, :, 31, 76].sum() > 0
+    assert central_face_masked[:, :, 80, 56].sum() > 0
+    assert central_face_masked[:, :, 56, 24].sum() > 0
+    assert central_face_masked[:, :, 0, 0].sum() == 0
+
+    center_area = (center_masked[:, 0] > 0).float().mean()
+    central_face_area = (central_face_masked[:, 0] > 0).float().mean()
+    assert 0.12 < float(center_area) < 0.15
+    assert 0.45 < float(central_face_area) < 0.50
 
 
 def test_black_replacement_variants_remove_near_black_pixels():
@@ -223,6 +252,8 @@ def test_identity_texture_suppressed_edge_soften_combines_both_effects():
 def test_input_variant_aliases_and_reserved_values():
     assert normalize_input_variant("gray") == "grayscale"
     assert normalize_input_variant("masked_face") == "center_mask"
+    assert normalize_input_variant("face_oval_mask") == "central_face_mask"
+    assert normalize_input_variant("central_face") == "central_face_mask"
     assert normalize_input_variant("black_fill_gray") == "black_to_gray"
     assert normalize_input_variant("soft_mask") == "soft_center_mask"
     assert normalize_input_variant("border_black_gray") == "border_black_to_gray"

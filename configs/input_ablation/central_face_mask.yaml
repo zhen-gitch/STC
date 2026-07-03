@@ -1,0 +1,5 @@
+MODEL:
+  NAME: "rgb_ablation_central_face_mask"
+
+DATASET:
+  INPUT_VARIANT: "central_face_mask"

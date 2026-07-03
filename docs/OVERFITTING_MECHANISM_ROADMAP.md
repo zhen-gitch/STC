@@ -484,7 +484,7 @@ center_mask_soft_boundary_v2
 
 关键证据：
 
-- `center_mask` 是当前最健康的 input artifact mitigation：MAE `7.942`、CCC `0.477`、pred_std `8.132`，moderate bias 从 RGB 的 `-7.66` 改善到 `-2.08`。
+- `center_mask` 是当前最健康的历史 input artifact mitigation：MAE `7.942`、CCC `0.477`、pred_std `8.132`，moderate bias 从 RGB 的 `-7.66` 改善到 `-2.08`。但 2026-07-03 真实输入帧审查显示它实际是鼻口小区域强遮挡，不能解释为完整中心脸行为证据；需用新增 `central_face_mask` 反证验证。
 - `center_mask_black_to_gray` 的 MAE 最低 `7.726`，但 severe bias 达 `-17.46`，说明 overall MAE 不能单独作为模型选择依据。
 - `border_black_feather` 的 severe bias 最轻 `-12.73`，但 same-subject top-1 达 `0.75`、top-5 达 `0.90`，提示 severe 端改善与 identity/static appearance shortcut 可能纠缠。
 - `middle_crop` 将 same-subject top-1 降到 `0.49`，但 task diff 升至 `4.63` 且 severity agreement 最低 `0.454`，说明去身份化表象可能来自 temporal/task mismatch，而非更好的抑郁表征。

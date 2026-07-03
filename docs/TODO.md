@@ -101,6 +101,16 @@ Stage A RPDF 证据收口
 - [ ] 暂缓新增 RGB 输入滤镜、黑边替换、灰度、模糊、mask、boundary variants。
 - [ ] 暂缓 optical flow、two-stream temporal model 和复杂 dynamic branch。
 
+### 输入遮挡语义修正（2026-07-03 定点例外）
+
+> 这是对历史 `center_mask` 结论的审查修正，不是重新打开普通输入滤镜搜索。
+
+- [x] 审查真实 OpenFace aligned 输入帧，确认历史 `center_mask` 主要保留鼻梁、鼻子、鼻下/上唇附近小区域，不应解释为完整中心脸行为区域。
+- [x] 新增 `central_face_mask` 输入变体和配置，用于保留眼、鼻、嘴和主要脸颊区域。
+- [x] 新增测试，约束 `center_mask` 与 `central_face_mask` 的面积和关键区域覆盖差异。
+- [ ] 服务器运行 `central_face_mask`，并与 `rgb`、历史 `center_mask`、`boundary_erased`、`center_mask_black_to_gray` 统一比较。
+- [ ] 汇总报告必须同时包含 BDI metrics、severity bias、identity retrieval、task consistency 和 train-val gap；若 `central_face_mask` 明显弱于历史 `center_mask`，应将历史 `center_mask` 结论降级为极强局部遮挡证据。
+
 ## 当前架构目标
 
 项目采用新架构：

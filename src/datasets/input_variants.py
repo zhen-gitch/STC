@@ -7,6 +7,7 @@ SUPPORTED_INPUT_VARIANTS = {
     "grayscale",
     "blur",
     "center_mask",
+    "central_face_mask",
     "boundary_erased",
     "black_to_gray",
     "black_to_mean",
@@ -31,6 +32,8 @@ def normalize_input_variant(variant):
         "gray": "grayscale",
         "grey": "grayscale",
         "masked_face": "center_mask",
+        "face_oval_mask": "central_face_mask",
+        "central_face": "central_face_mask",
         "boundary_mask": "boundary_erased",
         "black_fill_gray": "black_to_gray",
         "black_fill_mean": "black_to_mean",
@@ -74,6 +77,8 @@ def apply_input_variant(video_tensor, variant):
         return _blur_video(video_tensor)
     if variant == "center_mask":
         return _apply_ellipse_mask(video_tensor, radius_y=0.46, radius_x=0.38)
+    if variant == "central_face_mask":
+        return _apply_ellipse_mask(video_tensor, radius_y=0.86, radius_x=0.70, center_y=-0.02)
     if variant == "boundary_erased":
         return _apply_ellipse_mask(video_tensor, radius_y=0.72, radius_x=0.60)
     if variant == "black_to_gray":
@@ -134,20 +139,26 @@ def _blur_video(video_tensor, kernel_size=7):
     return _restore_dtype(blurred, dtype)
 
 
-def _ellipse_mask(height, width, radius_y, radius_x, device):
+def _ellipse_mask(height, width, radius_y, radius_x, device, center_y=-0.08, center_x=0.0):
     y = torch.linspace(-1.0, 1.0, steps=height, device=device).view(height, 1)
     x = torch.linspace(-1.0, 1.0, steps=width, device=device).view(1, width)
-    center_y = -0.08
-    center_x = 0.0
     mask = (((y - center_y) / radius_y) ** 2 + ((x - center_x) / radius_x) ** 2) <= 1.0
     return mask.to(dtype=torch.float32).view(1, 1, height, width)
 
 
-def _apply_ellipse_mask(video_tensor, radius_y, radius_x):
+def _apply_ellipse_mask(video_tensor, radius_y, radius_x, center_y=-0.08, center_x=0.0):
     dtype = video_tensor.dtype
     _, _, height, width = video_tensor.shape
     values = video_tensor.to(dtype=torch.float32)
-    mask = _ellipse_mask(height, width, radius_y=radius_y, radius_x=radius_x, device=values.device)
+    mask = _ellipse_mask(
+        height,
+        width,
+        radius_y=radius_y,
+        radius_x=radius_x,
+        center_y=center_y,
+        center_x=center_x,
+        device=values.device,
+    )
     return _restore_dtype(values * mask, dtype)
 
 

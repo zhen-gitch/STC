@@ -275,9 +275,11 @@ DATASET:
 
 历史遗留键（如 `MODEL.ENABLE_CGC`、`MODEL.ENABLE_ADAPTIVE_MASK`、`LOSSES.REGRESSION`、`LOSSES.LDS_WEIGHTING`、`LOSSES.DIST_WEIGHT`、`VISUALIZATION` 等）已从 `configs/avec2014_base.yaml` 移除，完整旧配置保留在 `configs/pre/default_config.yaml`。
 
-当前 RGB dataset 支持 `rgb`、`grayscale`、`blur`、`center_mask`、`boundary_erased`、`black_to_gray`、`black_to_mean`、`black_to_blur`、`soft_center_mask`、`inner_crop_resize`。`landmark_heatmap` 需要真实 OpenFace landmark 坐标，应在后续 behavior baseline 或 OpenFace landmark dataset 中实现，不应由 RGB 帧伪造。
+当前 RGB dataset 支持 `rgb`、`grayscale`、`blur`、`center_mask`、`central_face_mask`、`boundary_erased`、`black_to_gray`、`black_to_mean`、`black_to_blur`、`soft_center_mask`、`inner_crop_resize`。`landmark_heatmap` 需要真实 OpenFace landmark 坐标，应在后续 behavior baseline 或 OpenFace landmark dataset 中实现，不应由 RGB 帧伪造。
 
 2026-06-15 之后，输入消融的优先目标从泛泛验证“背景/纹理捷径”收窄到 OpenFace aligned face 的黑填充和硬边界伪迹。`center_mask` 优于 `rgb`，但它可能同时改变了面部区域和黑边伪迹，因此必须通过 `black_to_*`、`soft_center_mask` 和 `inner_crop_resize` 继续拆解原因。在该证据闭环完成前，RGB + behavior late fusion 和新的行为辅助任务不应作为最高优先级。
+
+2026-07-03 对真实输入帧的审查显示，历史 `center_mask` 只保留鼻口附近小区域，不能解释为完整中心脸或行为区域。`central_face_mask` 是新增的语义校准消融，用于覆盖眼、鼻、嘴和主要脸颊，并验证历史 `center_mask` 结论是否来自极强遮挡。
 
 黑伪迹审计后需要进一步收窄实现：中心近黑像素可能是鼻孔、嘴角阴影、胡须、麦克风或真实遮挡，不应默认替换。下一轮输入变体应优先实现 `border_black_to_gray`、`border_black_feather` 和 `center_mask_black_to_gray`，只处理中与图像边界连通的近黑区域，并保留中心近黑语义。
 

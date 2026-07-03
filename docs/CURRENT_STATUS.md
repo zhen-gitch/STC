@@ -10,6 +10,12 @@
 
 当前工作已经从 **Shortcut-Regularized MTL** 进一步升级为 **RPDF-Net：风险感知递进式去身份因子分解网络**。这一转移不是推翻既有工作，而是把已有 RGB input ablation、identity retrieval、severity calibration、temporal sampling、alignment geometry 和 black artifact 审计结果，统一作为 RPDF-Net 的问题证据与支线验证基础。
 
+### 2026-07-03 输入遮挡语义修正
+
+对真实 OpenFace aligned 输入帧的人工审查显示，历史 `center_mask` 只保留约 13.5% 总像素，在 18 张样例帧上仅保留约 16.6%-18.2% 可见非黑区域，视觉上主要覆盖鼻梁、鼻子和鼻下/上唇附近。因此，历史 `center_mask` 结果不得继续解释为“保留面部中心行为区域”或“中心脸行为有效”；更准确的解释是 **tiny central nose/mouth patch ablation**，即通过强遮挡删除大部分身份外观、脸部轮廓、眼镜/胡须/头发和对齐边界线索。
+
+为验证原有 input artifact / shortcut 结论是否仍成立，已新增 `central_face_mask` 作为新的对照消融。该变体覆盖眼、鼻、嘴和主要脸颊区域，保留约 45%-50% 总像素，用于区分“完整中心脸区域有效”与“旧 `center_mask` 的鼻口小块强遮挡偶然有效”。该修正是对历史输入消融语义的校准，不改变当前 RPDF-Net Stage A 优先级。
+
 RPDF-Net 的核心目标是：不再简单要求模型“删除身份”，而是建立一个可审计的信息分流机制：
 
 ```text

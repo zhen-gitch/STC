@@ -397,6 +397,11 @@ python scripts/train_mtl_lite.py \
   --override configs/regression_only_baseline.yaml \
   --override configs/input_ablation/center_mask.yaml
 
+# 2b. 训练 central_face_mask：覆盖眼、鼻、嘴和主要脸颊的新遮挡对照
+python scripts/train_mtl_lite.py \
+  --override configs/regression_only_baseline.yaml \
+  --override configs/input_ablation/central_face_mask.yaml
+
 # 3. 训练边界平滑消融
 python scripts/train_mtl_lite.py \
   --override configs/regression_only_baseline.yaml \
@@ -422,12 +427,16 @@ python scripts/diagnose_mtl_lite.py \
 python scripts/diagnose_mtl_lite.py \
   --run-dir <LOG_DIR>/default/center_mask/version_0 --ckpt best
 
+python scripts/diagnose_mtl_lite.py \
+  --run-dir <LOG_DIR>/default/rgb_ablation_central_face_mask/version_0 --ckpt best
+
 # 5. 汇总比较（包含 Identity x Boundary 2x2 四组）
 python scripts/summarize_prediction_runs.py \
   --output-dir analysis_outputs/rgb_vs_center_mask \
   --baseline rgb \
   --run rgb=<LOG_DIR>/default/rgb/version_0/diagnostics/regression/test_predictions.csv \
   --run center_mask=<LOG_DIR>/default/center_mask/version_0/diagnostics/regression/test_predictions.csv \
+  --run central_face_mask=<LOG_DIR>/default/rgb_ablation_central_face_mask/version_0/diagnostics/regression/test_predictions.csv \
   --run edge_soften_only=<LOG_DIR>/default/edge_soften_only/version_0/diagnostics/regression/test_predictions.csv \
   --run border_blur_fill=<LOG_DIR>/default/border_blur_fill/version_0/diagnostics/regression/test_predictions.csv \
   --run identity_texture_suppressed=<LOG_DIR>/default/identity_texture_suppressed/version_0/diagnostics/regression/test_predictions.csv \
