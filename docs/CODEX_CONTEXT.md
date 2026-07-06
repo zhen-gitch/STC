@@ -6,34 +6,41 @@
 
 ## 当前架构决策
 
-项目采用 **legacy full model 与 MTL-Lite 新主线硬边界隔离** 的架构。
+项目采用 **legacy full model 与 MTL-Lite 模型基座硬边界隔离** 的架构。
 
 核心原则：
 
 ```text
 旧大模型：整体迁入 src/legacy/full_model/，只作为可运行历史快照
-新主线模型：独立放在 src/models/mtl_lite.py，不继承旧模型
+MTL-Lite 基座：独立放在 src/models/mtl_lite.py，不继承旧模型
 通用模块：保留在 src/models、src/metrics、src/datasets 等主线位置
 诊断系统：独立规划为 src/diagnostics/，尽量离线运行
 ```
 
 不要继续把 MTL-Lite 新逻辑加入旧的 `EndToEndDepressionModel`。旧模型复制到新路径后可按旧方式运行，因此暂时放弃对旧模型的额外修复、重构和 import 清理。legacy 只需要 README 说明边界、运行方式和维护策略。
 
-## 当前研究主线
+## 当前研究路线与模型基座
 
-当前论文方向是 **MTL-Lite 轻量级多任务 BDI 预测模型**，面向 AVEC2014 风格的人脸视频抑郁程度预测。
+当前论文路线是 **Shortcut-aware Task-Nuisance Disentangled Representation Learning**，面向 AVEC2014 风格的人脸视频抑郁程度预测。MTL-Lite 仍是当前训练和诊断的轻量模型基座，但不再单独构成完整论文主张。
 
-目标流程：
+当前基础流程：
 
 ```text
 人脸视频帧 -> 视觉 backbone -> 时序编码器 -> 共享视频表征 -> BDI 回归头 + 有序严重程度分类头
 ```
 
-论文主张：
+当前路线在该基础上推进：
 
-有序严重程度预测为连续 BDI 回归提供结构化辅助监督；轻量、可解释、可消融的多任务结构比继续堆叠复杂模块更适合作为当前论文主线。
+```text
+Stage A: shortcut 证据收口
+Stage B: identity-adversarial task representation
+Stage C: coarse task-nuisance disentanglement
+Stage D: robustness validation
+```
 
-### 研究路线修订：RGB 过拟合多因素审计优先
+核心主张：不显式枚举所有潜在 nuisance factors，而是学习 `z_dep` 与 `z_nuisance` 的粗粒度分流；仅对 subject identity 等可验证 shortcut 使用弱监督或对抗约束。artifact、context、pose、quality 等因素作为 audit/probe/case-study/group-wise evaluation 变量。
+
+### 机制证据背景：RGB 过拟合多因素审计
 
 当前视频帧序列已经由 OpenFace 裁剪和对齐，所用 OpenFace 版本可能不是最新版。后续分析不应简单描述为“背景过拟合”，而应关注 OpenFace aligned face 中仍然存在的非抑郁捷径：
 
@@ -45,7 +52,7 @@
 
 2026-06-15 的 RGB 输入消融和样例帧检查说明：OpenFace aligned face 中的黑填充、硬边界和遮挡黑块是重要的 input artifact 子证据。`center_mask` 明显优于原始 `rgb`，而 `grayscale`、`blur` 变差，说明输入侧非行为线索确实值得研究。但最新黑伪迹审计与边界连通黑区消融也说明，黑边/黑填充不能单独解释 severe 低估、task inconsistency 和 prediction compression。
 
-因此，下一阶段优先级从继续搜索 `FINETUNE_LAST_N_BLOCKS`、继续增加 RGB mask 或提前进入 late fusion，转向 RGB 过拟合多因素审计：
+因此，历史阶段的优先级曾从继续搜索 `FINETUNE_LAST_N_BLOCKS`、继续增加 RGB mask 或提前进入 late fusion，转向 RGB 过拟合多因素审计：
 
 ```text
 split integrity audit
@@ -55,24 +62,24 @@ split integrity audit
 -> embedding identity retrieval
 -> severity calibration verification
 -> task inconsistency mixed-factor audit
--> stable behavior subset
--> RGB + behavior late fusion
 ```
 
-权威研究路线归档在 `docs/RGB_OVERFITTING_AUDIT_PLAN.md`。相关研究背景在 `docs/RESEARCH_NOTES.md`。后续 Codex 在设计实验或修改模型前，应优先阅读这两个文档。
+这些审计现在作为当前 task-nuisance 路线的证据层和 Stage A 输入，不再单独构成新的模型路线。
+
+当前文档导航以 `docs/DOCS_GUIDE.md` 为准；当前执行入口以 `docs/TODO.md` 的“当前立即执行任务（权威入口）”为准。机制路线归档在 `docs/RGB_OVERFITTING_AUDIT_PLAN.md`，相关研究背景在 `docs/RESEARCH_NOTES.md`。后续 Codex 在设计实验或修改模型前，应先确认这些文档是否仍与当前 task-nuisance 路线一致。
 更高层的系统机制路线图位于 `docs/OVERFITTING_MECHANISM_ROADMAP.md`。后续不要把单个 artifact 当作总解释，应按该文档的 Layer 0-6 逐层验证：数据有效性、prediction compression、input/local occlusion、identity/static appearance、OpenFace geometry/quality、temporal/task context、model optimization。
 
 非抑郁捷径验证框架归档在 `docs/SHORTCUT_AUDIT_DESIGN.md`。后续若用户要求实现 OpenFace 质量诊断、输入消融、shortcut-only baseline 或行为表征 baseline，应先阅读该文档，并优先采用离线诊断方式，避免改动训练主流程。
 
 当前不建议直接升级 OpenFace 并覆盖已有数据。若使用 OpenFace 3.0、LibreFace 或其他工具，应作为独立数据版本和消融实验，不与当前 OpenFace 版本混用。
 
-## 当前项目状态
+## 项目状态摘要
 
 - 项目已经在服务器环境通过 debug smoke，可以完整运行旧模型训练流程。
-- 当前正在从旧大模型转向 MTL-Lite 新主线。
+- 当前已经从旧大模型转向 MTL-Lite 轻量模型基座，并在其上推进 task-nuisance 路线。
 - 旧大模型相关代码应整体进入 `src/legacy/full_model/`，但不再作为主要维护对象。
 - `scripts/train.py` 是旧端到端训练入口。
-- `scripts/train_mtl_lite.py` 是 MTL-Lite 新主线训练入口。
+- `scripts/train_mtl_lite.py` 是 MTL-Lite 基座训练入口。
 - `scripts/diagnose_mtl_lite.py` 是 MTL-Lite 离线诊断与模型表征绘图入口。
 - 新旧训练入口均使用标准配置栈：
   `configs/avec2014_base.yaml` + 被 git 忽略的 `configs/local_paths.yaml` + 可选 override。
@@ -90,7 +97,7 @@ Codex 的默认 shell 可能打开在其他目录。运行命令前必须确认�
 
 ## 目标目录边界
 
-### 新主线与通用模块
+### MTL-Lite 基座与通用模块
 
 ```text
 src/
@@ -263,7 +270,7 @@ python scripts/train_mtl_lite.py --override configs/mtl_lite_debug_smoke.yaml
 python scripts/diagnose_mtl_lite.py --run-dir <LOG_DIR>/default/mtl_lite/version_0 --ckpt best
 ```
 
-## Shortcut Audit 当前结论
+## Shortcut Audit 历史结论
 
 `*_video` 与 `*_video_aligned` 的 `video_id` 规范化问题已经修复。最新有效
 Shortcut Audit 输出中，`Matched samples: 100`，且样本均通过完整 `video_id`
@@ -285,7 +292,7 @@ Shortcut Audit 输出中，`Matched samples: 100`，且样本均通过完整 `vi
 后续 Codex 在解释 Shortcut Audit 时，仍必须先确认 `Matched samples` 达到预期样本数；
 若匹配数为 0 或明显偏低，只能判定为对齐失败，不能解释风险等级。
 
-## P0 后续执行上下文
+## 历史 P0 执行上下文
 
 grouped-CV shortcut-only predictor 已经把当前风险判断从“可能由 OpenFace 统计特征完全解释”修正为“存在中等 shortcut 风险，但仍需要进一步定位 RGB/MTL-Lite 的失败模式”。后续 Codex 不应只根据 in-sample linear/ridge predictor 的高分继续扩大 shortcut 结论，也不应在缺乏诊断证据时继续围绕 backbone 解冻层数反复试验。
 
@@ -298,7 +305,7 @@ grouped-CV shortcut-only predictor 已经把当前风险判断从“可能由 Op
 实现这些任务时应保持以下边界：
 
 - case study manifest 和输入消融设计优先作为离线诊断，不嵌入训练 forward；
-- behavior-only baseline 应作为独立训练入口和独立配置，不污染 MTL-Lite 主线；
+- behavior-only baseline 应作为独立训练入口和独立配置，不污染 MTL-Lite 基座训练入口；
 - 所有实验必须保持相同 split、seed、checkpoint 选择策略和核心指标，避免把数据划分或评估策略变化误解释为模型改进；
 - 任何涉及训练超参数、dataset 输入变体实际接入或新模型训练入口的修改，都需要用户确认后再实施。
 
@@ -378,7 +385,7 @@ python scripts/audit_black_artifacts.py \
 - 新的边界黑区 mask 应只处理与图像边界连通的近黑区域，默认保留中心近黑区域。
 - case study 必须对照高黑边高误差、高黑边低误差、低黑边高误差三类样本，避免把黑边风险过度泛化。
 
-RGB 过拟合的后续解释必须采用多因素框架。除黑边外，优先考虑：
+RGB 过拟合的历史解释采用多因素框架。除黑边外，优先考虑：
 
 - 身份与静态外观：脸型、年龄、肤色、胡须、发际线、眼镜、皮肤纹理；
 - OpenFace 对齐几何：face scale、landmark bbox、face center offset、eye distance；
@@ -387,7 +394,7 @@ RGB 过拟合的后续解释必须采用多因素框架。除黑边外，优先�
 - 任务语境差异：Freeform/Northwind 同 subject prediction inconsistency；
 - 标签分布和校准：prediction compression、minimal overestimate、severe underestimate。
 
-后续 Codex 在设计新实验时，应优先把这些因素做成离线 audit 或单因素消融，不要直接进入 RGB + behavior late fusion。当前建议顺序以 `docs/RGB_OVERFITTING_AUDIT_PLAN.md` 为准：split integrity -> temporal sampling -> training overfit curves -> alignment geometry -> embedding identity retrieval -> severity calibration -> task inconsistency mixed-factor audit。
+后续 Codex 若复用这些历史证据，应优先把这些因素作为离线 audit、单因素消融或 Stage A 证据输入，不要直接进入 RGB + behavior late fusion。具体执行顺序仍以 `docs/TODO.md` 的当前入口为准。
 眼镜、麦克风、胡须等因素应归入 identity/static appearance 与 local occlusion artifact 审计，而不是作为新的单一主因。处理原则：
 
 - 先做 case-study、attention、spatial occlusion 和 embedding retrieval 复核；
@@ -533,9 +540,9 @@ landmark_bbox_height_mean vs residual: -0.2605
 normalized_face_scale_mean vs true_bdi: 0.3410
 ```
 
-最新高优先级过拟合审查结论：
+历史高优先级过拟合审查结论：
 
-- RGB 过拟合多因素审计的权威路线文档是 `docs/RGB_OVERFITTING_AUDIT_PLAN.md`；
+- RGB 过拟合多因素审计的机制路线文档是 `docs/RGB_OVERFITTING_AUDIT_PLAN.md`；
 - 不再优先继续增加新的 RGB mask 变体；
 - 下一批 P0 是 split / subject integrity、temporal sampling 真实运行、training overfit curve summary、OpenFace alignment geometry、embedding identity paired-task retrieval、severity calibration verification 和 task inconsistency mixed-factor audit；
 - alignment geometry 已从 P1 提升到 P0，因为 `center_mask` 有效但 `inner_crop_resize` 变差，提示 face scale、bbox、center offset、eye distance 等几何因素可能是重要捷径；
@@ -543,7 +550,7 @@ normalized_face_scale_mean vs true_bdi: 0.3410
 - severity calibration 只作为机制验证，不能和输入消融混为最终模型调参；
 - RGB + behavior late fusion 和行为辅助 MTL 继续暂缓，必须等上述过拟合机制审计和稳定 behavior 特征子集完成后再进入。
 
-新的主线顺序：
+历史审计顺序：
 
 ```text
 split integrity audit
@@ -553,9 +560,9 @@ split integrity audit
 -> embedding identity retrieval
 -> severity calibration verification
 -> task inconsistency mixed-factor audit
--> behavior stable subset
--> RGB + behavior late fusion
 ```
+
+这些审计结果现在并入 task-nuisance 路线的证据层，不再单独作为模型路线。
 
 P0-4 当前实现位置：
 
@@ -568,21 +575,19 @@ P0-4 当前实现位置：
 
 Behavior baseline 运行时需要通过本地配置或 override 提供 `DATASET.OPENFACE_ROOT`。该路径不应写入公共配置中的私有绝对路径，也不应修改 `configs/local_paths.yaml`，除非用户明确要求在本机维护该私有路径。
 
-## 2026-06-14 Behavior baseline 后的新上下文
+## 2026-06-14 Behavior baseline 后的历史上下文
 
 最新 behavior-only baseline 已完成训练，但结果显示强烈训练集拟合和较差泛化：test MAE 约 `9.93`，RMSE 约 `12.86`，CCC 约 `0.151`；best validation RMSE 约 `12.38`，而同 epoch train RMSE 约 `2.74`。后续 Codex 不应把 behavior-only train MAE/RMSE 很低解释为路线成功，也不应立即推进 RGB + behavior late fusion。
 
 当前更合理的判断是：OpenFace CSV 中既包含有价值的面部行为线索，也包含身份、静态 landmark 几何、追踪质量、视频采集条件等容易被模型记忆的非抑郁信号。下一步必须先做 feature-group ablation 和 prediction-level 对齐比较，确定哪些特征组在 subject-level 泛化上真正有用。
 
-后续优先顺序：
+历史后续顺序：
 
 ```text
 behavior prediction export
 -> behavior feature-group ablation
 -> RGB vs behavior prediction-level comparison
 -> stable behavior subset selection
--> RGB + behavior late fusion
--> behavior auxiliary MTL-Lite
 ```
 
 实现时继续保持边界：
@@ -595,10 +600,6 @@ behavior prediction export
 
 三表联合最新结论：`rgb_input_ablation_summary`、`identity_retrieval_summary`、`severity_calibration_summary` 已覆盖 `rgb`、`center_mask`、`border_black_feather`、`middle_crop`、`center_mask_black_to_gray`。`center_mask` 是当前最健康 input artifact mitigation 证据，CCC 最高且 task consistency 接近 baseline；`center_mask_black_to_gray` MAE 最低但 severe bias 最差；`border_black_feather` severe bias 最轻但 identity retrieval 最强；`middle_crop` 降低身份检索但恶化 task consistency。所有 linear calibration 都降低 CCC，不作为最终模型方案。后续不再继续扩展普通 RGB 输入滤镜或把动态特征直接列入正式计划。
 
-RPDF-Net 当前主线：Shortcut-Regularized MTL 已被吸收为 RPDF-Net 的对照基线和支线验证。后续路线是 Stage A RPDF 证据收口（layer-wise identity probe、error-identity coupling、artifact weak-label audit、severity imbalance summary）-> Stage B RPDF-lite 单级因子分解（H0 -> z_dep,z_m,z_id,z_art,z_res）-> Stage C 两级递进与受控 z_m 传递（H_k = Phi([z_dep^k, alpha_k * z_m^k])）-> Stage D 支线验证。severity-balanced regression 用于缓解 score-bin / severity-bin 不均衡；identity-adversarial GRL 是对照支线；动态特征暂缓。
+2026-07-06 当前路线：细粒度 RPDF-Net 已降级为历史设计背景。当前路线是 **Shortcut-aware Task-Nuisance Disentangled Representation Learning**，中文暂定为“捷径感知的任务-干扰粗粒度解耦表征学习”。路线是 Stage A shortcut 证据收口（layer-wise identity probe、error-identity coupling、shortcut/artifact audit as evaluation、severity imbalance summary）-> Stage B identity-adversarial task representation -> Stage C coarse task-nuisance disentanglement（`H0 -> z_dep, z_nuisance`，必要时加 `z_id`）-> Stage D robustness validation。`z_art`、`z_m`、`z_ctx`、`z_quality` 和两级递进 RPDF 暂缓，不作为当前模型路线。artifact/context/quality 变量只作为 probes、case study 和 group-wise evaluation。
 
-
-文档整理状态：当前路线已前置到 `DOCS_GUIDE.md`、`CURRENT_STATUS.md`、`TODO.md`、`RGB_OVERFITTING_AUDIT_PLAN.md` 和 `OVERFITTING_MECHANISM_ROADMAP.md`。后续判断下一步时，优先读取 `TODO.md` 的“当前立即执行任务（权威入口）”。旧 input artifact / boundary 2x2 / temporal sampling / Shortcut-Regularized MTL 段落是历史证据，不再覆盖 RPDF-Net 主线。
-
-
-RPDF-Net 最新主线：截至 2026-06-25，未来主线正式设为 Risk-aware Progressive De-identification Factorization Network（风险感知递进式去身份因子分解网络）。Shortcut-Regularized MTL 不再作为最终主线本身，而是作为 RPDF-Net 的对照基线和支线消融。当前执行顺序是 Stage A RPDF 证据收口（layer-wise identity probe、error-identity coupling、artifact weak-label audit、severity imbalance summary）-> Stage B RPDF-lite 单级因子分解（H0 -> z_dep,z_m,z_id,z_art,z_res）-> Stage C 两级递进与受控 z_m 传递（H_k = Phi([z_dep^k, alpha_k * z_m^k])）-> Stage D 支线有效性验证。z_m 必须受控传递，不能无约束进入下一层或最终预测。第一版不直接实现完整多级多门控 RPDF-Net，不启动 dynamic features 和新的 input filter 族。
+文档整理状态：当前路线已前置到 `DOCS_GUIDE.md`、`CURRENT_STATUS.md`、`TODO.md`、`RGB_OVERFITTING_AUDIT_PLAN.md` 和 `OVERFITTING_MECHANISM_ROADMAP.md`。后续判断下一步时，优先读取 `TODO.md` 的“当前立即执行任务（权威入口）”。旧 input artifact / boundary 2x2 / temporal sampling / Shortcut-Regularized MTL / RPDF-Net 段落是历史证据，不再覆盖 task-nuisance 主线。

@@ -57,12 +57,12 @@ git status
 
 - AGENTS.md
 - README.md
-- docs/CODEX_CONTEXT.md
-- docs/CURRENT_STATUS.md
+- docs/DOCS_GUIDE.md
 - docs/TODO.md
+- docs/CURRENT_STATUS.md
+- docs/CODEX_CONTEXT.md
 - docs/BUG_LOG.md
-
-当前项目是基于 AVEC2014 面部视频的抑郁程度 BDI 预测项目，使用 PyTorch Lightning、timm、DeiT/ViT backbone、时序建模、多任务学习和可视化诊断。
+当前项目是基于 AVEC2014 风格面部视频的抑郁程度 BDI 预测项目。当前研究路线是 Shortcut-aware Task-Nuisance Disentangled Representation Learning：先完成 shortcut 证据收口，再比较 identity-adversarial baseline，最后实现粗粒度 `z_dep / z_nuisance` 解耦。MTL-Lite 是训练和诊断基座，不要把历史 RPDF-Net、CGC、contrastive 或 late fusion 路线当作当前主线。
 
 请不要修改任何文件。请先完成以下事情：
 
@@ -150,9 +150,9 @@ git status
 
 项目希望采用三层配置：
 
-1. configs/common/avec2014_base.yaml：公共基础配置。
+1. configs/avec2014_base.yaml：公共基础配置。
 2. configs/local_paths.yaml：本机或服务器私有路径，不提交 git。
-3. papers/paper01_avec2014_depression_baseline/configs/*.yaml：当前论文的实验覆盖配置。
+3. configs/*.yaml 或 configs/<experiment_group>/*.yaml：实验覆盖配置，只写 override。
 
 要求：
 
@@ -191,8 +191,7 @@ git status
    - CHUNK_SIZE
    - MAX_SEQ_LEN
    - 是否解冻 backbone
-   - 是否启用多视图 contrastive
-   - 是否重复 backbone forward
+   - 是否重复 backbone forward 或导出过多诊断特征
    - 是否启用 grad checkpointing
 6. 如果涉及 DDP，请检查：
    - strategy
@@ -210,7 +209,7 @@ git status
 
 # 6. 模型代码审查模板
 
-适用于审查 `end_to_end.py`、loss、metrics、runner。
+适用于审查 MTL-Lite、task-nuisance 模块、loss、metrics、runner。若审查 legacy `end_to_end.py`，必须明确它只是历史快照。
 
 ```text
 请审查以下模型相关代码，但不要修改文件：
@@ -222,8 +221,8 @@ git status
 3. 冻结和解冻 backbone 的逻辑是否正确。
 4. 是否只解冻 DeiT/ViT 最后 N 个 blocks。
 5. grad checkpointing 是否只在需要时启用。
-6. 多视图 contrastive 是否导致 orig/v1/v2 三次 backbone forward。
-7. loss 权重是否合理，尤其 CON_LOSS_WEIGHT、CLS_LOSS_WEIGHT。
+6. 诊断导出、layer hook 或多分支 forward 是否导致重复 backbone forward。
+7. loss 权重是否合理，尤其 BDI regression、ordinal severity、identity adversarial、reconstruction/decorrelation 等辅助损失。
 8. DDP 下 self.log 是否需要 sync_dist。
 9. best/latest segmented weights 是否只在 global_zero 保存。
 10. validation/test 可视化是否可能只使用 rank0 子集。
@@ -242,34 +241,34 @@ git status
 
 # 7. 实验设计模板
 
-适用于规划 paper01 的实验和消融。
+适用于规划当前 task-nuisance 路线的实验和消融。
 
 ```text
-请基于当前项目，为 paper01_avec2014_depression_baseline 设计一组稳健实验。
+请基于当前项目，为 Shortcut-aware Task-Nuisance Disentangled Representation Learning 设计一组稳健实验。
 
 目标：
-基于 AVEC2014 面部视频进行 BDI 抑郁严重程度预测。
+基于 AVEC2014 风格面部视频进行 BDI 抑郁严重程度预测，同时降低身份、artifact/context/quality 和 severity imbalance 等 shortcut 风险。
 
 当前模型大致为：
-video -> visual backbone -> projection -> temporal filter/decomposition -> CGC -> regression/classification/contrastive heads。
+video -> visual backbone -> temporal encoder -> shared representation -> BDI regression / ordinal severity heads。当前路线在此基础上推进 Stage A shortcut 证据收口、Stage B identity-adversarial baseline、Stage C coarse task-nuisance disentanglement、Stage D robustness validation。
 
 请设计：
 
-1. 主实验 baseline。
-2. backbone 对比实验。
-3. 是否微调 backbone 的实验。
-4. contrastive loss 消融。
-5. CORAL/classification 辅助任务消融。
-6. temporal decomposition 消融。
-7. 可视化诊断输出。
-8. 每个实验对应的 YAML 覆盖配置。
-9. 推荐运行顺序。
-10. 如何记录到 EXPERIMENT_LOG.md。
+1. Stage A 必须完成的 shortcut 证据收口。
+2. RGB / identity-adversarial / severity-balanced baseline 对照。
+3. `z_dep / z_nuisance` 粗粒度解耦实验。
+4. 可选 `z_id` 出口的启用条件和对照。
+5. multi-attacker、nuisance leakage、group-wise robustness 和 task consistency 验证。
+6. 每个实验对应的 YAML 覆盖配置或脚本入口。
+7. 推荐运行顺序。
+8. 如何记录到 `EXPERIMENT_LOG.md`、`CURRENT_STATUS.md` 和 `TODO.md`。
 
 要求：
-- 优先保证第一篇论文可完成。
+- 优先保证当前路线可验证、可复现、可写成论文。
 - 不要设计过多不必要实验。
 - 明确每个实验回答什么研究问题。
+- 不要显式划分 `z_art`、`z_ctx`、`z_pose`、`z_quality`；这些变量只作为 audit/probe/case-study/group-wise evaluation。
+- 如果 A1/A2 不能证明 identity 进入预测，不要直接进入强 identity suppression。
 - 给出实验表格草案。
 ```
 
@@ -283,23 +282,26 @@ video -> visual backbone -> projection -> temporal filter/decomposition -> CGC -
 请帮助我为当前论文撰写或修改以下部分：
 
 论文项目：
-paper01_avec2014_depression_baseline
+Shortcut-aware Task-Nuisance Disentangled Representation Learning for AVEC2014-style depression assessment
 
 任务：
 AVEC2014 面部视频抑郁程度 BDI 预测。
 
 当前方法：
-轻量视觉 backbone + 时序建模 + 多任务监督 + 可视化诊断。
+MTL-Lite 训练基座 + shortcut 证据收口 + identity-adversarial baseline + 粗粒度 `z_dep / z_nuisance` task-nuisance 解耦 + robustness validation。
 
 请先阅读：
-- papers/paper01_avec2014_depression_baseline/manuscript/outline.md
-- papers/paper01_avec2014_depression_baseline/manuscript/method.md
-- papers/paper01_avec2014_depression_baseline/experiments/EXPERIMENT_LOG.md
+- docs/DOCS_GUIDE.md
+- docs/TODO.md
+- docs/CURRENT_STATUS.md
+- docs/RGB_OVERFITTING_AUDIT_PLAN.md
+- docs/OVERFITTING_MECHANISM_ROADMAP.md
+- docs/RESEARCH_NOTES.md
 - docs/CODEX_CONTEXT.md
 
 本次写作目标：
 
-【填写：例如，重写 method 中 temporal decomposition 部分】
+【填写：例如，重写 method 中 task-nuisance representation learning 部分】
 
 要求：
 1. 不要夸大实验结论。
@@ -307,7 +309,8 @@ AVEC2014 面部视频抑郁程度 BDI 预测。
 3. 如果结果缺失，请用 TODO 标注。
 4. 用学术但清晰的英文。
 5. 保持与当前代码实现一致。
-6. 输出前说明依据了哪些文件。
+6. 不要把历史 RPDF-Net 五因子分解写成当前方法。
+7. 输出前说明依据了哪些文件。
 ```
 
 ---
@@ -378,18 +381,20 @@ AVEC2014 面部视频抑郁程度 BDI 预测。
 ```text
 项目背景：
 
-这是一个基于 AVEC2014 面部视频的抑郁程度评估项目，目标是预测 BDI 分数。项目使用 PyTorch Lightning，主要模型为 EndToEndDepressionModel。
+这是一个基于 AVEC2014 面部视频的抑郁程度评估项目，目标是预测 BDI 分数。项目使用 PyTorch Lightning；当前训练和诊断基座是 MTL-Lite，旧 `EndToEndDepressionModel` 仅作为 legacy 历史快照。
 
 当前核心流程：
-video frames -> soft spatial face gate -> visual backbone from timm/iresnet -> projection -> temporal filtering/decomposition -> masked pooling -> CGC multi-task expert layer -> regression/classification/contrastive heads。
+video frames -> visual backbone -> temporal encoder -> shared representation -> BDI regression head + ordinal severity auxiliary head。
 
 当前重点：
-1. 第一篇论文 paper01_avec2014_depression_baseline 优先。
-2. 代码结构要支持长期复用，但不要提前展开 paper02/paper03。
-3. 配置采用 base + local_paths + paper-specific experiment overrides。
-4. 正式训练优先使用本地预训练权重，避免 DDP 多进程联网下载。
-5. local_paths.yaml、logs、weights、checkpoints 不允许提交。
-6. 当前任务主目标是稳定训练、控制过拟合、规范实验记录。
+1. 当前论文路线是 Shortcut-aware Task-Nuisance Disentangled Representation Learning。
+2. MTL-Lite 是训练和诊断基座，不是完整论文主张。
+3. 先完成 Stage A shortcut 证据收口，再进入 identity-adversarial baseline 和 coarse task-nuisance disentanglement。
+4. 第一版只显式使用 `z_dep / z_nuisance`，必要时加 `z_id`；不显式划分 `z_art/z_ctx/z_pose/z_quality`。
+5. artifact/context/quality 变量只作为 audit、probe、case study 和 group-wise evaluation。
+6. 配置采用 `configs/avec2014_base.yaml` + `configs/local_paths.yaml` + override。
+7. 正式训练优先使用本地预训练权重，避免 DDP 多进程联网下载。
+8. `local_paths.yaml`、logs、weights、checkpoints 不允许提交。
 ```
 
 ---
@@ -455,7 +460,7 @@ video frames -> soft spatial face gate -> visual backbone from timm/iresnet -> p
 【填写任务】
 
 约束：
-1. 先阅读 AGENTS.md、README.md、docs/CURRENT_STATUS.md。
+1. 先阅读 AGENTS.md、README.md、docs/DOCS_GUIDE.md，再按导航读取 docs/CURRENT_STATUS.md。
 2. 先给计划，不要直接修改。
 3. 不要修改 local_paths.yaml、logs、weights、checkpoint。
 4. 不要同时做无关重构。

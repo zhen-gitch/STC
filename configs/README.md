@@ -1,5 +1,9 @@
 # Configs
 
+For the current research route and experiment priority, read
+`docs/DOCS_GUIDE.md` first. This file only describes configuration layout and
+common run entry points.
+
 Recommended merge order for new experiments:
 
 1. `avec2014_base.yaml`
@@ -20,13 +24,13 @@ compatibility. Prefer the base + local paths + override layout for new runs.
 
 完整脚本使用手册见 `docs/EXPERIMENT_SCRIPT_MANUAL.md`。
 
-MTL-Lite mainline overrides:
+MTL-Lite base run overrides:
 
 - `regression_only_baseline.yaml`: BDI regression only.
 - `mtl_lite_baseline.yaml`: BDI regression plus ordinal severity classification.
 - `mtl_lite_debug_smoke.yaml`: short MTL-Lite smoke run.
 
-Run the new mainline with:
+Run the MTL-Lite base smoke with:
 
 ```bash
 python scripts/train_mtl_lite.py --override configs/mtl_lite_debug_smoke.yaml

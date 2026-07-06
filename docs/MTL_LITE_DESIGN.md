@@ -1,6 +1,6 @@
-# MTL-Lite 新架构设计
+# MTL-Lite 模型基座设计
 
-本文档描述项目从旧的大型端到端模型迁移到新主线 **MTL-Lite 轻量级多任务抑郁预测模型** 的代码结构、模块边界、接口定义和实施路线。
+本文档描述项目从旧的大型端到端模型迁移到 **MTL-Lite 轻量级多任务抑郁预测模型基座** 的代码结构、模块边界、接口定义和实施路线。当前论文路线以 `docs/DOCS_GUIDE.md` 和 `docs/TODO.md` 为准；MTL-Lite 是训练和诊断基座，不单独覆盖当前 task-nuisance 路线。
 
 ## 1. 架构决策
 
@@ -8,7 +8,7 @@
 
 ```text
 legacy/full_model：保存旧的大型端到端模型及其强相关模块
-src/models：保存新主线模型和明确可复用的通用模型组件
+src/models：保存 MTL-Lite 模型基座和明确可复用的通用模型组件
 src/diagnostics：保存独立诊断与可视化工具
 ```
 
@@ -17,11 +17,11 @@ src/diagnostics：保存独立诊断与可视化工具
 - 旧模型整体迁移到 legacy 区域，作为可运行历史模型保留；
 - 旧模型只保留说明文档和运行快照，不再投入额外修复或重构；
 - 新模型不继承旧模型，不复用旧模型内部复杂训练路径；
-- 可复用模块保留在主线位置；
+- 可复用模块保留在通用位置；
 - 旧模型专属模块放入 legacy；
 - 诊断系统与模型主体解耦，尽量离线运行。
 
-## 2. 目标模型主线
+## 2. 目标模型基座
 
 MTL-Lite 主流程：
 
@@ -37,15 +37,15 @@ MTL-Lite 主流程：
 
 - 有序抑郁严重程度分类。
 
-论文主张：
+基座作用：
 
-使用有序严重程度辅助监督约束共享时序表征，在 AVEC2014 面部视频小样本场景中提升连续 BDI 预测的稳定性和可解释性。
+使用有序严重程度辅助监督约束共享时序表征，为 AVEC2014 面部视频小样本场景提供稳定、可消融的 BDI 预测基线。当前 task-nuisance 路线在该基座之上继续审计和改进表征。
 
-### 2.1 OpenFace 行为表征扩展方向
+### 2.1 OpenFace 行为表征对照（暂缓扩展）
 
 当前输入帧已经经过 OpenFace 裁剪和对齐。后续模型设计需要承认 aligned face 中仍可能包含身份纹理、裁剪伪影、姿态残留、追踪质量和视频质量等非抑郁捷径。仅依赖 RGB backbone 可能不足以学习跨 subject 稳定的抑郁相关行为线索。
 
-因此，MTL-Lite 的后续扩展方向从单纯 BDI ordinal 辅助监督，逐步转向 OpenFace 行为结构特征：
+OpenFace 行为结构特征可以作为独立对照和证据来源，但不再作为当前 task-nuisance 路线的直接开发目标。下面是历史候选结构，不代表当前实现顺序：
 
 ```text
 aligned RGB frames
@@ -55,14 +55,14 @@ aligned RGB frames
   -> BDI regression + behavior-aware auxiliary tasks
 ```
 
-建议优先实现和比较：
+历史候选对照包括：
 
 - landmark-only temporal baseline；
 - AU / pose / gaze-only temporal baseline；
-- RGB + behavior late fusion；
-- AU intensity、AU presence、landmark motion、pose/gaze、expression distribution 等辅助任务。
+- behavior-only 与 RGB/MTL-Lite 的 prediction-level 对照；
+- AU intensity、AU presence、landmark motion、pose/gaze、expression distribution 等辅助任务仅在行为特征子集稳定后再考虑。
 
-该方向的研究依据和实验计划见 `docs/RESEARCH_NOTES.md`。
+该方向的历史研究依据见 `docs/RESEARCH_NOTES.md`。当前执行顺序仍以 `docs/TODO.md` 的 Stage A/B/C/D 为准。
 
 非抑郁捷径验证的具体实施方案见 `docs/SHORTCUT_AUDIT_DESIGN.md`。该框架应作为模型改动前的离线诊断层，优先验证 OpenFace 质量、姿态、gaze、裁剪伪影和预测误差之间的关系。
 
@@ -119,15 +119,15 @@ src/
 
 说明：
 
-- `src/models/mtl_lite.py` 是新论文主模型；
+- `src/models/mtl_lite.py` 是当前训练和诊断的模型基座；
 - `src/models/outputs.py` 负责 dataclass 输出接口；
 - `src/models/temporal/` 只放轻量、可复用的时序组件；
 - `src/legacy/full_model/` 保存旧大模型及其专属依赖；
 - `src/diagnostics/` 保存可视化与诊断工具，不作为模型结构贡献。
 
-## 4. 保留在主线位置的通用模块
+## 4. 保留在通用位置的模块
 
-以下模块可被新旧模型或工具共同使用，建议保留在主线位置：
+以下模块可被新旧模型或工具共同使用，建议保留在通用位置：
 
 - `src/config.py`
 - `src/datasets/dataset.py`
@@ -250,11 +250,11 @@ class MTLLiteDepressionModel(pl.LightningModule):
 - 只作为历史快照和回退参考；
 - 不再承载 MTL-Lite 新逻辑；
 - 不主动修复旧模型内部 import，除非阻塞历史结果复现；
-- 不再把旧 runner、旧脚本接回主线训练入口；
+- 不再把旧 runner、旧脚本接回 MTL-Lite 基座训练入口；
 - 不在 legacy 中提交 `local_paths.yaml`、日志、权重、checkpoint 或实验结果；
 - 只补充 `src/legacy/full_model/README.md`，说明旧模型边界、运行方式和维护策略。
 
-旧模型如果需要运行，应从 legacy 快照自身路径和说明中运行，不作为新主线训练入口的一部分。
+旧模型如果需要运行，应从 legacy 快照自身路径和说明中运行，不作为 MTL-Lite 基座训练入口的一部分。
 
 ## 9. 配置接口设计
 
@@ -277,11 +277,11 @@ DATASET:
 
 当前 RGB dataset 支持 `rgb`、`grayscale`、`blur`、`center_mask`、`central_face_mask`、`boundary_erased`、`black_to_gray`、`black_to_mean`、`black_to_blur`、`soft_center_mask`、`inner_crop_resize`。`landmark_heatmap` 需要真实 OpenFace landmark 坐标，应在后续 behavior baseline 或 OpenFace landmark dataset 中实现，不应由 RGB 帧伪造。
 
-2026-06-15 之后，输入消融的优先目标从泛泛验证“背景/纹理捷径”收窄到 OpenFace aligned face 的黑填充和硬边界伪迹。`center_mask` 优于 `rgb`，但它可能同时改变了面部区域和黑边伪迹，因此必须通过 `black_to_*`、`soft_center_mask` 和 `inner_crop_resize` 继续拆解原因。在该证据闭环完成前，RGB + behavior late fusion 和新的行为辅助任务不应作为最高优先级。
+2026-06-15 之后，输入消融的历史审计目标从泛泛验证“背景/纹理捷径”收窄到 OpenFace aligned face 的黑填充和硬边界伪迹。`center_mask` 优于 `rgb`，但它可能同时改变了面部区域和黑边伪迹，因此当时需要通过 `black_to_*`、`soft_center_mask` 和 `inner_crop_resize` 继续拆解原因。当前这些结果作为 Stage A 证据层保留，RGB + behavior late fusion 和新的行为辅助任务仍不作为当前模型路线。
 
 2026-07-03 对真实输入帧的审查显示，历史 `center_mask` 只保留鼻口附近小区域，不能解释为完整中心脸或行为区域。`central_face_mask` 是新增的语义校准消融，用于覆盖眼、鼻、嘴和主要脸颊，并验证历史 `center_mask` 结论是否来自极强遮挡。
 
-黑伪迹审计后需要进一步收窄实现：中心近黑像素可能是鼻孔、嘴角阴影、胡须、麦克风或真实遮挡，不应默认替换。下一轮输入变体应优先实现 `border_black_to_gray`、`border_black_feather` 和 `center_mask_black_to_gray`，只处理中与图像边界连通的近黑区域，并保留中心近黑语义。
+黑伪迹审计后的历史实现收窄原则：中心近黑像素可能是鼻孔、嘴角阴影、胡须、麦克风或真实遮挡，不应默认替换。当时输入变体实现了 `border_black_to_gray`、`border_black_feather` 和 `center_mask_black_to_gray`，只处理中与图像边界连通的近黑区域，并保留中心近黑语义。
 
 为了避免破坏现有配置，新模型实现应对缺失字段提供默认值。
 
@@ -302,10 +302,10 @@ EXTRACT_FEATURE:
 
 ## 10. 诊断与可视化系统
 
-模型主线需要轻量，但论文项目需要丰富的诊断与表征能力。
+MTL-Lite 基座需要轻量，但论文项目需要丰富的诊断与表征能力。
 
 ```text
-模型主线：轻量、可解释、可复现、可消融
+MTL-Lite 基座：轻量、可解释、可复现、可消融
 诊断系统：丰富、模块化、离线运行、支持论文分析
 ```
 
@@ -352,12 +352,12 @@ src/diagnostics/
 任务：
 
 1. 添加 `src/legacy/full_model/README.md`。
-2. 说明 legacy 是旧大模型快照，不再作为新主线开发对象。
+2. 说明 legacy 是旧大模型快照，不再作为当前开发对象。
 3. 说明旧模型如需运行，应使用 legacy 快照自身的脚本和配置。
 4. 明确禁止提交 legacy 下的 `local_paths.yaml`、日志、权重和 checkpoint。
 5. 不再投入时间修复 legacy 内部 import，除非用户明确要求复现旧模型结果。
 
-### 阶段 2：新主线基础接口
+### 阶段 2：MTL-Lite 基座基础接口
 
 目标：为 MTL-Lite 建立干净的输出、时序池化和模型接口。
 
@@ -384,11 +384,11 @@ src/diagnostics/
 
 ### 阶段 4：新训练入口与配置
 
-目标：让新主线可以独立运行 regression-only 与 MTL-Lite baseline。
+目标：让 MTL-Lite 基座可以独立运行 regression-only 与 MTL-Lite baseline。
 
 任务：
 
-1. 新增 `scripts/train_mtl_lite.py`，作为 MTL-Lite 新主线训练入口。
+1. 新增 `scripts/train_mtl_lite.py`，作为 MTL-Lite 基座训练入口。
 2. 新增 `src/trainers/mtl_lite_runner.py`，封装 MTL-Lite Lightning trainer、logger、checkpoint 和 test 流程。
 3. 新增 `configs/regression_only_baseline.yaml`，用于 BDI 回归单任务 baseline。
 4. 新增 `configs/mtl_lite_baseline.yaml`，用于 BDI 回归 + 有序严重程度分类 baseline。
@@ -424,9 +424,9 @@ src/diagnostics/
 8. 支持模型关注区域热力图：Grad-CAM 可用时优先，否则回退到 input-gradient attention。
 9. 保留旧入口兼容。
 
-### 阶段 7：消融实验
+### 阶段 7：历史消融实验记录
 
-目标：在稳定 baseline 上逐项加入可选模块。
+目标：记录 MTL-Lite 基座阶段曾规划或完成的输入、行为和损失消融。当前 task-nuisance 路线不再按该列表顺序扩展模型；新的执行顺序见 `docs/TODO.md` 的 Stage A/B/C/D。
 
 顺序：
 
@@ -434,8 +434,8 @@ src/diagnostics/
 2. 输入消融：RGB、grayscale、blur、center_mask、boundary_erased、black_to_gray、black_to_mean、black_to_blur、soft_center_mask、inner_crop_resize、landmark heatmap、landmark/AU/pose only；
 3. landmark-only temporal baseline；
 4. AU / pose / gaze-only temporal baseline；
-5. RGB + behavior late fusion；
-6. 面部行为辅助任务 MTL；
+5. RGB + behavior late fusion（暂缓）；
+6. 面部行为辅助任务 MTL（暂缓）；
 7. MTL-Lite + CCC loss；
 8. MTL-Lite + LDS；
 9. MTL-Lite + `loss_dist`；
@@ -463,7 +463,7 @@ scripts/train_behavior_baseline.py
 configs/behavior_baseline.yaml
 ```
 
-该路线用于判断结构化行为变量是否可以解释当前 RGB 模型的有效信号。它不依赖 RGB visual backbone，不应并入 `MTLLiteDepressionModel`，除非后续已经完成 behavior-only 与 RGB baseline 的正式对照实验并确认需要 late fusion。
+该路线用于判断结构化行为变量是否可以解释当前 RGB 模型的有效信号。它不依赖 RGB visual backbone，不应并入 `MTLLiteDepressionModel`。在当前路线下，它作为独立对照和 Stage A 证据来源；late fusion 继续暂缓，除非后续证据证明行为特征子集稳定且 task-nuisance 路线仍需要补充。
 
 ### 阶段 8：Shortcut Audit Framework
 

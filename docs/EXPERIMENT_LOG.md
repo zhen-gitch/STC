@@ -991,19 +991,27 @@ Coordinate scale correction:
   - B3 baseline / severity / identity / combined four-run comparison.
 - Explicitly deferred dynamic feature branches and new RGB input filters.
 
-### RPDF-Net mainline update
+### Historical RPDF-Net mainline update (superseded)
 
-- Promoted RPDF-Net (Risk-aware Progressive De-identification Factorization Network) to the future main research route.
+- At that historical stage, promoted RPDF-Net (Risk-aware Progressive De-identification Factorization Network) to the future main research route.
 - Repositioned Shortcut-Regularized MTL as a baseline and branch validation path rather than the final mainline.
-- Updated the current staged plan:
+- Updated the then-current staged plan:
   - Stage A: RPDF evidence closure with layer-wise identity probe, error-identity coupling, artifact weak-label audit, and severity imbalance summary;
   - Stage B: RPDF-lite single-level factorization `H0 -> z_dep,z_m,z_id,z_art,z_res`;
   - Stage C: two-level progressive factorization with controlled `z_m` transfer `H_k = Phi([z_dep^k, alpha_k * z_m^k])`;
   - Stage D: branch validation for `z_art`, controlled `z_m`, severity-balanced regression, multi-attacker privacy evaluation, and deferred dynamic features.
 - Clarified that `z_m` must be controlled during layer transfer and final prediction, rather than freely propagated.
-### RPDF-Net route and literature consolidation
+### Historical RPDF-Net route and literature consolidation (superseded)
 
-- Consolidated the current RPDF-Net route into four execution loops: evidence closure, RPDF-lite minimal model, progressive validation, and branch attribution.
+- Consolidated the historical RPDF-Net route into four execution loops: evidence closure, RPDF-lite minimal model, progressive validation, and branch attribution.
 - Added a literature-grounded rationale covering shortcut learning, small-sample ViT risk, DANN/GRL, disentanglement, imbalanced regression, OpenFace/LibreFace artifact variables, and facial behavior dynamics.
 - Clarified that identity-adversarial MTL and severity-balanced regression are controlled baselines/branches, while RPDF-lite tests whether `z_dep/z_m/z_id/z_art/z_res` factorization is more appropriate than a single shared representation.
 - Added fixed Stage B comparison groups and evaluation requirements: BDI metrics, severity bias, identity risk, artifact risk, task consistency, and train-val gap.
+
+### 2026-07-06 Task-Nuisance route consolidation
+
+- Revised the current research route from fine-grained RPDF-Net to **Shortcut-aware Task-Nuisance Disentangled Representation Learning**.
+- New first-version representation split is `H0 -> z_dep, z_nuisance`, with optional `z_id` only when A1/A2 prove identity enters prediction and subject supervision is reliable.
+- Demoted `z_art`, `z_m`, `z_ctx`, `z_quality`, and two-level progressive RPDF to historical design background or deferred branches rather than the current model mainline.
+- Repositioned artifact/context/quality variables as shortcut probes, case-study anchors, and group-wise evaluation variables instead of first-version training branches.
+- Updated route-facing docs and execution docs: `DOCS_GUIDE.md`, `CURRENT_STATUS.md`, `TODO.md`, `RGB_OVERFITTING_AUDIT_PLAN.md`, `OVERFITTING_MECHANISM_ROADMAP.md`, `CODEX_CONTEXT.md`, `RESEARCH_NOTES.md`, `SHORTCUT_AUDIT_DESIGN.md`, and `EXPERIMENT_SCRIPT_MANUAL.md`.

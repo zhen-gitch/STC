@@ -1266,9 +1266,9 @@ ccc_delta
 severe_residual_delta
 ```
 
-## 13. RPDF Stage A 证据收口设计
+## 13. Shortcut Stage A 证据收口设计
 
-本节是 RPDF-Net 主线 Stage A 的诊断规格。Stage A 不是普通诊断，而是决定 RPDF-lite 五因子分解是否成立的前置证据。完成 Stage A 后才进入 Stage B `H0 -> z_dep,z_m,z_id,z_art,z_res`。
+本节是当前 task-nuisance 主线 Stage A 的诊断规格。Stage A 不是普通诊断，而是决定后续 identity-adversarial baseline、可选 `z_id` 出口、severity-balanced 支线和 shortcut/artifact probes 是否必要的前置证据。细粒度 RPDF 五因子分解已降级为历史设计背景，不再作为本节的默认后续模型。
 
 核心逻辑约束：**A1 只能证明 embedding 中存在身份信息，A2 才能证明 prediction head 可能使用了身份相关 shortcut。只有 A1 没有 A2，论文说服力不足，不应直接进入强 identity suppression。**
 
@@ -1398,9 +1398,9 @@ reports/identity_error_coupling_report.md
 - 若 high-error-high-identity case 集中在 severe 组，支持"severe 低估与身份记忆耦合"；
 - 若 coupling 不显著，则身份仅存在于 embedding 但未被 prediction head 利用，Stage B 的 identity-adversarial / `z_id` 必要性降低，应转为风险监控而非强抑制。
 
-### 13.3 A3 Artifact Weak-label Audit (for z_art)
+### 13.3 A3 Artifact Weak-label Audit (evaluation / probe)
 
-目的：整理 `z_art` 的监督来源，决定 z_art 是否进入 RPDF-lite 第一版。
+目的：整理 artifact/quality/context 弱标签，判断它们是否应作为 post-hoc probe、case study 和 group-wise evaluation 维度。当前第一版不默认建立 `z_art` 训练分支。
 
 #### 弱标签候选
 
@@ -1441,9 +1441,9 @@ reports/artifact_weaklabel_report.md
 
 #### 判读
 
-- 若某弱标签与 abs_error / residual 中等以上相关（|r| > 0.2），则该伪迹参与错误模式，`z_art` 应进入 RPDF-lite 第一版并吸收该弱标签；
-- 若弱标签只与 true_bdi 相关但与误差无关，说明伪迹与抑郁标签本身混杂（采集偏置），`z_art` 应作为 attack/evaluation 而非训练监督分支；
-- 若整体耦合弱，`z_art` 第一版不进训练，仅保留为审计出口。
+- 若某弱标签与 abs_error / residual 中等以上相关（|r| > 0.2），则该伪迹参与错误模式，应进入 shortcut/artifact probe、case study 和 group-wise evaluation；
+- 若弱标签只与 true_bdi 相关但与误差无关，说明伪迹与抑郁标签本身混杂（采集偏置），只作为 label-confound 证据，不作为第一版训练监督；
+- 若整体耦合弱，则仅保留为审计出口。
 
 ### 13.4 A4 Severity Imbalance / Prediction Compression Summary
 
@@ -1480,7 +1480,7 @@ A1-A4 完成后，必须在 `CURRENT_STATUS.md` 和 `RGB_OVERFITTING_AUDIT_PLAN.
 ```text
 1. 身份存在（A1）：身份信息主要来自哪一层，强度如何
 2. 身份参与预测（A2）：身份相似性是否与预测误差/偏置耦合
-3. 伪迹参与错误（A3）：哪些 artifact 弱标签进入 z_art 监督
+3. 伪迹参与错误（A3）：哪些 artifact/quality 弱标签进入 probe、case study 或 group-wise evaluation
 4. severity 失衡（A4）：severity-balanced regression 是 Stage B 必跑还是 Stage D 支线
 ```
 

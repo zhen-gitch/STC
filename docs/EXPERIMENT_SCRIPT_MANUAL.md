@@ -16,7 +16,7 @@
 
 实验配置按以下顺序合并：
 
-1. `configs/avec2014_base.yaml`（MTL-Lite 主线最小基线）
+1. `configs/avec2014_base.yaml`（MTL-Lite 基座最小配置）
 2. `configs/local_paths.yaml`（机器相关路径，**不提交到 git**，从 `configs/local_paths.example.yaml` 复制）
 3. 一个或多个 override YAML（如 `configs/mtl_lite_baseline.yaml`）
 
@@ -533,14 +533,14 @@ python scripts/audit_task_inconsistency.py \
 
 ---
 
-## 9. RPDF Stage A 证据收口
+## 9. Shortcut Stage A 证据收口
 
-Stage A 是 RPDF-Net 主线的前置证据，必须在实现 FactorBlock 前完成。四个诊断回答四个问题：
+Stage A 是当前 task-nuisance 主线的前置证据，必须在实现 identity-adversarial baseline 或 `TaskNuisanceBlock` 前完成。四个诊断回答四个问题：
 
 ```text
-A1 身份信息在哪些层可分？           -> z_id 接入层 / identity attacker 接入层
+A1 身份信息在哪些层可分？           -> identity attacker 接入层 / 可选 z_id 出口
 A2 预测错误是否与身份相似性耦合？   -> identity-adversarial 是强抑制还是仅监控
-A3 OpenFace artifact 是否与误差耦合？-> z_art 是否进 RPDF-lite 第一版
+A3 OpenFace artifact 是否与误差耦合？-> shortcut/artifact probes 与 group-wise evaluation
 A4 分数段不均是否驱动 minimal/severe bias？-> severity-balanced 是 Stage B 基线还是 Stage D 支线
 ```
 
@@ -651,9 +651,9 @@ reports/identity_error_coupling_report.md
 
 判读：`corr(|err|, id_sim) > 0` 表示高身份相似伴随大误差 → 预测用了身份；耦合集中在 severe bin → 支持"severe 低估与身份记忆耦合"；相关≈0 → 身份仅在 embedding，Stage B 转为风险监控。
 
-### 9.4 A3 Artifact Weak-label Audit (for z_art)
+### 9.4 A3 Artifact Weak-label Audit (evaluation / probe)
 
-整合 4 个 P0 审计 summary，决定 z_art 监督来源。
+整合 4 个 P0 审计 summary，决定 artifact/quality/context 变量的审计、probe、case-study 和分组评估用途。当前第一版不默认建立 `z_art` 训练分支。
 
 ```bash
 python scripts/audit_artifact_weaklabels.py \
@@ -673,10 +673,10 @@ python scripts/audit_artifact_weaklabels.py \
 ```text
 tables/artifact_weaklabel_summary.csv          # 每视频弱标签 join 预测误差
 tables/artifact_weaklabel_correlation.csv      # 每弱标签与 4 个目标的相关（按 |corr(abs_error)| 降序）
-reports/artifact_weaklabel_report.md           # 含 z_art 进入决策三分类
+reports/artifact_weaklabel_report.md           # 含 artifact/quality 变量定位
 ```
 
-判读（报告自动给出）：|corr(abs_error)| ≥ 阈值 → z_art 进 RPDF-lite v1 训练监督；只与 true_bdi 耦合 → 采集偏置，z_art 仅作 attack/evaluation；无弱标签过阈值 → z_art v1 仅审计出口。
+判读（报告自动给出）：|corr(abs_error)| ≥ 阈值 → 纳入 shortcut/artifact probe、case study 和 group-wise evaluation；只与 true_bdi 耦合 → 采集偏置，只作为 label-confound 证据；无弱标签过阈值 → 仅审计出口。
 
 ### 9.5 A4 Severity Imbalance / Prediction Compression Summary
 
@@ -725,7 +725,7 @@ A1-A4 运行完毕后，在 `CURRENT_STATUS.md` 和 `RGB_OVERFITTING_AUDIT_PLAN.
 ```text
 1. 身份存在（A1）：身份信息主要来自哪一层，强度如何
 2. 身份参与预测（A2）：身份相似性是否与预测误差/偏置耦合
-3. 伪迹参与错误（A3）：哪些 artifact 弱标签进入 z_art 监督
+3. 伪迹参与错误（A3）：哪些 artifact/quality 弱标签进入 probe、case study 或 group-wise evaluation
 4. severity 失衡（A4）：severity-balanced regression 是 Stage B 必跑还是 Stage D 支线
 ```
 

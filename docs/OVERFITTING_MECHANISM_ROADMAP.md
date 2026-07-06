@@ -4,38 +4,46 @@
 
 本文档用于系统梳理 RGB 输入模型过拟合的机制研究路线。它不是新的单点实验清单，而是当前所有审计、消融和论文叙事的上层框架。后续具体实验配置仍放在 `RGB_OVERFITTING_AUDIT_PLAN.md`、`SHORTCUT_AUDIT_DESIGN.md` 和 `TODO.md` 中。
 
+阅读方式：
+
+- 只看当前路线：读“当前路线总览”和“当前推进路线”。
+- 查机制证据：读“当前证据状态”和“机制层级图”。
+- 写论文叙事：读“论文叙事建议”和“回到正轨的判据”。
+- 执行任务：回到 `TODO.md`，不要从本文直接派生新任务。
+
 ## 当前路线总览
 
-本文档的当前权威路线正式更新为 **RPDF-Net：Risk-aware Progressive De-identification Factorization Network**。机制审计已经说明：单个 artifact 不能解释全部过拟合，简单输入处理也无法同时改善 identity retrieval、severity bias、CCC 和 task consistency。因此下一步不再只是给共享表征加一个普通约束，而是将过拟合机制转化为可审计的信息分流结构。
+本文档的当前权威路线正式更新为 **Shortcut-aware Task-Nuisance Disentangled Representation Learning**。机制审计已经说明：单个 artifact 不能解释全部过拟合，简单输入处理也无法同时改善 identity retrieval、severity bias、CCC 和 task consistency。因此下一步不再尝试把所有潜在机制逐项显式建模，而是将过拟合机制转化为可审计的粗粒度任务-干扰分流结构。
 
 ```text
 已完成证据层：input artifact / temporal / identity / calibration / geometry audits
         ↓
-Stage A: RPDF 证据收口
-        layer-wise identity probe + error-identity coupling + artifact weak-label audit
+Stage A: Shortcut 证据收口
+        layer-wise identity probe + error-identity coupling + artifact/quality audits as evaluation
         ↓
-Stage B: RPDF-lite 单级因子分解
-        H0 -> z_dep, z_m, z_id, z_art, z_res
+Stage B: Identity-adversarial task representation
+        H0 -> z_dep, with verifiable shortcut suppression
         ↓
-Stage C: 两级递进分解与受控 z_m 传递
-        H_k = Phi([z_dep^k, alpha_k * z_m^k])
+Stage C: Coarse task-nuisance disentanglement
+        H0 -> z_dep, z_nuisance
+        optional: H0 -> z_dep, z_id, z_nuisance
         ↓
-Stage D: 支线有效性验证
-        z_art / z_m gate / severity-balanced loss / multi-attacker / dynamic features
+Stage D: Robustness validation
+        multi-attacker / nuisance leakage / severity-balanced loss / group-wise robustness
 ```
 
 当前机制分工：
 
-| 机制问题 | 证据来源 | RPDF-Net 中的处理 |
+| 机制问题 | 证据来源 | 新路线中的处理 |
 |---|---|---|
-| subject/static appearance shortcut | identity retrieval、input variants、case frames | `z_id` 身份出口 + `z_dep` identity risk evaluation |
-| 身份-抑郁交叠 | 表情基线、头动/眼动习惯、个体行为风格 | `z_m` 交叠因子，受控层间传递和预测使用 |
-| severity label imbalance / middle-score collapse | severity bias、calibration summary、pred_std compression | severity-balanced regression 作为 RPDF 支线 |
-| input artifact / black boundary / OpenFace quality | black artifact、alignment geometry、confidence、bbox、valid ratio | `z_art` 伪迹/域因子与 artifact weak-label attack |
-| temporal/task context | temporal sampling、task consistency | 混杂监控；不是第一版 RPDF-lite 的模型主线 |
-| dynamic facial behavior | literature / behavior baseline | Stage D 待考虑，先不进入 RPDF-lite |
+| subject/static appearance shortcut | identity retrieval、input variants、case frames | identity-adversarial baseline；可选 `z_id` 出口；`z_dep` identity risk evaluation |
+| 身份-抑郁交叠 | 表情基线、头动/眼动习惯、个体行为风格 | 不显式建 `z_m`；通过 `z_dep` utility、identity risk 和 `z_nuisance` leakage 联合评估 |
+| severity label imbalance / middle-score collapse | severity bias、calibration summary、pred_std compression | severity-balanced regression 作为对照或支线 |
+| input artifact / black boundary / OpenFace quality | black artifact、alignment geometry、confidence、bbox、valid ratio | 审计变量、post-hoc probes、case study 和 group-wise evaluation；不默认建 `z_art` |
+| temporal/task context | temporal sampling、task consistency | 混杂监控和 task consistency evaluation；不显式建 `z_ctx` |
+| dynamic facial behavior | literature / behavior baseline | Stage D 待考虑，先不进入粗粒度解耦第一版 |
 
-读本文档时，应把前面 Layer 0-6 理解为证据地图，把第 9 节理解为当前执行路线。若旧段落中的“下一步”与本总览冲突，以本总览和 `RGB_OVERFITTING_AUDIT_PLAN.md` 的最新 RPDF-Net Stage A-D 为准。
+读本文档时，应把前面 Layer 0-6 理解为证据地图，把“当前推进路线”理解为当前模型路线。若旧段落中的“下一步”与本总览冲突，以本总览和 `RGB_OVERFITTING_AUDIT_PLAN.md` 的最新 task-nuisance Stage A-D 为准。
 
 ## 1. 研究目标
 
@@ -428,7 +436,7 @@ AU / landmark-delta / pose-gaze subset generalizes?
 
 > RGB overfitting on OpenFace aligned face should be understood as a multi-factor shortcut problem. Black padding is a visible entry point, but the broader mechanism includes static identity appearance, local occlusion/accessories, pre-alignment geometry, temporal/task context, and label-distribution compression. Therefore, the contribution is not a single mask trick, but a systematic shortcut audit protocol for depression prediction from aligned facial videos.
 
-## 7.1 Latest Temporal And Boundary Updates
+## 8. Temporal 与 Boundary 最新更新
 
 ### Temporal sampling ablation result
 
@@ -467,7 +475,7 @@ center_mask_soft_boundary_v2
 
 如果只平滑边界即可改善预测，论文表述应从 black padding shortcut 更精确地推进为 OpenFace alignment introduces structured high-contrast transition artifacts。
 
-## 8. 当前停止规则
+## 9. 当前停止规则
 
 为了提高研究效率，以下方向暂不继续扩展：
 
@@ -478,7 +486,8 @@ center_mask_soft_boundary_v2
 - 仅凭 test MAE 选择最终模型。
 
 每个后续实验都必须回答一个机制问题，而不是只追求单次数值提升。
-## 8. 三表联合后的机制更新
+
+## 10. 三表联合后的机制更新
 
 `rgb_input_ablation_summary`、`identity_retrieval_summary` 和 `severity_calibration_summary` 的联合结果已经支持更系统的机制解释：输入变体能改变 overall metrics 和 severity-group bias，但没有任何变体同时满足低 identity retrieval、高 severity agreement、低 task inconsistency、高 CCC 和低 severe bias。
 
@@ -491,77 +500,82 @@ center_mask_soft_boundary_v2
 - 所有 run 的 post-hoc linear calibration 均降低 CCC，进一步支持 severe underestimation 是表征/优化/分布问题，而不是简单输出尺度偏移。
 
 因此，当前机制地图应把 RGB failure 表述为多因素 shortcut 与 severity compression 的交叉，而不是单个 artifact 的因果链。
-## 9. 当前推进路线：RPDF-Net 主线
 
-当前推进路线已经从 Shortcut-Regularized MTL 升级为 RPDF-Net。该转移不是否定前一阶段，而是把 identity-adversarial MTL、severity-balanced regression、input artifact audit、identity retrieval 和 calibration summary 全部纳入 RPDF-Net 的证据层、对照基线和支线验证。
+## 11. 当前推进路线：粗粒度 Task-Nuisance 主线
 
-### Step 1: RPDF 证据收口
+当前推进路线已经从细粒度 RPDF-Net 收敛为粗粒度 task-nuisance 解耦。该转移不是否定前一阶段，而是把 identity-adversarial MTL、severity-balanced regression、input artifact audit、identity retrieval 和 calibration summary 全部纳入证据层、对照基线和稳健性验证，同时避免给每个难以验证的潜在因素分配独立 latent。
 
-目标：在实现因子分解模块前，证明各因子和支线有必要存在。
+### Step 1: Shortcut 证据收口
+
+目标：在实现解耦模块前，证明可验证 shortcut 是否真的进入预测。
 
 ```text
 A1 layer-wise identity probe
 A2 prediction error x identity similarity coupling
-A3 artifact weak-label audit
+A3 shortcut / artifact audit as evaluation
 A4 severity imbalance / prediction compression summary
 ```
 
-对应因子：
+对应决策：
 
-- A1/A2 支撑 `z_id` 与 `z_dep` identity risk evaluation；
-- A3 支撑 `z_art`；
-- A4 支撑 severity-balanced branch；
+- A1/A2 支撑 identity-adversarial baseline 和可选 `z_id` 出口；
+- A3 支撑 artifact/quality/context probes、case study 和 group-wise evaluation；
+- A4 支撑 severity-balanced baseline 或支线；
 - existing identity retrieval / calibration / alignment / black artifact summaries 作为证据底座。
 
-### Step 2: RPDF-lite 单级因子分解
+### Step 2: Identity-adversarial Task Representation
 
-第一版只实现单级，不直接启用完整递进网络：
+第一版先验证最小上层干预，不直接启用复杂因子分解：
 
 ```text
-H0 -> z_dep, z_m, z_id, z_art, z_res
+H0 -> z_dep
+prediction = Head(z_dep)
+subject_attacker = GRL(z_dep) -> subject_id
 ```
 
 核心验证：
 
-- `z_dep` 是否保持 BDI 预测能力且降低 identity / artifact risk；
-- `z_id` 是否吸收 subject/static appearance；
-- `z_art` 是否吸收 OpenFace artifact / quality weak labels；
-- `z_m` 是否在受控使用时提供 BDI 增益，且 identity risk 增量可解释；
-- `z_res` 是否缓解重建压力，避免所有信息回流到 `z_dep`。
+- `z_dep` 是否保持 BDI 预测能力；
+- `z_dep` 的 identity retrieval / subject probe 是否下降；
+- severity bias、task consistency 和 train-val gap 是否不恶化；
+- 若 A1 成立但 A2 不成立，identity adversarial 只作为对照而非强 suppression 主线。
 
-### Step 3: 受控 z_m 传递与两级递进
+### Step 3: Coarse Task-Nuisance Disentanglement
 
-层间传递不应是 `z_dep only` 的硬去身份，也不应是无约束传递 `z_m`。当前主方案为：
+第二阶段只验证粗粒度单级分流：
 
 ```text
-H_k = Phi([z_dep^k, alpha_k * z_m^k])
+H0 -> z_dep, z_nuisance
+prediction = Head(z_dep)
+reconstruction = Recon([z_dep, z_nuisance]) -> H0
 ```
 
-必须消融：
+若 A1+A2 同时证明身份进入预测，且 subject_id 监督可靠，可选扩展为：
 
 ```text
-z_dep only
-z_dep + controlled z_m
-z_dep + full z_m
+H0 -> z_dep, z_id, z_nuisance
+prediction = Head(z_dep)
+id_head(z_id) -> subject_id
+subject_attacker = GRL(z_dep) -> subject_id
 ```
 
-只有当 controlled z_m 同时提升或保持 BDI、且 identity risk 增量可控时，才进入两级递进 RPDF。
+不显式建 `z_m`、`z_art`、`z_ctx`、`z_quality`。这些因素用 probes 和分组评估验证，不作为第一版 latent。
 
-### Step 4: 支线有效性验证
+### Step 4: 稳健性验证
 
-RPDF-Net 不是一次性打开所有模块，而是逐项验证支线：
+最终模型不是一次性打开所有模块，而是逐项验证风险：
 
 ```text
-z_art branch
-controlled z_m branch
+multi-attacker identity evaluation
+nuisance leakage evaluation
+shortcut/artifact probes
 severity-balanced branch
-multi-attacker privacy evaluation
 dynamic feature branch, deferred
 ```
 
-每条支线必须报告对 BDI、identity risk、artifact risk、severity bias、task consistency 和 train-val gap 的影响。若某支线只改善 MAE 但加重身份/伪迹风险，则不作为主模型组成。
+每条支线必须报告对 BDI、identity risk、shortcut/artifact probe risk、severity bias、task consistency 和 train-val gap 的影响。若某支线只改善 MAE 但加重身份/伪迹风险，则不作为主模型组成。
 
-## 10. 回到正轨的判据：从去身份化到行为化表征
+## 12. 回到正轨的判据：从去身份化到行为化表征
 
 身份消融的目标不是单纯降低 same-subject retrieval，而是避免模型用 subject/static appearance 替代 depression-relevant behavior。当前判据应同时包含：
 
@@ -576,28 +590,28 @@ task consistency 不恶化
 
 因此，`middle_crop` 虽然降低 identity retrieval，但不算回到正轨，因为它损害 severity agreement 和 task consistency；`border_black_feather` 虽然缓解 severe bias，也不算充分回到正轨，因为它增强 identity retrieval。真正可接受的方向必须在三表评估中同时通过 prediction、identity 和 calibration 约束。
 
-## 11. 研究路线细化：必要性、可行性与中长期边界
+## 13. 研究路线细化：必要性、可行性与中长期边界
 
-当前 RPDF-Net 路线的必要性来自三点：
+当前 task-nuisance 路线的必要性来自三点：
 
 1. 已有输入消融说明，单一黑边、单一边界或单一 temporal sampling 都不能解释全部失败模式；
 2. identity retrieval、severity calibration 和 task consistency 结果说明，模型失败同时涉及身份记忆、prediction compression 和任务语境混杂；
-3. OpenFace aligned face 不是干净行为输入，而是同时携带面部行为、身份纹理、对齐几何、质量/追踪状态和局部遮挡的混合输入。
+3. OpenFace aligned face 不是干净行为输入，而是同时携带面部行为、身份纹理、对齐几何、质量/追踪状态和局部遮挡的混合输入，但这些因素无法被完整枚举和逐一验证。
 
 可行性来自四个已有基础：
 
 1. 现有 MTL-Lite / DeiT pipeline 已能训练和导出 prediction，为 layer-wise embedding audit 提供入口；
 2. 现有 identity retrieval、severity calibration、alignment geometry 和 black artifact 脚本已经形成 Stage A 的大部分数据基础；
-3. OpenFace CSV 和 aligned frames 可以产生 `z_art` 弱标签；
-4. GRL、deep imbalanced regression、multi-attacker evaluation 和 factor separation loss 都可以作为低侵入支线逐步接入。
+3. OpenFace CSV 和 aligned frames 可以产生 artifact/quality/context 审计变量；
+4. GRL、deep imbalanced regression、multi-attacker evaluation 和 coarse factor separation loss 都可以作为低侵入支线逐步接入。
 
 中长期边界：
 
 ```text
-短期：完成 Stage A，证明身份/artifact/severity 风险如何进入预测
-中期：实现 RPDF-lite，验证 z_dep/z_m/z_id/z_art/z_res 是否有用
-中长期：仅在 RPDF-lite 有效后进入两级递进，验证风险逐层下降
-长期：根据支线证据选择 severity-balanced、z_art、multi-attacker 或 dynamic feature
+短期：完成 Stage A，证明身份/shortcut/severity 风险如何进入预测
+中期：实现 identity-adversarial baseline 与 `z_dep/z_nuisance` 粗粒度解耦
+中长期：仅当粗粒度解耦稳定优于对抗基线后，再考虑更复杂结构
+长期：根据支线证据选择 severity-balanced、multi-attacker 或 dynamic feature
 ```
 
 论文叙事的关键不是“提出更多模块”，而是“每个模块都有前置证据、进入条件、成功标准和停止规则”。若某个支线只改善 MAE，却恶化 identity risk、severe bias、CCC 或 task consistency，则它应被作为机制反例记录，而不是进入最终主模型。

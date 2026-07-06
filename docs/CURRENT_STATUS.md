@@ -4,39 +4,53 @@
 
 ## 状态日期
 
-2026-06-25
+2026-07-06
 
-## 当前权威快照：RPDF-Net 主线
+## 阅读提示
 
-当前工作已经从 **Shortcut-Regularized MTL** 进一步升级为 **RPDF-Net：风险感知递进式去身份因子分解网络**。这一转移不是推翻既有工作，而是把已有 RGB input ablation、identity retrieval、severity calibration、temporal sampling、alignment geometry 和 black artifact 审计结果，统一作为 RPDF-Net 的问题证据与支线验证基础。
+本文档是状态快照，不是执行清单。当前路线只看本节到“推荐验证命令”；2026-06-13 之后的日期章节是历史记录和证据归档，若与当前快照冲突，以本文开头和 `TODO.md` 的权威入口为准。
+
+## 当前权威快照：粗粒度 Task-Nuisance 解耦主线
+
+当前工作从细粒度 **RPDF-Net：风险感知递进式去身份因子分解网络** 调整为 **Shortcut-aware Task-Nuisance Disentangled Representation Learning：捷径感知的任务-干扰粗粒度解耦表征学习**。这一调整不是否定已有 RGB input ablation、identity retrieval、severity calibration、temporal sampling、alignment geometry 和 black artifact 审计结果，而是降低模型主张的不可验证风险：不再显式枚举所有潜在因子，而是学习抑郁预测主表征 `z_dep` 与互补干扰表征 `z_nuisance`，只对 subject identity 等可验证捷径变量进行弱监督或对抗约束。
+
+### 当前摘要
+
+| 维度 | 当前结论 |
+|---|---|
+| 主线 | 捷径感知的粗粒度 task-nuisance 解耦 |
+| 第一版 latent | `z_dep`、`z_nuisance` |
+| 可选 latent | `z_id`，仅在身份进入预测的证据充分时启用 |
+| 不做 | 不显式建 `z_art/z_ctx/z_pose/z_quality`，不做多级 RPDF |
+| 下一步 | A1-A4 证据收口，然后比较 identity-adversarial / severity-balanced / coarse disentanglement |
+| 判据 | BDI metrics、identity risk、shortcut probe risk、severity bias、task consistency、train-val gap |
 
 ### 2026-07-03 输入遮挡语义修正
 
 对真实 OpenFace aligned 输入帧的人工审查显示，历史 `center_mask` 只保留约 13.5% 总像素，在 18 张样例帧上仅保留约 16.6%-18.2% 可见非黑区域，视觉上主要覆盖鼻梁、鼻子和鼻下/上唇附近。因此，历史 `center_mask` 结果不得继续解释为“保留面部中心行为区域”或“中心脸行为有效”；更准确的解释是 **tiny central nose/mouth patch ablation**，即通过强遮挡删除大部分身份外观、脸部轮廓、眼镜/胡须/头发和对齐边界线索。
 
-为验证原有 input artifact / shortcut 结论是否仍成立，已新增 `central_face_mask` 作为新的对照消融。该变体覆盖眼、鼻、嘴和主要脸颊区域，保留约 45%-50% 总像素，用于区分“完整中心脸区域有效”与“旧 `center_mask` 的鼻口小块强遮挡偶然有效”。该修正是对历史输入消融语义的校准，不改变当前 RPDF-Net Stage A 优先级。
+为验证原有 input artifact / shortcut 结论是否仍成立，已新增 `central_face_mask` 作为新的对照消融。该变体覆盖眼、鼻、嘴和主要脸颊区域，保留约 45%-50% 总像素，用于区分“完整中心脸区域有效”与“旧 `center_mask` 的鼻口小块强遮挡偶然有效”。该修正是对历史输入消融语义的校准，不改变当前“先审计、再建模”的优先级。
 
-RPDF-Net 的核心目标是：不再简单要求模型“删除身份”，而是建立一个可审计的信息分流机制：
+当前路线的核心目标是：避免过细、不可穷尽的因子划分，只建立可验证的粗粒度信息分流机制：
 
 ```text
-H0 -> z_dep, z_m, z_id, z_art, z_res
+H0 -> z_dep, z_nuisance
 ```
 
 其中：
 
-- `z_dep`：低身份风险的抑郁主因子；
-- `z_m`：身份-抑郁交叠因子，层间和最终预测中都必须受控传递；
-- `z_id`：身份信息出口，用于吸收 subject/static appearance；
-- `z_art`：OpenFace 对齐、黑边、裁切、confidence、bbox、tracking failure 等伪迹/域因素出口；
-- `z_res`：残差信息出口，避免所有重建压力回流到 `z_dep`。
+- `z_dep`：抑郁预测主表征，最终 BDI 回归和 ordinal 辅助任务主要依赖它；
+- `z_nuisance`：互补干扰表征，吸收不希望主表征依赖、且无法全面枚举的非任务信息；
+- `z_id`：仅作为可选分支，在 identity audit 证明身份风险进入预测且 subject_id 监督可靠时启用；
+- artifact、context、pose、quality 等因素不再作为第一版显式 latent，只作为离线审计变量、post-hoc probes、case study 和 group-wise evaluation 维度。
 
 当前主线分为四层：
 
 ```text
-Stage A 证据收口：证明 identity / artifact / severity imbalance 是否确实参与错误模式
-Stage B RPDF-lite：单级因子分解，验证 z_dep / z_m / z_id / z_art / z_res 是否有用
-Stage C 递进分解：两级 RPDF，验证身份风险是否随层级下降且 BDI 性能可保持
-Stage D 支线验证：z_art、受控 z_m、severity-balanced loss、multi-attacker、dynamic features
+Stage A 证据收口：证明 identity / shortcut / severity imbalance 是否确实参与错误模式
+Stage B 对抗基线：验证 identity-adversarial task representation 是否降低身份捷径
+Stage C 粗粒度解耦：验证 z_dep / z_nuisance 或 z_dep / z_id / z_nuisance 是否优于共享表征
+Stage D 稳健性验证：multi-attacker、severity-balanced loss、group-wise robustness、task consistency
 ```
 
 ### 现在已经完成什么
@@ -45,35 +59,36 @@ Stage D 支线验证：z_art、受控 z_m、severity-balanced loss、multi-attac
 - 现有输入变体能改变 overall MAE、severity bias 和 task consistency，但没有任何变体同时解决 identity retrieval、severe underestimation、CCC 和 task consistency。
 - 输入级 `identity_texture_suppressed` / boundary smoothing 2x2 作为机制证据保留，不再作为下一阶段主线继续扩展。
 - Post-hoc linear calibration 全部降低 CCC，因此只作为 prediction compression 诊断，不作为模型方案。
-- `Shortcut-Regularized MTL` 保留为重要基线：`severity-balanced regression` 和 `identity-adversarial MTL` 将作为 RPDF-Net 前置对照和支线消融。
+- `Shortcut-Regularized MTL` 保留为重要基线：`severity-balanced regression` 和 `identity-adversarial MTL` 将作为粗粒度解耦前置对照和支线消融。
 
 ### 当前正在推进什么
 
-当前应先完成 Stage A，然后进入 RPDF-lite：
+当前应先完成 Stage A，然后进入 identity-adversarial baseline 与粗粒度 task-nuisance 解耦：
 
 1. **A1 layer-wise identity probe**：提取不同层 embedding，检查 identity 信息从哪个层级开始可分。
 2. **A2 error-identity coupling**：检查 prediction residual / abs_error 是否与 identity similarity、paired-task rank 或 severity neighbor agreement 耦合。
-3. **A3 artifact weak-label audit**：整理 OpenFace confidence、bbox、center offset、black-border、edge gradient、valid ratio 等弱标签，作为 `z_art` 的监督来源。
-4. **A4 severity imbalance summary**：确认 severity-balanced regression 作为 RPDF 支线是否仍必要。
-5. **B1 RPDF-lite 单级分解**：先实现 `H0 -> z_dep,z_m,z_id,z_art,z_res`，最终预测优先使用 `z_dep + controlled z_m`。
+3. **A3 shortcut/artifact audit**：整理 OpenFace confidence、bbox、center offset、black-border、edge gradient、valid ratio 等弱标签，作为评估变量和 case-study 证据，不直接承诺 `z_art` 训练分支。
+4. **A4 severity imbalance summary**：确认 severity-balanced regression 是必要对照、支线还是暂缓项。
+5. **B1 identity-adversarial baseline**：先验证 `z_dep` 在抑郁预测有效的同时能否降低 subject identity risk。
+6. **C1 coarse task-nuisance disentanglement**：实现 `H0 -> z_dep,z_nuisance`，必要时扩展为 `H0 -> z_dep,z_id,z_nuisance`。
 
 ### 当前路线细化补充
 
-最新研究路线进一步明确为四个闭环：证据闭环、最小模型闭环、递进验证闭环和支线归因闭环。短期不直接实现完整 RPDF-Net，而是先完成 A1/A2，证明 identity 不仅存在于 embedding 中，而且可能与 prediction error 耦合；随后根据 A3/A4 决定 `z_art` 与 severity-balanced branch 是否进入 RPDF-lite 第一版。Stage B 固定比较 RGB baseline、identity-adversarial MTL、severity-balanced regression 和 RPDF-lite `alpha={0,0.25,0.5,1.0}`，所有实验同时报告 BDI、identity risk、artifact risk、severity bias、task consistency 和 train-val gap。
+最新研究路线进一步明确为四个闭环：证据闭环、对抗基线闭环、粗粒度解耦闭环和稳健性验证闭环。短期不实现完整 RPDF-Net，也不显式划分 `ctx/art/pose/quality` 等难以完全验证的潜在因子；先完成 A1/A2，证明 identity 不仅存在于 embedding 中，而且可能与 prediction error 耦合。Stage B 固定比较 RGB baseline、identity-adversarial MTL 和 severity-balanced regression；Stage C 再比较 `z_dep + z_nuisance` 与可选 `z_dep + z_id + z_nuisance`。所有实验同时报告 BDI、identity risk、shortcut/artifact audit risk、severity bias、task consistency 和 train-val gap。
 
 ### 当前不做什么
 
 - 不直接实现完整多级、多损失、多门控 RPDF-Net。
-- 不让 `z_m` 无控制地进入下一层或最终预测；层间传递应为 `H_k = Phi([z_dep^k, alpha_k * z_m^k])`。
+- 不把 `z_m`、`z_art`、`z_ctx`、`z_quality` 等细粒度因子作为当前主线。
 - 不继续扩展普通 RGB mask、灰度、模糊、黑边替换或新的输入滤镜族。
-- 不把动态特征、feature delta、AU delta、landmark/pose/gaze delta 列入第一版 RPDF-lite。
+- 不把动态特征、feature delta、AU delta、landmark/pose/gaze delta 列入第一版粗粒度解耦模型。
 - 不仅凭 MAE 选择模型，必须同时检查 CCC、severity bias、identity risk、artifact risk、task consistency 和 train-val gap。
 
-## 当前项目状态
+## 基础设施状态
 
 项目已经通过服务器 debug smoke，可以完整运行旧版端到端训练流程。当前工作重点已经从“修复可运行性”转向“重构架构边界”，为 MTL-Lite 轻量级多任务抑郁预测模型建立干净主线。
 
-## 当前架构方向
+## 架构边界
 
 项目采用以下新架构：
 
@@ -89,12 +104,12 @@ src/diagnostics/        # 独立诊断与可视化系统
 - 旧模型只作为历史快照保留，暂时不再投入额外修复或重构；
 - 新模型不继承旧模型；
 - 通用模块保留在主线位置；
-- 新主线训练入口后续直接围绕 MTL-Lite 设计；
+- 当前训练入口围绕 MTL-Lite 轻量模型基座设计；
 - 诊断与可视化系统从模型训练逻辑中解耦。
 
-## 当前研究主线
+## 当前模型基座
 
-论文主线是 **MTL-Lite BDI 预测模型**：
+MTL-Lite 是当前 BDI 预测训练和诊断的轻量模型基座：
 
 ```text
 人脸视频帧 -> 视觉 backbone -> 时序编码器 -> 共享视频表征 -> BDI 回归头 + 有序严重程度分类头
@@ -108,7 +123,7 @@ src/diagnostics/        # 独立诊断与可视化系统
 
 - 有序抑郁严重程度分类。
 
-非主线模块：
+非基座模块：
 
 - contrastive learning
 - adaptive mask
@@ -119,7 +134,7 @@ src/diagnostics/        # 独立诊断与可视化系统
 
 这些模块后续只作为 legacy 能力、消融项或扩展项。
 
-## 当前研究判断
+## 机制证据摘要
 
 当前视频帧序列已经由 OpenFace 裁剪和对齐，所用 OpenFace 版本可能不是最新版。因此，近期实验中出现的泛化问题不应只解释为普通背景过拟合，而应重点检查 OpenFace aligned face 中仍然存在的非抑郁捷径，包括身份纹理、裁剪边界、对齐伪影、姿态残留、追踪质量、光照和视频质量。
 
@@ -137,14 +152,14 @@ split integrity audit
 -> task inconsistency mixed-factor audit
 ```
 
-权威路线记录在 `docs/RGB_OVERFITTING_AUDIT_PLAN.md`。相关论文线索记录在 `docs/RESEARCH_NOTES.md`。非抑郁捷径验证框架的具体实施方案记录在 `docs/SHORTCUT_AUDIT_DESIGN.md`。
+机制路线详见 `docs/RGB_OVERFITTING_AUDIT_PLAN.md`。相关论文线索记录在 `docs/RESEARCH_NOTES.md`。非抑郁捷径验证框架的具体实施方案记录在 `docs/SHORTCUT_AUDIT_DESIGN.md`。当前执行入口仍以本文开头的权威快照和 `docs/TODO.md` 为准。
 系统机制路线图已整理到 `docs/OVERFITTING_MECHANISM_ROADMAP.md`，用于把现有黑边、geometry、temporal、identity、局部遮挡、calibration 和 behavior baseline 结果组织成统一研究路线。
 
 ## 重要文件
 
 - `docs/DOCS_GUIDE.md`：文档导航、读取顺序和职责边界，优先阅读。
 - `docs/MTL_LITE_DESIGN.md`：新架构、模块边界、接口定义和实施路线。
-- `docs/RGB_OVERFITTING_AUDIT_PLAN.md`：RGB 过拟合多因素审计权威路线。
+- `docs/RGB_OVERFITTING_AUDIT_PLAN.md`：RGB 过拟合多因素审计与机制路线。
 - `docs/CODEX_CONTEXT.md`：Codex 长期上下文。
 - `docs/RESEARCH_NOTES.md`：OpenFace 行为表征、相关论文和后续实验路线。
 - `docs/SHORTCUT_AUDIT_DESIGN.md`：非抑郁捷径验证框架和实施方案。
@@ -158,7 +173,7 @@ split integrity audit
 - `src/models/task_heads.py`：通用任务头。
 - `src/metrics/metrics.py`：通用指标。
 
-## 已完成验证
+## 已完成基础验证
 
 - debug smoke 已在服务器环境完整通过。
 - `scripts.diagnose` import 和 `--help` 检查已通过。
@@ -178,7 +193,9 @@ split integrity audit
 - MTL-Lite 已支持 `EXTRACT_FEATURE.FREEZE_BACKBONE` 和 `EXTRACT_FEATURE.FINETUNE_LAST_N_BLOCKS`，可通过配置冻结 backbone 或只微调最后若干 transformer blocks。
 - 本地 Codex Python 缺少 `torch`、`pytorch_lightning` 和 `pytest`，MTL-Lite import/pytest 需在服务器训练环境验证。
 
-## 当前优先级
+## 历史优先级记录（已被当前入口取代）
+
+以下任务反映早期 MTL-Lite 和 Shortcut Audit 基础设施阶段的优先级。保留它们用于追溯工作来源；新的执行顺序以本文开头的 `当前权威快照` 和 `TODO.md` 的 `当前立即执行任务（权威入口）` 为准。
 
 1. 确保 legacy 中的 `local_paths.yaml`、日志、权重、checkpoint 不进入提交。
 2. 记录当前 OpenFace 数据版本、生成命令、输出字段、裁剪尺寸和帧采样方式。
@@ -189,7 +206,7 @@ split integrity audit
 7. 在行为 baseline 稳定后，再设计 RGB + behavior late fusion 和行为辅助任务 MTL。
 8. 在服务器训练环境继续验证 MTL-Lite import、pytest、debug smoke 和离线诊断脚本。
 
-## 当前风险
+## 持续风险
 
 - legacy 不再作为主要维护对象，除非明确要求复现旧模型结果，否则不修复其内部 import。
 - 当前工作区可能包含 legacy 迁移中的文件移动或复制，需要避免误删。
@@ -282,6 +299,10 @@ debug smoke：
 ```bash
 python scripts/train.py --override configs/debug_smoke.yaml
 ```
+
+## 历史记录与证据归档
+
+以下章节按时间保留实现记录、实验结果和历史路线。它们用于追溯证据来源，不覆盖本文开头的当前权威快照。
 
 ## 2026-06-13 Shortcut Audit 有效结果更新
 
@@ -403,7 +424,7 @@ DATASET:
 - 原始 landmark 坐标、静态几何、身份相关形状和视频级采集差异可能是主要过拟合来源；
 - 当前阶段不应继续把工作重点放在 backbone 解冻层数搜索，也不应因为 train MAE 很低就认为行为表征路线已经成功。
 
-重新评估后的当前优先级：
+重新评估后的历史优先级：
 
 ### P0：必须立即处理
 
@@ -445,7 +466,7 @@ DATASET:
 - `blur` 和 `grayscale` 明显变差，说明“颜色”或“细粒度身份纹理”不是当前唯一主因；
 - severe 低估仍未根治，说明黑边/外围伪迹可能解释一部分泛化问题，但还不能解释全部失败模式。
 
-当前研究判断从“继续叠加 behavior / late fusion 任务”调整为“优先解释 RGB 输入模型为什么过拟合”。更具体的假设是：
+当时研究判断从“继续叠加 behavior / late fusion 任务”调整为“优先解释 RGB 输入模型为什么过拟合”。更具体的假设是：
 
 ```text
 OpenFace aligned RGB
@@ -882,7 +903,7 @@ frame_count           vs pred_bdi: r = -0.2073
 
 该结果说明 temporal sampling 是 RGB 过拟合和 prediction compression 的候选混杂因素，但不是单独充分解释。最长视频四分位没有 padding，但平均预测更低、误差更高；这更像是 head-only 截断、长视频中性片段稀释或关键片段覆盖不足，而不是简单 padding 问题。Freeform 视频整体更长、padding 更少，Northwind 更短、padding 更多，但两类任务的平均绝对误差接近，因此任务级差异不能仅由 padding 解释。
 
-当前下一步仍应运行已接入的 temporal sampling 训练消融：`uniform_256`、`uniform_512`、`uniform_1024`、`first_crop`、`middle_crop` 和 `random_crop`。每组训练后必须接入 `scripts/summarize_prediction_runs.py`，统一比较整体指标、prediction std、severity bias 和 Freeform/Northwind task consistency。
+当时建议运行已接入的 temporal sampling 训练消融：`uniform_256`、`uniform_512`、`uniform_1024`、`first_crop`、`middle_crop` 和 `random_crop`。在当前粗粒度 task-nuisance 路线下，这些实验保留为 task/context 混杂审计和 group-wise evaluation 证据，不作为模型路线。
 ## 2026-06-17 局部遮挡与静态外观捷径审计方向
 
 眼镜、麦克风、胡须等因素应被纳入后续 RGB 过拟合机制审计，但它们不应替代当前多因素主线。更准确的定位是：它们位于 **identity/static appearance shortcut** 与 **local occlusion artifact** 的交叉处。
@@ -1099,9 +1120,9 @@ Severity calibration summary 进一步确认 post-hoc linear calibration 不是�
 
 当前阶段性论文结论：RGB input ablations can improve overall error by redistributing severity-group bias, but they do not eliminate identity shortcut or severe underestimation. Center-focused inputs provide the most stable artifact-mitigation evidence, while black replacement, boundary smoothing, and temporal cropping expose trade-offs among severity bias, identity retrieval, and task consistency.
 
-## 历史阶段：2026-06-25 Shortcut-Regularized MTL 收束路线（已被 RPDF-Net 吸收）
+## 历史阶段：2026-06-25 Shortcut-Regularized MTL 收束路线（已被粗粒度主线继承）
 
-本节保留为历史阶段记录。该阶段曾将研究路线从“继续扩展输入滤镜/边界变体”收束为 **Shortcut-Regularized MTL**；截至 2026-06-25，它已被 RPDF-Net 主线吸收，作为 RPDF-Net 的对照基线和支线验证。历史阶段判断为：RGB 静态输入过拟合可被定义为 subject-level shortcut 与 severity-level shortcut 的共同作用，并可用上层多任务约束做可验证干预。
+本节保留为历史阶段记录。该阶段曾将研究路线从“继续扩展输入滤镜/边界变体”收束为 **Shortcut-Regularized MTL**；截至 2026-07-06，它已被粗粒度 task-nuisance 主线继承，作为 identity-adversarial baseline、severity-balanced baseline 和稳健性验证的一部分。历史阶段判断为：RGB 静态输入过拟合可被定义为 subject-level shortcut 与 severity-level shortcut 的共同作用，并可用上层多任务约束做可验证干预。
 
 当前正式实验计划只包含两类干预：
 
@@ -1145,7 +1166,7 @@ train-val generalization gap
 
 ## 历史阶段记录说明
 
-以下 2026-06-19 相关段落保留为历史证据，说明 input-level identity suppression / boundary smoothing 2x2 的实现与当时路线。它们不再覆盖当前权威路线。当前下一步以本文开头的 `当前权威快照：RPDF-Net 主线` 和 `TODO.md` 的 `当前立即执行任务（权威入口）` 为准。
+以下 2026-06-19 相关段落保留为历史证据，说明 input-level identity suppression / boundary smoothing 2x2 的实现与当时路线。它们不再覆盖当前权威路线。当前下一步以本文开头的 `当前权威快照：粗粒度 Task-Nuisance 解耦主线` 和 `TODO.md` 的 `当前立即执行任务（权威入口）` 为准。
 
 ## 2026-06-19 Identity x Boundary 2x2 变体实现
 
@@ -1163,11 +1184,11 @@ train-val generalization gap
 - `configs/input_ablation/identity_texture_suppressed.yaml`
 - `configs/input_ablation/identity_texture_suppressed_edge_soften.yaml`
 
-历史当时计划：在服务器使用与 `rgb` / `center_mask` / `border_black_feather` 完全相同的 split、seed、训练入口和 checkpoint 策略运行四组 input-level 2x2 实验，并接入 `scripts/summarize_prediction_runs.py` / `scripts/summarize_identity_retrieval_runs.py` / `scripts/summarize_severity_calibration_runs.py` 进行三表联合判读。该计划已被当前 RPDF-Net 主线取代，不再作为下一步主线。
+历史当时计划：在服务器使用与 `rgb` / `center_mask` / `border_black_feather` 完全相同的 split、seed、训练入口和 checkpoint 策略运行四组 input-level 2x2 实验，并接入 `scripts/summarize_prediction_runs.py` / `scripts/summarize_identity_retrieval_runs.py` / `scripts/summarize_severity_calibration_runs.py` 进行三表联合判读。该计划已被当前粗粒度 task-nuisance 主线取代，不再作为下一步主线。
 
 ## 2026-06-19 Identity Suppression 方法调研与路线确认
 
-已将现有 identity suppression / disentanglement / adversarial learning / behavior representation 研究映射到当前项目。历史当时结论是：输入级身份纹理弱化与边界平滑的 2x2 机制消融更适合作为第一步；该结论已经被 2026-06-25 的 RPDF-Net 主线更新，当前优先级转为 RPDF Stage A 证据收口和 Stage B RPDF-lite 单级因子分解。
+已将现有 identity suppression / disentanglement / adversarial learning / behavior representation 研究映射到当前项目。历史当时结论是：输入级身份纹理弱化与边界平滑的 2x2 机制消融更适合作为第一步；该结论已经被 2026-07-06 的粗粒度 task-nuisance 主线更新，当前执行顺序转为 shortcut 证据收口、identity-adversarial baseline 和 coarse task-nuisance disentanglement。
 
 原因：AVEC2014 样本小，RGB severity signal 与 subject/static appearance 可能纠缠。过早使用 adversarial identity removal 可能同时抹除有效行为线索。更稳妥的方式是先用 `edge_soften_only`、`border_blur_fill`、`identity_texture_suppressed`、`identity_texture_suppressed_edge_soften` 检验 identity shortcut 与 boundary artifact 是独立还是耦合。
 

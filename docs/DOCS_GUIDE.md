@@ -4,27 +4,39 @@
 
 ## 当前权威路线
 
-截至 2026-06-25，当前研究路线正式更新为 **RPDF-Net：Risk-aware Progressive De-identification Factorization Network**，中文为 **风险感知递进式去身份因子分解网络**。
+截至 2026-07-06，当前研究路线从细粒度 **RPDF-Net：Risk-aware Progressive De-identification Factorization Network** 调整为 **Shortcut-aware Task-Nuisance Disentangled Representation Learning**，中文暂定为 **捷径感知的任务-干扰粗粒度解耦表征学习**。
 
-当前主线不是继续扩展输入滤镜，也不是只做简单 GRL，而是：
+当前主线不再尝试显式枚举并分解所有潜在因子，例如 `ctx`、`art`、`pose`、`quality` 等。新的原则是：只对可验证捷径变量进行弱监督或对抗约束，其他难以完整覆盖的因素统一视为非任务干扰，通过粗粒度 task-nuisance 解耦和离线审计验证。
 
 ```text
 已完成证据层：input artifact / temporal / identity / calibration / geometry audits
         ↓
-Stage A: RPDF 证据收口
-        layer-wise identity probe + error-identity coupling + artifact weak-label audit
+Stage A: Shortcut evidence closure
+        layer-wise identity probe + error-identity coupling + shortcut/artifact audits as evaluation
         ↓
-Stage B: RPDF-lite 单级因子分解
-        H0 -> z_dep, z_m, z_id, z_art, z_res
+Stage B: Identity-adversarial task representation
+        H0 -> z_dep, with verifiable shortcut suppression
         ↓
-Stage C: 两级递进分解与受控 z_m 传递
-        H_k = Phi([z_dep^k, alpha_k * z_m^k])
+Stage C: Coarse task-nuisance disentanglement
+        H0 -> z_dep, z_nuisance
+        optional: H0 -> z_dep, z_id, z_nuisance
         ↓
-Stage D: 支线有效性验证
-        z_art / z_m gate / multi-attacker / severity-balanced loss / dynamic features
+Stage D: Robustness validation
+        multi-attacker / severity-balanced loss / group-wise robustness / task consistency
 ```
 
-旧的 input artifact、boundary smoothing、temporal sampling、identity retrieval 和 Shortcut-Regularized MTL 方案现在主要作为 RPDF-Net 的证据基础、对照基线和支线验证，不再作为最终主线。需要决定“接下来做什么”时，优先看 `TODO.md` 的“当前立即执行任务（权威入口）”。
+旧的 RPDF-Net、`z_art`、`z_m`、递进分解和多级门控方案保留为历史设计背景或可选远期支线，不再作为当前主线。input artifact、boundary smoothing、temporal sampling、identity retrieval 和 Shortcut-Regularized MTL 方案现在主要作为问题证据、对照基线和审计工具。需要决定“接下来做什么”时，优先看 `TODO.md` 的“当前立即执行任务（权威入口）”。
+
+### 一屏摘要
+
+| 问题 | 当前决定 |
+|---|---|
+| 当前模型主张 | 粗粒度 task-nuisance 解耦，而不是细粒度全因子分解 |
+| 显式 latent | `z_dep`、`z_nuisance`，必要时加 `z_id` |
+| 不显式划分 | `z_art`、`z_ctx`、`z_pose`、`z_quality` 等难以穷尽的因素 |
+| 训练监督 | 只对 subject identity 等可验证 shortcut 使用弱监督或对抗约束 |
+| artifact / context / quality | 用于 audit、probe、case study 和 group-wise evaluation |
+| 下一步入口 | `TODO.md` 的“当前立即执行任务（权威入口）” |
 
 ## 快速读取策略
 
@@ -61,23 +73,25 @@ Stage D: 支线有效性验证
 3. `docs/RESEARCH_NOTES.md`
 4. `docs/EXPERIMENT_LOG.md` 中相关实验条目
 
+注意：`RESEARCH_NOTES.md` 和 `EXPERIMENT_LOG.md` 含有 RPDF-Net 历史素材。引用时必须以本文和 `CURRENT_STATUS.md` / `TODO.md` 的当前 task-nuisance 路线为准。
+
 ## 文档职责划分
 
-| 文档 | 主要职责 | 不应承担的内容 |
-|---|---|---|
-| `DOCS_GUIDE.md` | 文档导航、读取顺序、职责边界、去重规则 | 详细实验结果、长篇论文分析 |
-| `CURRENT_STATUS.md` | 当前状态快照、最新阶段性结论、最近一次决策 | 详细脚本规格、完整历史日志、论文文献展开 |
-| `TODO.md` | 可执行任务清单、完成状态、下一步行动项 | 长篇实验解释、重复粘贴完整表格 |
-| `EXPERIMENT_LOG.md` | 按时间追加的实验/实现记录，保留历史证据 | 当前权威路线、任务优先级争论 |
-| `RGB_OVERFITTING_AUDIT_PLAN.md` | RGB 过拟合研究主控文档，解释实验优先级和论文叙事 | 低层代码接口细节、所有历史命令 |
-| `OVERFITTING_MECHANISM_ROADMAP.md` | 上层机制地图、层级模型、决策树、停止规则 | 每次实验的完整数值表、脚本参数 |
-| `SHORTCUT_AUDIT_DESIGN.md` | 诊断脚本、输出字段、audit 设计规格 | 当前状态总结、论文长篇叙事 |
-| `EXPERIMENT_SCRIPT_MANUAL.md` | 常用运行命令和脚本调用模板 | 实验结果解释、机制判断 |
-| `MTL_LITE_DESIGN.md` | MTL-Lite 架构、模块边界、训练入口设计 | RGB 过拟合最新审计结论 |
-| `RESEARCH_NOTES.md` | 相关论文、研究背景、可引用理论依据 | 当前任务状态、脚本运行细节 |
-| `BUG_LOG.md` | bug、风险、修复记录 | 实验路线规划 |
-| `CODEX_CONTEXT.md` | Codex 长期上下文与工作约束，尽量保持紧凑 | 重复粘贴所有实验结果和长表格 |
-| `CODEX_PROMPT_TEMPLATES.md` | 可复用提示词模板 | 项目状态和实验结论 |
+| 文档 | 路线状态 | 主要职责 | 不应承担的内容 |
+|---|---|---|---|
+| `DOCS_GUIDE.md` | 当前导航入口 | 文档导航、读取顺序、职责边界、去重规则 | 详细实验结果、长篇论文分析 |
+| `CURRENT_STATUS.md` | 当前状态权威 | 当前状态快照、最新阶段性结论、最近一次决策 | 详细脚本规格、完整历史日志、论文文献展开 |
+| `TODO.md` | 当前执行权威 | 可执行任务清单、完成状态、下一步行动项 | 长篇实验解释、重复粘贴完整表格 |
+| `RGB_OVERFITTING_AUDIT_PLAN.md` | 当前机制主控 | RGB 过拟合研究主控文档，解释实验优先级和论文叙事 | 低层代码接口细节、所有历史命令 |
+| `OVERFITTING_MECHANISM_ROADMAP.md` | 当前机制地图 | 上层机制地图、层级模型、决策树、停止规则 | 每次实验的完整数值表、脚本参数 |
+| `SHORTCUT_AUDIT_DESIGN.md` | 当前诊断规格 | 诊断脚本、输出字段、audit 设计规格 | 当前状态总结、论文长篇叙事 |
+| `EXPERIMENT_SCRIPT_MANUAL.md` | 当前命令手册 | 常用运行命令和脚本调用模板 | 实验结果解释、机制判断 |
+| `CODEX_CONTEXT.md` | 当前长期上下文 | Codex 长期上下文与工作约束，尽量保持紧凑 | 重复粘贴所有实验结果和长表格 |
+| `MTL_LITE_DESIGN.md` | 架构背景 | MTL-Lite 架构、模块边界、训练入口设计 | RGB 过拟合最新审计结论 |
+| `RESEARCH_NOTES.md` | 文献与历史理论素材 | 相关论文、研究背景、可引用理论依据 | 当前任务状态、脚本运行细节 |
+| `EXPERIMENT_LOG.md` | 历史日志 | 按时间追加的实验/实现记录，保留历史证据 | 当前权威路线、任务优先级争论 |
+| `BUG_LOG.md` | 风险记录 | bug、风险、修复记录 | 实验路线规划 |
+| `CODEX_PROMPT_TEMPLATES.md` | 辅助材料 | 可复用提示词模板 | 项目状态和实验结论 |
 
 ## 去重写作规则
 
@@ -111,7 +125,7 @@ Stage D: 支线有效性验证
 DOCS_GUIDE.md
 -> TODO.md 当前立即执行任务
 -> CURRENT_STATUS.md 最新段落
--> RGB_OVERFITTING_AUDIT_PLAN.md RPDF-Net 主线
+-> RGB_OVERFITTING_AUDIT_PLAN.md task-nuisance 主线
 -> OVERFITTING_MECHANISM_ROADMAP.md 机制地图
 ```
 
