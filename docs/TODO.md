@@ -28,6 +28,64 @@ Stage A Shortcut 证据收口
 
 阅读规则：只执行新任务时读到“暂缓项”为止即可；后续章节主要是历史任务、已完成基础设施和旧阶段记录。
 
+### 编程实施控制（下一步）
+
+本节用于后续写代码时控制范围。任何新实现先对照这里判断是否允许进入下一阶段；若缺少前置证据，只能补诊断、补文档或补测试，不直接加模型复杂度。
+
+| 控制点 | 允许做什么 | 禁止做什么 | 通过条件 |
+|---|---|---|---|
+| A0 证据收口 | 运行 A1-A4，补齐报告 join、表格校验和状态结论 | 改训练 forward、加入 GRL、加入 `TaskNuisanceBlock` | `CURRENT_STATUS.md` 和 `RGB_OVERFITTING_AUDIT_PLAN.md` 写明 A1-A4 四个结论 |
+| B0 干预规格 | 只写 identity-adversarial baseline 的接口设计、配置键草案、loss 权重范围和评估表 | 同时实现 `z_nuisance`、`z_id`、reconstruction 或 decorrelation | A1+A2 结论决定 strong suppression / monitor-only 分支 |
+| B1 最小代码 | 实现 `H0 -> z_dep -> BDI` + 可开关 GRL/id head，保持默认关闭或独立 override | 改默认 baseline 行为、改 split/label、引入细粒度 latent | import、config load、one-batch smoke、相关单测通过 |
+| B2 对照运行 | 固定 RGB baseline、identity-adversarial、severity-balanced 三组对照 | 新增 RGB mask 族、late fusion、dynamic branch | 三组均输出 BDI、identity risk、severity bias、task consistency、train-val gap |
+| C0 解耦规格 | 设计 `TaskNuisanceBlock` 最小接口和消融矩阵 | 在 B1/B2 判读前实现完整解耦 | 证明 B baseline 不足，且 C 的评价指标和停止规则已写清 |
+| C1 最小解耦代码 | 实现 `H0 -> z_dep,z_nuisance`，预测只读 `z_dep`，recon/decorrelation 低权重可开关 | 显式划分 `z_art/z_ctx/z_pose/z_quality`，堆叠多级门控 | C 对照不弱于 B，且 nuisance leakage / multi-attacker 报告完整 |
+
+#### 立即可编程任务包
+
+1. **A0-result-gate**：为 A1-A4 服务器输出建立收口模板。
+   - 输入：A1 layerwise summary、A2 coupling report、A3 weaklabel report、A4 severity imbalance report。
+   - 输出：四条 yes/no/uncertain 结论和进入 B 阶段的建议。
+   - 改动范围：`docs/CURRENT_STATUS.md`、`docs/RGB_OVERFITTING_AUDIT_PLAN.md`，必要时补 summary helper；不改训练模型。
+
+2. **B0-spec-first**：在写 GRL 代码前先写最小设计规格。
+   - 必须明确：特征入口 `H0` 来自哪里，`z_dep` 维度，id head 类别来源，GRL lambda schedule，默认配置是否关闭。
+   - 必须明确：若 A2 不成立，identity-adversarial 只作为 monitor-only baseline，不作为强抑制默认路线。
+   - 改动范围：设计文档、配置草案、测试计划；不先改 `src/models/mtl_lite.py`。
+
+3. **B1-code-minimal**：只实现 identity-adversarial baseline 的最小闭环。
+   - 允许文件：`src/models/`、`src/trainers/`、`configs/`、`tests/` 中与 MTL-Lite baseline 直接相关的文件。
+   - 必备测试：import check、config loading check、dummy one-batch forward/loss、GRL 开关不会影响默认 baseline。
+   - 必备报告：identity risk 降低、BDI utility 未崩、severity bias 和 task consistency 不恶化。
+
+4. **C0-spec-before-code**：只有 B 阶段判读后才写 `TaskNuisanceBlock`。
+   - 先写接口和损失：`z_dep` 预测、`z_nuisance` 互补、低权重 recon、低权重 decorrelation。
+   - 先写失败条件：若不优于 identity-adversarial baseline 或多 seed 不稳定，停止增加解耦复杂度。
+   - 禁止把 artifact/context/pose/quality 做成显式 latent。
+
+#### 实施验收命令
+
+文档或配置改动后至少运行：
+
+```bash
+git diff --check -- README.md configs/README.md docs
+```
+
+代码改动后优先运行：
+
+```bash
+python -m compileall src scripts tests
+python -m pytest tests/test_mtl_lite_forward.py tests/test_mtl_lite_loss_backward.py
+python scripts/train_mtl_lite.py --override configs/mtl_lite_debug_smoke.yaml
+```
+
+若改动涉及 Stage A 诊断脚本，额外运行对应单测：
+
+```bash
+python -m pytest tests/test_layerwise_identity.py tests/test_layerwise_identity_probe.py
+python -m pytest tests/test_error_identity_coupling.py tests/test_artifact_weaklabels.py tests/test_severity_imbalance.py
+```
+
 ### A. Shortcut 证据收口，优先执行
 
 > 详细脚本/输出规格见 `docs/SHORTCUT_AUDIT_DESIGN.md`。核心约束：A1 只证 "embedding 有身份"，A2 才证 "prediction 可能用了身份"；只有 A1+A2 同时成立才进入强 identity suppression。artifact/context/pose/quality 等因素先作为审计变量，不作为第一版显式 latent。

@@ -72,6 +72,8 @@ Stage D 稳健性验证：multi-attacker、severity-balanced loss、group-wise r
 5. **B1 identity-adversarial baseline**：先验证 `z_dep` 在抑郁预测有效的同时能否降低 subject identity risk。
 6. **C1 coarse task-nuisance disentanglement**：实现 `H0 -> z_dep,z_nuisance`，必要时扩展为 `H0 -> z_dep,z_id,z_nuisance`。
 
+编程实施控制已细化到 `TODO.md` 的“编程实施控制（下一步）”。后续写代码时先按 A0 -> B0 -> B1 -> B2 -> C0 -> C1 gate 推进：A0 未关闭前不实现 GRL 或 `TaskNuisanceBlock`；B 阶段未证明 baseline 不足前不写粗粒度解耦代码。
+
 ### 当前路线细化补充
 
 最新研究路线进一步明确为四个闭环：证据闭环、对抗基线闭环、粗粒度解耦闭环和稳健性验证闭环。短期不实现完整 RPDF-Net，也不显式划分 `ctx/art/pose/quality` 等难以完全验证的潜在因子；先完成 A1/A2，证明 identity 不仅存在于 embedding 中，而且可能与 prediction error 耦合。Stage B 固定比较 RGB baseline、identity-adversarial MTL 和 severity-balanced regression；Stage C 再比较 `z_dep + z_nuisance` 与可选 `z_dep + z_id + z_nuisance`。所有实验同时报告 BDI、identity risk、shortcut/artifact audit risk、severity bias、task consistency 和 train-val gap。
