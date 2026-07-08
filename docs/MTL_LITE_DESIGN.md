@@ -505,3 +505,225 @@ python -m pytest tests/test_mtl_lite_forward.py tests/test_mtl_lite_loss_backwar
 python scripts/train_mtl_lite.py --override configs/mtl_lite_debug_smoke.yaml
 python scripts/diagnose_mtl_lite.py --run-dir <LOG_DIR>/default/mtl_lite/version_0 --ckpt best
 ```
+
+## 13. Stage B 设计规格（B0 规格冻结）
+
+本节是 Stage B 的最小设计规格，对应 `docs/TODO.md` 的 **B0-spec-first** 任务包与 `docs/RGB_OVERFITTING_AUDIT_PLAN.md` 的 Stage B 实施路线。B0 阶段只冻结设计、配置草案与测试计划；**不修改 `src/models/mtl_lite.py`**，模型代码在 B1/B2 才落地。
+
+Stage A 已收口（A1 层级身份探针、A2 残差-身份耦合、A4 severity 压缩同时成立，A3 matched-only 仅作 probe/case/group-wise 评估），因此 Stage B 的工程目标是把两类已证实的问题拆成最小可控干预：身份捷径用 GRL/subject attacker 检验，severity 压缩用训练侧重加权检验。代码实现不得改变默认 RGB baseline 行为；所有新能力都必须通过配置显式打开。
+
+### 13.1 范围与边界
+
+**特征入口固定**
+
+- Stage B 的 `z_dep` 就是当前 MTL-Lite 的 `shared_features`，即 `pool_video_features(...)` 输出、进入 `reg_task_head` 与 `ordinal_task_head` 之前的共享表征（`src/models/mtl_lite.py:387`）。
+- Stage B **不新增** `TaskNuisanceBlock`，不划分 `z_nuisance`，不引入显式 `z_art / z_ctx / z_pose / z_quality`。这些属于 Stage C 范围，且仅在 B5 判定 B 不足以改善风险后才进入。
+
+**配置开关**
+
+- 只允许新增两类开关：`identity_adversarial`（B1）与 `severity_balanced_regression`（B2），**默认均为关闭**。
+- 开关关闭时，`forward` / `compute_losses` / 数值结果必须与当前 E0 baseline 逐位等价，既有测试不应有任何变化。
+
+**实验同质性**
+
+- E0/E1/E2/E3 使用同一 split、seed、backbone、输入变体、optimizer、precision、checkpoint 策略和 metric 输出路径。
+- runner 的 `ModelCheckpoint(monitor="val_RMSE_epoch", mode="min")` 不得改动，确保四组按同一口径选最优 checkpoint。
+
+**禁止边界（Stage B 不得触碰）**
+
+- `TaskNuisanceBlock`、`z_nuisance`、显式 `z_art / z_ctx / z_pose / z_quality` latent；
+- 新增 RGB 输入滤镜、dynamic branch、late fusion；
+- 改变默认 baseline 行为（开关默认关闭、配置缺省时数值等价）；
+- 从 val/test 扩展 identity 类别表或用 val/test 分布调 severity 权重。
+
+### 13.2 接口变更草案
+
+B0 只规定接口形态，B1/B2 落地时按下述签名实现。所有新增字段均 Optional 且默认 `None`，保证旧调用路径不受影响。
+
+**输出与损失结构扩展**（`src/models/outputs.py`）：
+
+```python
+@dataclass
+class MTLLiteOutput:
+    bdi_pred: torch.Tensor
+    ordinal_logits: Optional[torch.Tensor] = None
+    shared_features: Optional[torch.Tensor] = None
+    layer_features: Optional[Dict[str, torch.Tensor]] = None
+    # B1: subject-id head 输出，GRL 之后的 logits；开关关闭时为 None。
+    identity_logits: Optional[torch.Tensor] = None
+
+
+@dataclass
+class MTLLiteLosses:
+    total: torch.Tensor
+    regression: Optional[torch.Tensor] = None
+    ordinal: Optional[torch.Tensor] = None
+    ccc: Optional[torch.Tensor] = None
+    # B1: subject-id CE loss，仅 train stage 且 batch 内 subject 全部可映射时非 None。
+    identity: Optional[torch.Tensor] = None
+```
+
+**前向分支**（`MTLLiteDepressionModel.forward`）：`shared_features` 已在现有 forward 中计算，B1 只在 `identity_adversarial` 打开时追加一条分支，不重写既有路径。
+
+```text
+shared_features -> reg_task_head            -> bdi_pred
+shared_features -> ordinal_task_head        -> ordinal_logits   (if ordinal)
+shared_features -> GradReverse(lambda_id)   -> subject_id_head  -> identity_logits  (if identity_adversarial)
+```
+
+**损失签名**：`compute_losses` 需要知道当前 stage 以 gating identity loss。最小改动是把 stage 透传进去，`_shared_step` 已持有 `stage`，调用点改为 `compute_losses(outputs, labels, stage=stage)`。
+
+```python
+def compute_losses(self, outputs, labels, stage="train"):
+    _, true_bdi_norm, ordinal_levels = self.prepare_labels(labels)
+    # B2: severity-bin reweighting（开关关闭时退化为标准 MSE）。
+    loss_reg = self._regression_mse(outputs.bdi_pred, true_bdi_norm, labels)
+    loss_ccc = concordance_ccc_loss(outputs.bdi_pred, true_bdi_norm)
+    loss_ord = None
+    if outputs.ordinal_logits is not None and self.ordinal_weight > 0.0:
+        loss_ord = coral_loss(outputs.ordinal_logits, ordinal_levels)
+
+    # B1: identity loss 仅在 train stage、且 batch 内 subject 全部命中 train 类别表时启用。
+    loss_id = None
+    if outputs.identity_logits is not None and stage == "train":
+        subject_index = self._map_subjects_to_index(labels["subject_id"])
+        if subject_index is not None:
+            loss_id = F.cross_entropy(outputs.identity_logits, subject_index)
+
+    total = loss_reg + self.ccc_loss_weight * loss_ccc
+    if loss_ord is not None:
+        total = total + self.ordinal_weight * loss_ord
+    if loss_id is not None:
+        total = total + loss_id   # lambda 已在 GRL 中体现，这里不再加权
+    return MTLLiteLosses(total=total, regression=loss_reg, ordinal=loss_ord,
+                         ccc=loss_ccc, identity=loss_id)
+```
+
+**subject 类别表构建**：`AVECDataModule` 已在 runner 内构建；B1 在 `run_mtl_lite` 中（或 data module setup 后）从 **train split** 统计 subject，构建 `subject_id_to_index` 并注入模型（如 `model.set_subject_index(...)`）。val/test 的 unseen subject 不进入类别表，`_map_subjects_to_index` 对未命中返回 `None`，该 batch 不产生 identity loss 但不报错。`labels["subject_id"]` 数据集已提供（`src/datasets/dataset.py:207`），无需改数据层。
+
+### 13.3 配置草案
+
+沿用现有 YAML 嵌套段风格（参考 `MODEL.AUXILIARY_TASKS.ORDINAL_CLASSIFICATION` 的读取方式）。默认值在模型 `_get_nested_config_value` 中保持向后兼容。
+
+```yaml
+MODEL:
+  IDENTITY_ADVERSARIAL:
+    ENABLE: False            # B1 总开关，默认关闭
+    LAMBDA_ID: 0.05          # GRL 系数，sweep: 0.02 / 0.05 / 0.10 / 0.20
+    NUM_SUBJECT_CLASSES: 0   # 由 runner 从 train split 注入，配置中只占位
+  SEVERITY_BALANCED_REGRESSION:
+    ENABLE: False            # B2 总开关，默认关闭
+    POWER: 0.5               # 先 0.5，再比较 1.0
+    MIN_WEIGHT: 0.5          # 截断下界
+    MAX_WEIGHT: 4.0          # 截断上界
+    EDGES: [13, 19, 28]      # 复用 src/diagnostics/io.py:severity_group 边界
+```
+
+**固定实验矩阵配置文件**（`configs/stage_b/`，B1/B2 落地时创建）：
+
+```text
+configs/stage_b/e0_rgb_mtl_lite.yaml                       # 两开关均 False（或省略），即现 baseline
+configs/stage_b/e1_identity_adversarial.yaml               # IDENTITY_ADVERSARIAL.ENABLE True
+configs/stage_b/e2_severity_balanced.yaml                  # SEVERITY_BALANCED_REGRESSION.ENABLE True
+configs/stage_b/e3_identity_adversarial_severity_balanced.yaml  # 两开关均 True
+```
+
+E0 若能由现有 baseline 配置复现，可只记录 resolved config 与运行命令，不强制新增重复文件。`lambda_id` 与 `power` 的 sweep 通过同一份配置 + CLI override 产生多 run，不复制多份近似配置。
+
+### 13.4 B1 Identity-Adversarial 接口规格
+
+- 数据流：`shared_features -> GRL(lambda_id) -> subject_id_head -> identity_logits`。
+- subject 类别只来自 train split subject；val/test unseen subject 不进类别表、不参与 identity loss。
+- identity loss 仅在 `stage == "train"` 且 batch 内 subject 全部可映射时启用；val/test 的 BDI loss 口径与 E0 完全可比。
+- GRL 初始 sweep 固定 `lambda_id = 0.02, 0.05, 0.10, 0.20`，优先选“不损伤 BDI utility 的最低有效强度”。
+- 诊断必须同时报告训练中的 subject-head accuracy 与离线 A1/A2 identity risk；**不能只用训练 adversarial loss 证明去身份成功**。
+
+**通过条件**
+
+- `layer_shared` 或最终表征的 same-subject top1/top5、paired rank、subject attacker risk 至少有明确下降趋势。
+- MAE/RMSE/CCC 不出现明显崩坏，severity bias 和 task consistency 不比 E0 明显恶化。
+- 若 identity risk 下降但 CCC、severity agreement 或 Freeform/Northwind consistency 明显下降，**不视为成功**。
+
+### 13.5 B2 Severity-Balanced 接口规格
+
+- 损失形式：`loss_reg = mean( weight(severity_bin(y_i)) * MSE(pred_i, y_i_norm) )`，按样本加权后求 batch 均值。
+- 第一版**只对 regression MSE 做 severity-bin reweighting**；CCC loss 与 ordinal auxiliary loss 暂不加权，避免 batch 级 CCC/ordinal 解释混在一起。
+- severity bin 固定为 `minimal / mild / moderate / severe`，边界复用 `src/diagnostics/io.py:42` 的 `severity_group`（`≤13 / ≤19 / ≤28 / >28`），保证与 A4/severity 诊断同口径。
+- 权重公式：`weight = (total / (num_bins * count_bin)) ** power`，只从 **train split** 标签计数计算，先跑 `power=0.5`，再比较 `power=1.0`。
+- 权重需 mean-normalize，并设置 `MIN_WEIGHT / MAX_WEIGHT` 截断，避免小样本 severe bin 让梯度失控。
+- 训练日志必须记录每个 bin 的 count、raw weight、clipped weight、final normalized weight。
+- 第一版不引入 balanced sampler、Huber/MAE/CCC 混合 sweep 或 ordinal 改造；这些只作为 Stage B 失败后的局部扩展。
+
+```python
+# 仅由 train split 计数计算
+counts = {bin: count_in_train(bin) for bin in ("minimal","mild","moderate","severe")}
+total, num_bins = sum(counts.values()), 4
+raw   = {b: (total / (num_bins * counts[b])) ** power for b in counts}
+clipped= {b: min(max(raw[b], MIN_WEIGHT), MAX_WEIGHT) for b in counts}
+norm  = {b: clipped[b] / mean(clipped.values()) for b in counts}   # mean-normalize
+per_sample_w = norm[severity_bin(y_i)]                             # y_i 为原始 BDI 分
+loss_reg = (per_sample_w * mse_per_sample).mean()
+```
+
+**通过条件**
+
+- minimal 高估和 severe 低估相对 E0 有实质改善，且 `pred_std / true_std` 更接近真实分布。
+- CCC 不明显下降，identity risk 不升高，task consistency 不恶化。
+- 若只是整体均值上移导致 severe bias 变小、但 minimal bias 或 CCC 明显恶化，**不视为成功**。
+
+### 13.6 B3 固定实验矩阵
+
+```text
+E0  RGB MTL-Lite baseline
+E1  identity-adversarial MTL
+E2  severity-balanced regression
+E3  identity-adversarial MTL + severity-balanced regression
+```
+
+运行约束：四组必须使用同一 split、seed、input variant、optimizer、precision、checkpoint 策略与输出目录结构；`lambda_id` 与 `power` 的 sweep 在每组内部展开为多 run，但不得跨组改动其它变量。
+
+### 13.7 B4 诊断与汇总
+
+每个实验完成后至少输出五类诊断，统一以 E0 为基准横向对照（不写孤立结论）：
+
+1. **prediction summary**：MAE/RMSE/Pearson/CCC、pred mean/std、train-val gap；
+2. **severity summary**：minimal/mild/moderate/severe 的 count、MAE、bias、abs error；
+3. **identity summary**：A1 layer/shared retrieval、A2 residual-identity coupling、subject attacker accuracy；
+4. **task consistency**：同 subject Freeform/Northwind prediction diff 与 residual diff；
+5. **artifact-risk group**：基于 matched-only A3 变量做分组评估，**不把 A3 变量变成训练监督**。
+
+### 13.8 B5 阶段判定
+
+- **E1 有效**：identity risk 下降且 BDI/severity/task consistency 未明显恶化 → 保留 identity-adversarial 作为 Stage C 必要对照，后续在 `z_dep` 上继续报告 identity leakage。
+- **E2 有效**：minimal/severe bias 与 compression 改善，CCC 与 identity risk 未明显恶化 → 保留 severity-balanced regression 作为 Stage C/D 支线，但仍需检查它是否提高 identity risk。
+- **E3 明显优于 E1/E2**：说明 identity shortcut 与 severity compression 存在互补干预价值 → Stage C 必须以 E3 作为强 baseline。
+- **均不能在可接受代价内改善风险**：才进入 Stage C 的粗粒度 `z_dep / z_nuisance` 解耦（C0-spec-before-code）。
+
+### 13.9 测试计划（B1/B2 落地时必备，B0 仅记录）
+
+**B1 必备测试**
+
+- import check：`from src.models.mtl_lite import MTLLiteDepressionModel`；
+- config loading check：缺省配置下 `identity_adversarial` 为 False，`identity_logits` 与 `loss.identity` 均为 `None`；
+- dummy one-batch forward/loss：输出形状正确、loss finite、reg head 梯度非零；
+- **GRL 开关不影响默认 baseline**：开关关闭时 `total` 与现有 E0 逐位等价；
+- **val/test unknown subject 不触发 loss**：含 unseen subject 的 batch 下 `loss.identity` 为 `None` 且不报错；
+- `subject_id_to_index` 仅由 train split 构建，unseen subject 映射返回 `None`。
+
+**B2 必备测试**
+
+- 权重计算：由 train 计数生成、mean-normalize、clip 到 `[MIN_WEIGHT, MAX_WEIGHT]`；
+- loss 缩放：severity-bin reweighting 后 `loss_reg` 相对 plain MSE 的尺度变化符合权重表；
+- **默认关闭不改变 baseline**：开关关闭时 `loss.regression` 与 plain MSE 逐位等价；
+- **只改 regression MSE 不改 CCC/ordinal**：开关打开时 CCC 与 ordinal loss 的逐样本值与关闭时一致，仅 regression 项被重加权。
+
+### 13.10 B0 阶段交付清单
+
+- [x] 本节设计规格（范围/边界、接口草案、配置草案、B1/B2 规格、B3 矩阵、B4 诊断、B5 判定、测试计划）；
+- [x] `configs/stage_b/` 四份配置草案（E0/E1/E2/E3）+ README（四组全部落地）；
+- [x] B1 测试用例（`tests/test_mtl_lite_identity_adversarial.py` + `tests/test_gradient_reversal.py`）；
+- [x] B2 测试用例（`tests/test_mtl_lite_severity_balanced.py`，8 项；权重公式/clip/normalize、bin 边界与 `io.severity_group` 同口径、加权 MSE=逐样本加权、默认关闭=plain MSE、只改 regression 不改 CCC/ordinal、degenerate 回退）；
+- [x] B1 代码：`src/models/outputs.py`（`identity_logits` / `identity`）、`src/models/gradient_reversal.py`（GRL）、`src/models/mtl_lite.py`（`set_subject_index` / `_map_subjects_to_index` / forward 分支 / `compute_losses(..., stage=)` gating / `_shared_step` 透传 stage）、`src/trainers/mtl_lite_runner.py`（`build_train_subject_index` + 注入）；
+- [x] B2 代码：`src/models/mtl_lite.py`（`set_severity_bin_counts` / `_severity_bin_index` / `_severity_weighted_mse` / `compute_losses` regression 项替换）、`src/trainers/mtl_lite_runner.py`（`build_train_severity_bin_counts` + 注入，edges 取自模型）。两个开关默认关闭时与 E0 逐位等价（27 项测试覆盖）。
+
+B0 完成后按 `docs/TODO.md` 的 **B1-code-minimal** → **B2-severity-balanced-minimal** → **B3-fixed-experiments** → **B4-stage-b-report** → **B5-stage-b-gate** 顺序推进。**B1-code-minimal 与 B2-severity-balanced-minimal 均已完成**，下一步进入 **B3-fixed-experiments**（在服务器上按统一 split/seed/backbone 跑完 E0–E3，含 `lambda_id` 与 `POWER` 的 sweep）。

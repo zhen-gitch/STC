@@ -1,0 +1,21 @@
+# Stage B E3: identity-adversarial MTL + severity-balanced regression.
+#
+# Combines E1 and E2: shared_features -> GRL -> subject_id_head (train-only
+# subject index, train-stage CE) AND regression MSE severity-bin reweighting
+# (train-only bin counts).  Both switches are independent; either can still be
+# turned off via override (docs/MTL_LITE_DESIGN.md section 13.6).
+
+EXPERIMENT_GROUP: "stage_b"
+EXPERIMENT_NAME: "e3_identity_adversarial_severity_balanced"
+
+MODEL:
+  IDENTITY_ADVERSARIAL:
+    ENABLE: True
+    LAMBDA_ID: 0.05          # sweep: 0.02 / 0.05 / 0.10 / 0.20
+    NUM_SUBJECT_CLASSES: 0   # placeholder; runner injects len(train subjects)
+  SEVERITY_BALANCED_REGRESSION:
+    ENABLE: True
+    POWER: 0.5              # sweep: 0.5 (default) then 1.0
+    MIN_WEIGHT: 0.5
+    MAX_WEIGHT: 4.0
+    EDGES: [13, 19, 28]

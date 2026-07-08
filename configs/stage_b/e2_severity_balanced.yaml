@@ -1,0 +1,21 @@
+# Stage B E2: severity-balanced regression (regression MSE reweighted by bin).
+#
+# Only the regression MSE term is reweighted by per-bin weights derived from
+# the train split; CCC and ordinal auxiliary losses are left unweighted.  Bin
+# edges default to [13, 19, 28] matching src/diagnostics/io.severity_group, so
+# training-time reweighting and the A4/severity diagnostics share one
+# definition (docs/MTL_LITE_DESIGN.md section 13.5).
+#
+# POWER sweep (run as separate runs, B3): 0.5 then 1.0.  Edit POWER below or
+# layer a 2-line override file.
+
+EXPERIMENT_GROUP: "stage_b"
+EXPERIMENT_NAME: "e2_severity_balanced"
+
+MODEL:
+  SEVERITY_BALANCED_REGRESSION:
+    ENABLE: True
+    POWER: 0.5              # sweep: 0.5 (default) then 1.0
+    MIN_WEIGHT: 0.5
+    MAX_WEIGHT: 4.0
+    EDGES: [13, 19, 28]

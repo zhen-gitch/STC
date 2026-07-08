@@ -9,6 +9,7 @@ import torchmetrics
 
 from src.metrics.metrics import ConcordanceCorrCoefMetric, concordance_ccc_loss
 from src.models.backbone_factory import build_feature_backbone
+from src.models.gradient_reversal import GradientReversalLayer
 from src.models.outputs import MTLLiteLosses, MTLLiteOutput
 from src.models.task_heads import (
     build_classification_task_head,
@@ -185,6 +186,198 @@ class MTLLiteDepressionModel(pl.LightningModule):
         self._layer_probe_handles: List = []
         self._layer_probe_cache: Dict[str, torch.Tensor] = {}
         self._layer_probe_active: bool = False
+
+        # Stage B1: identity-adversarial state.  All switches default off so
+        # the default RGB baseline (E0) is bit-identical when the config does
+        # not enable ``MODEL.IDENTITY_ADVERSARIAL``.  The subject-id head is
+        # built lazily by :meth:`set_subject_index` once the runner injects a
+        # train-only subject table; until then ``forward`` emits no
+        # ``identity_logits`` and ``compute_losses`` emits no identity loss.
+        self.identity_adversarial = bool(
+            _get_nested_config_value(
+                configs, "MODEL", "IDENTITY_ADVERSARIAL", "ENABLE", False
+            )
+        )
+        self.lambda_id = float(
+            _get_nested_config_value(
+                configs, "MODEL", "IDENTITY_ADVERSARIAL", "LAMBDA_ID", 0.05
+            )
+        )
+        self.grl: Optional[GradientReversalLayer] = (
+            GradientReversalLayer(self.lambda_id) if self.identity_adversarial else None
+        )
+        self.subject_id_head: Optional[nn.Module] = None
+        self.subject_id_to_index: Dict[str, int] = {}
+
+        # Stage B2: severity-balanced regression.  Default off so the default
+        # baseline (E0) uses plain MSE.  When on, only the regression MSE term
+        # is reweighted by per-bin weights derived from the train split; CCC
+        # and ordinal auxiliary losses are deliberately left unweighted (see
+        # docs/MTL_LITE_DESIGN.md section 13.5).  Bin edges reuse
+        # ``src/diagnostics/io.py:severity_group`` (<=13 / <=19 / <=28 / >28)
+        # so training-time reweighting matches the A4/severity diagnostics.
+        self.severity_balanced_regression = bool(
+            _get_nested_config_value(
+                configs, "MODEL", "SEVERITY_BALANCED_REGRESSION", "ENABLE", False
+            )
+        )
+        self.severity_power = float(
+            _get_nested_config_value(
+                configs, "MODEL", "SEVERITY_BALANCED_REGRESSION", "POWER", 0.5
+            )
+        )
+        self.severity_min_weight = float(
+            _get_nested_config_value(
+                configs, "MODEL", "SEVERITY_BALANCED_REGRESSION", "MIN_WEIGHT", 0.5
+            )
+        )
+        self.severity_max_weight = float(
+            _get_nested_config_value(
+                configs, "MODEL", "SEVERITY_BALANCED_REGRESSION", "MAX_WEIGHT", 4.0
+            )
+        )
+        # Edges configurable but default to the diagnostics-standard boundaries.
+        cfg_edges = _get_nested_config_value(
+            configs, "MODEL", "SEVERITY_BALANCED_REGRESSION", "EDGES", [13, 19, 28]
+        )
+        self.severity_bin_edges = [int(e) for e in list(cfg_edges)]
+        self.severity_bin_names = ("minimal", "mild", "moderate", "severe")
+        # Injected by the runner from the train split; empty dict => disabled
+        # even if the switch is on (no train stats yet).
+        self.severity_bin_weights: Dict[str, float] = {}
+
+    def set_subject_index(self, subject_id_to_index):
+        """Inject the train-only subject table and build the attacker head.
+
+        Called by the runner after constructing the model, using a subject
+        table built exclusively from the train split.  Val/test unseen
+        subjects are deliberately absent from the table so that batches
+        containing them produce no identity loss (only diagnostic use).
+
+        No-op when ``identity_adversarial`` is disabled, so the default
+        baseline path is unaffected.
+        """
+        self.subject_id_to_index = dict(subject_id_to_index or {})
+        if not self.identity_adversarial or not self.subject_id_to_index:
+            return
+        num_subject_classes = len(self.subject_id_to_index)
+        # Mirror the regression head structure (Linear -> LayerNorm -> GELU ->
+        # Linear) but emit ``num_subject_classes`` logits for plain CE.  Built
+        # lazily so the optimizer (configured during ``trainer.fit``) sees it.
+        self.subject_id_head = nn.Sequential(
+            nn.Linear(self.hidden_dim, self.hidden_dim),
+            nn.LayerNorm(self.hidden_dim),
+            nn.GELU(),
+            nn.Linear(self.hidden_dim, num_subject_classes),
+        )
+
+    def _map_subjects_to_index(self, subject_ids):
+        """Map a batch of subject ids to a LongTensor of class indices.
+
+        Returns ``None`` when any subject in the batch is absent from the
+        train-only table (e.g. val/test unseen subjects, or the table was
+        never injected).  Callers treat ``None`` as "skip identity loss for
+        this batch" rather than an error.
+        """
+        if not self.subject_id_to_index:
+            return None
+        indices = []
+        for sid in subject_ids:
+            idx = self.subject_id_to_index.get(str(sid))
+            if idx is None:
+                return None
+            indices.append(idx)
+        return torch.tensor(indices, dtype=torch.long)
+
+    # ------------------------------------------------------------------
+    # Stage B2: severity-bin reweighting for the regression MSE term.
+    # ------------------------------------------------------------------
+
+    def set_severity_bin_counts(self, bin_counts):
+        """Inject train-only severity bin counts and compute the weight table.
+
+        Args:
+            bin_counts: Mapping from bin name (``minimal``/``mild``/``moderate``
+                /``severe``) to train-split sample count.  Built by the runner
+                from train labels only.
+
+        Computes ``weight = (total / (num_bins * count_bin)) ** power`` per bin,
+        clips to ``[MIN_WEIGHT, MAX_WEIGHT]``, then mean-normalizes so the
+        average per-sample weight is 1.0 (keeping the regression loss on the
+        same scale as plain MSE).  The full table (count, raw, clipped,
+        normalized) is printed for log traceability.  No-op when the switch is
+        off.
+        """
+        if not self.severity_balanced_regression:
+            self.severity_bin_weights = {}
+            return
+        counts = {name: int(bin_counts.get(name, 0)) for name in self.severity_bin_names}
+        total = sum(counts.values())
+        num_bins = len(self.severity_bin_names)
+        if total <= 0 or any(c <= 0 for c in counts.values()):
+            # Empty train split or a degenerate bin would produce inf/nan
+            # weights; refuse to weight rather than corrupt the gradient.
+            print(
+                f"[SEVERITY-BALANCE] Incomplete train bin counts {counts}; "
+                f"falling back to plain MSE (weights disabled)."
+            )
+            self.severity_bin_weights = {}
+            return
+
+        raw = {
+            name: (total / (num_bins * counts[name])) ** self.severity_power
+            for name in self.severity_bin_names
+        }
+        clipped = {
+            name: min(max(raw[name], self.severity_min_weight), self.severity_max_weight)
+            for name in self.severity_bin_names
+        }
+        mean_clipped = sum(clipped.values()) / num_bins
+        normalized = {name: clipped[name] / mean_clipped for name in self.severity_bin_names}
+        self.severity_bin_weights = normalized
+        print("[SEVERITY-BALANCE] Train-only severity-bin weight table:")
+        for name in self.severity_bin_names:
+            print(
+                f"  {name:>9s}: count={counts[name]:4d}  raw={raw[name]:.4f}  "
+                f"clipped={clipped[name]:.4f}  normalized={normalized[name]:.4f}"
+            )
+
+    def _severity_bin_index(self, true_bdi):
+        """Map a tensor of raw BDI scores to per-sample bin indices.
+
+        Bin edges come from ``self.severity_bin_edges`` (default ``[13, 19,
+        28]``), matching :func:`src.diagnostics.io.severity_group`.  Returns a
+        ``LongTensor`` of bin indices in ``[0, num_bins)``.
+        """
+        scores = true_bdi.float()
+        # torch.bucketize with right=False assigns score -> index of first edge
+        # strictly greater than it: score<=edges[0] -> 0, score==edges[0] -> 0,
+        # score in (edges[0], edges[1]] -> 1, etc.  This matches the ``<=``
+        # semantics of src.diagnostics.io.severity_group.
+        return torch.bucketize(
+            scores,
+            torch.tensor(self.severity_bin_edges, device=scores.device, dtype=scores.dtype),
+            right=False,
+        )
+
+    def _severity_weighted_mse(self, bdi_pred, true_bdi_norm, true_bdi):
+        """Severity-bin reweighted MSE over the batch.
+
+        ``loss = mean( weight(bin(y_i)) * (pred_i - y_i_norm)^2 )``.  When the
+        weight table is empty (switch off or no train stats), this falls back
+        to plain ``F.mse_loss`` so the result is bit-identical to E0.
+        """
+        if not self.severity_bin_weights:
+            return F.mse_loss(bdi_pred.float(), true_bdi_norm.float())
+        bin_idx = self._severity_bin_index(true_bdi).to(bdi_pred.device)
+        weight_table = torch.tensor(
+            [self.severity_bin_weights[name] for name in self.severity_bin_names],
+            device=bdi_pred.device,
+            dtype=bdi_pred.dtype,
+        )
+        per_sample_w = weight_table[bin_idx]
+        sq_err = (bdi_pred.float() - true_bdi_norm.float()) ** 2
+        return (per_sample_w * sq_err).mean()
 
     @staticmethod
     def _set_module_trainable(module, trainable):
@@ -390,6 +583,16 @@ class MTLLiteDepressionModel(pl.LightningModule):
         if self.ordinal_task_head is not None:
             ordinal_logits = self.ordinal_task_head(shared_features)
 
+        # Stage B1: identity-adversarial branch.  Only active when the switch
+        # is on AND a train-only subject index has been injected (head built).
+        # The GRL sits between ``shared_features`` and the attacker head so the
+        # head learns to predict subject id while the reversed gradient pushes
+        # ``z_dep`` away from identity.  Disabled path leaves identity_logits
+        # as None and the baseline forward unchanged.
+        identity_logits = None
+        if self.identity_adversarial and self.subject_id_head is not None:
+            identity_logits = self.subject_id_head(self.grl(shared_features))
+
         layer_features = None
         if return_layer_features:
             layer_features = self._collect_layer_features(
@@ -404,6 +607,7 @@ class MTLLiteDepressionModel(pl.LightningModule):
             ordinal_logits=ordinal_logits,
             shared_features=shared_features if return_features else None,
             layer_features=layer_features,
+            identity_logits=identity_logits,
         )
 
     def _collect_layer_features(self, frame_features, temporal_features, shared_features, mask):
@@ -487,22 +691,42 @@ class MTLLiteDepressionModel(pl.LightningModule):
         ordinal_levels = get_coral_levels(labels["class_label"].long(), self.num_classes)
         return true_bdi, true_bdi_norm, ordinal_levels
 
-    def compute_losses(self, outputs, labels):
-        _, true_bdi_norm, ordinal_levels = self.prepare_labels(labels)
-        loss_reg = F.mse_loss(outputs.bdi_pred.float(), true_bdi_norm.float())
+    def compute_losses(self, outputs, labels, stage="train"):
+        true_bdi, true_bdi_norm, ordinal_levels = self.prepare_labels(labels)
+        # Stage B2: regression MSE is severity-bin reweighted when the switch
+        # is on and a train-only weight table has been injected; otherwise
+        # falls back to plain MSE (bit-identical to E0).  CCC and ordinal are
+        # deliberately NOT reweighted (docs/MTL_LITE_DESIGN.md section 13.5).
+        loss_reg = self._severity_weighted_mse(outputs.bdi_pred, true_bdi_norm, true_bdi)
         loss_ccc = concordance_ccc_loss(outputs.bdi_pred, true_bdi_norm)
         loss_ord = None
         if outputs.ordinal_logits is not None and self.ordinal_weight > 0.0:
             loss_ord = coral_loss(outputs.ordinal_logits, ordinal_levels)
 
+        # Stage B1: identity-adversarial CE.  Gated by (a) the head having
+        # produced logits, (b) train stage only -- val/test BDI loss must stay
+        # comparable to E0, and (c) every subject in the batch mapping to the
+        # train-only table.  ``lambda_id`` is already applied inside the GRL,
+        # so the CE term is added without an extra weight.  When any gate
+        # fails, ``loss_id`` stays None and ``total`` is bit-identical to E0.
+        loss_id = None
+        if outputs.identity_logits is not None and stage == "train":
+            subject_index = self._map_subjects_to_index(labels["subject_id"])
+            if subject_index is not None:
+                subject_index = subject_index.to(outputs.identity_logits.device)
+                loss_id = F.cross_entropy(outputs.identity_logits, subject_index)
+
         total = loss_reg + self.ccc_loss_weight * loss_ccc
         if loss_ord is not None:
             total = total + self.ordinal_weight * loss_ord
+        if loss_id is not None:
+            total = total + loss_id
         return MTLLiteLosses(
             total=total,
             regression=loss_reg,
             ordinal=loss_ord,
             ccc=loss_ccc,
+            identity=loss_id,
         )
 
     def prediction_for_metrics(self, bdi_preds):
@@ -518,7 +742,7 @@ class MTLLiteDepressionModel(pl.LightningModule):
     def _shared_step(self, batch, stage):
         video_tensor, mask, labels = batch
         outputs = self(video_tensor, mask)
-        losses = self.compute_losses(outputs, labels)
+        losses = self.compute_losses(outputs, labels, stage=stage)
         true_bdi = labels["bdi_score"].float()
         current_bs = video_tensor.size(0)
 
@@ -529,6 +753,8 @@ class MTLLiteDepressionModel(pl.LightningModule):
             self.log(f"{stage}_ordinal_loss", losses.ordinal, on_epoch=True, on_step=False, batch_size=current_bs)
         if losses.ccc is not None:
             self.log(f"{stage}_ccc_loss", losses.ccc, on_epoch=True, on_step=False, batch_size=current_bs)
+        if losses.identity is not None:
+            self.log(f"{stage}_identity_loss", losses.identity, on_epoch=True, on_step=False, batch_size=current_bs)
         return losses.total
 
     def training_step(self, batch, batch_idx):

@@ -1,0 +1,15 @@
+# Stage B E0: RGB MTL-Lite baseline (identity-adversarial OFF, severity-balanced OFF).
+#
+# This is the Stage B reference baseline. Both Stage B switches are explicitly
+# off so the resolved config is self-documenting; the model's defaults are also
+# off, so this file is numerically identical to the existing MTL-Lite baseline.
+# E0 is the comparison anchor for E1/E2/E3 (docs/MTL_LITE_DESIGN.md section 13.6).
+
+EXPERIMENT_GROUP: "stage_b"
+EXPERIMENT_NAME: "e0_rgb_mtl_lite"
+
+MODEL:
+  IDENTITY_ADVERSARIAL:
+    ENABLE: False
+    LAMBDA_ID: 0.05
+    NUM_SUBJECT_CLASSES: 0

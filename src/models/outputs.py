@@ -15,6 +15,11 @@ class MTLLiteOutput:
     # Only populated when ``forward(..., return_layer_features=True)`` is used
     # by the layer-wise identity probe; the training path leaves this as None.
     layer_features: Optional[Dict[str, torch.Tensor]] = None
+    # Stage B1: subject-id head logits, computed from the GRL-adapted
+    # ``shared_features``.  Populated only when ``identity_adversarial`` is
+    # enabled AND a train-only subject index has been injected; otherwise
+    # ``None`` so the default baseline path is unchanged.
+    identity_logits: Optional[torch.Tensor] = None
 
 
 @dataclass
@@ -25,3 +30,8 @@ class MTLLiteLosses:
     regression: Optional[torch.Tensor] = None
     ordinal: Optional[torch.Tensor] = None
     ccc: Optional[torch.Tensor] = None
+    # Stage B1: subject-id CE loss.  Only non-None during training when
+    # ``identity_adversarial`` is on and every subject in the batch maps to the
+    # train-only subject index.  Default ``None`` keeps existing callers and
+    # the default baseline total loss bit-identical.
+    identity: Optional[torch.Tensor] = None
