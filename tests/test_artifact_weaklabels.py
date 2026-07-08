@@ -15,7 +15,10 @@ from src.diagnostics.artifact_weaklabels import (
     _pearson,
     build_weaklabel_summary,
     compute_weaklabel_correlations,
+    compute_matched_weaklabel_correlations,
+    filter_prediction_matched_rows,
     run_artifact_weaklabel_audit,
+    run_matched_weaklabel_correlation,
 )
 from src.diagnostics.io import write_csv_rows
 
@@ -212,3 +215,109 @@ def test_run_audit_report_documents_z_art_decision(tmp_path):
     report = (tmp_path / "out" / "reports" / "artifact_weaklabel_report.md").read_text(encoding="utf-8")
     assert "z_art Entry Decision" in report
     assert "black_artifacts:black_border_ratio_mean" in report
+
+
+def test_matched_filter_keeps_only_rows_with_prediction_error():
+    rows = [
+        {"video_id": "a", "pred_bdi": "1.0", "residual": "0.5", "abs_error": "0.5"},
+        {"video_id": "b", "pred_bdi": "", "residual": "", "abs_error": ""},
+        {"video_id": "c", "pred_bdi": "2.0", "residual": "-1.0", "abs_error": "1.0"},
+    ]
+    matched = filter_prediction_matched_rows(rows)
+    assert [row["video_id"] for row in matched] == ["a", "c"]
+
+
+def test_matched_correlations_use_paired_prediction_count():
+    rows = [
+        {
+            "video_id": "a",
+            "true_bdi": "1",
+            "pred_bdi": "1.5",
+            "residual": "0.5",
+            "abs_error": "0.5",
+            "openface_quality:pose": "1.0",
+        },
+        {
+            "video_id": "b",
+            "true_bdi": "",
+            "pred_bdi": "",
+            "residual": "",
+            "abs_error": "",
+            "openface_quality:pose": "2.0",
+        },
+        {
+            "video_id": "c",
+            "true_bdi": "3",
+            "pred_bdi": "2.0",
+            "residual": "-1.0",
+            "abs_error": "1.0",
+            "openface_quality:pose": "3.0",
+        },
+    ]
+    matched, corr_rows = compute_matched_weaklabel_correlations(rows)
+    assert len(matched) == 2
+    pose_corr = next(r for r in corr_rows if r["weaklabel_name"] == "openface_quality:pose")
+    assert pose_corr["n"] == 2
+    assert pose_corr["corr_with_abs_error"] == pytest.approx(1.0, abs=1e-9)
+
+
+def test_run_matched_weaklabel_correlation_emits_matched_outputs(tmp_path):
+    rows = [
+        {
+            "video_id": "a",
+            "subject_id": "s1",
+            "task_name": "Freeform",
+            "true_bdi": "1",
+            "pred_bdi": "1.5",
+            "residual": "0.5",
+            "abs_error": "0.5",
+            "severity_group": "minimal",
+            "openface_quality:pose": "1.0",
+        },
+        {
+            "video_id": "b",
+            "subject_id": "",
+            "task_name": "",
+            "true_bdi": "",
+            "pred_bdi": "",
+            "residual": "",
+            "abs_error": "",
+            "severity_group": "",
+            "openface_quality:pose": "2.0",
+        },
+        {
+            "video_id": "c",
+            "subject_id": "s2",
+            "task_name": "Northwind",
+            "true_bdi": "3",
+            "pred_bdi": "2.0",
+            "residual": "-1.0",
+            "abs_error": "1.0",
+            "severity_group": "mild",
+            "openface_quality:pose": "3.0",
+        },
+    ]
+    summary_path = _write_csv(
+        tmp_path / "artifact_weaklabel_summary.csv",
+        rows,
+        list(rows[0].keys()),
+    )
+    generated = run_matched_weaklabel_correlation(summary_path, output_dir=tmp_path / "out")
+    summary_out = tmp_path / "out" / "tables" / "artifact_weaklabel_summary_matched.csv"
+    corr_out = tmp_path / "out" / "tables" / "artifact_weaklabel_correlation_matched.csv"
+    report_out = tmp_path / "out" / "reports" / "artifact_weaklabel_report_matched.md"
+    assert summary_out in generated
+    assert corr_out in generated
+    assert report_out in generated
+
+    from src.diagnostics.io import read_csv_rows
+
+    matched_rows = read_csv_rows(summary_out)
+    corr_rows = read_csv_rows(corr_out)
+    assert len(matched_rows) == 2
+    assert {row["video_id"] for row in matched_rows} == {"a", "c"}
+    pose_corr = next(r for r in corr_rows if r["weaklabel_name"] == "openface_quality:pose")
+    assert pose_corr["n"] == "2"
+    report = report_out.read_text(encoding="utf-8")
+    assert "Shortcut Stage A3" in report
+    assert "does not create a `z_art` training branch" in report

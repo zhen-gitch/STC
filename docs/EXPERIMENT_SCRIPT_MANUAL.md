@@ -529,6 +529,7 @@ python scripts/audit_task_inconsistency.py \
 | `audit_layerwise_identity_probe.py` | `<output_dir>/` | `test_layerwise_features.npz`、`tables/layerwise_identity_summary.csv`、报告 |
 | `audit_error_identity_coupling.py` | `<output_dir>/` | `tables/error_identity_correlation.csv`、`high_error_high_identity_cases.csv`、报告 |
 | `audit_artifact_weaklabels.py` | `<output_dir>/` | `tables/artifact_weaklabel_summary.csv`、`tables/artifact_weaklabel_correlation.csv`、报告 |
+| `summarize_artifact_weaklabels_matched.py` | `<output_dir>/` 或原 A3 目录 | `tables/artifact_weaklabel_summary_matched.csv`、`tables/artifact_weaklabel_correlation_matched.csv`、报告 |
 | `summarize_severity_imbalance.py` | `<output_dir>/` | `tables/severity_imbalance_summary.csv`、报告 |
 
 ---
@@ -677,6 +678,22 @@ reports/artifact_weaklabel_report.md           # 含 artifact/quality 变量定�
 ```
 
 判读（报告自动给出）：|corr(abs_error)| ≥ 阈值 → 纳入 shortcut/artifact probe、case study 和 group-wise evaluation；只与 true_bdi 耦合 → 采集偏置，只作为 label-confound 证据；无弱标签过阈值 → 仅审计出口。
+
+若 `artifact_weaklabel_summary.csv` 同时包含全数据集 OpenFace weak labels 和当前 split 的 prediction rows，需要额外生成 matched-only correlation。该步骤只保留 `pred_bdi`、`residual`、`abs_error` 非空的视频，避免 OpenFace-only 行把 `n` 显示成全量 300：
+
+```bash
+python scripts/summarize_artifact_weaklabels_matched.py \
+  --summary val=$RUN_DIR/diagnostics/val/artifact_weaklabels/tables/artifact_weaklabel_summary.csv \
+  --summary test=$RUN_DIR/diagnostics/test/artifact_weaklabels/tables/artifact_weaklabel_summary.csv \
+  --output-dir $RUN_DIR/diagnostics/artifact_weaklabels_matched
+```
+
+如果只处理单个 split，且希望输出写回原 A3 目录，可省略 `--output-dir`：
+
+```bash
+python scripts/summarize_artifact_weaklabels_matched.py \
+  --summary $RUN_DIR/diagnostics/test/artifact_weaklabels/tables/artifact_weaklabel_summary.csv
+```
 
 ### 9.5 A4 Severity Imbalance / Prediction Compression Summary
 

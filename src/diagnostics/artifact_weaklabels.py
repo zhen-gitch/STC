@@ -108,6 +108,10 @@ CORRELATION_COLUMNS = [
     "abs_corr_with_abs_error",
 ]
 
+MATCHED_CORRELATION_COLUMNS = CORRELATION_COLUMNS
+
+DEFAULT_MATCH_REQUIRED_FIELDS = ("pred_bdi", "residual", "abs_error")
+
 
 def _safe_float(value):
     if value is None or value == "":
@@ -317,6 +321,242 @@ def compute_weaklabel_correlations(summary_rows, weaklabel_fields_by_source):
         key=lambda r: (r["abs_corr_with_abs_error"] is None, -(r["abs_corr_with_abs_error"] or 0))
     )
     return rows
+
+
+def _infer_weaklabel_columns(summary_rows):
+    """Infer weak-label columns from an artifact weak-label summary table."""
+    if not summary_rows:
+        return []
+    excluded = set(SUMMARY_METADATA_COLUMNS)
+    columns = []
+    for key in summary_rows[0].keys():
+        if key in excluded:
+            continue
+        if any(_safe_float(row.get(key)) is not None for row in summary_rows):
+            columns.append(key)
+    return columns
+
+
+def filter_prediction_matched_rows(
+    summary_rows,
+    required_fields=DEFAULT_MATCH_REQUIRED_FIELDS,
+):
+    """Keep rows that have prediction/error fields needed for Stage A3.
+
+    Full artifact summaries may include OpenFace-only videos from other splits.
+    Stage A3 error coupling must use only videos with model predictions and
+    residual/absolute-error targets.
+    """
+    matched = []
+    for row in summary_rows:
+        if all(_safe_float(row.get(field)) is not None for field in required_fields):
+            matched.append(row)
+    return matched
+
+
+def compute_matched_weaklabel_correlations(
+    summary_rows,
+    weaklabel_columns=None,
+    required_fields=DEFAULT_MATCH_REQUIRED_FIELDS,
+):
+    """Compute weak-label correlations on prediction-matched rows only.
+
+    The ``n`` column is the paired valid count for ``weaklabel`` and
+    ``abs_error``. This avoids the misleading ``n=300`` case where weak labels
+    exist for all videos but prediction errors exist only for one split.
+    """
+    matched_rows = filter_prediction_matched_rows(summary_rows, required_fields)
+    if weaklabel_columns is None:
+        weaklabel_columns = _infer_weaklabel_columns(matched_rows)
+
+    targets = {target: [r.get(target) for r in matched_rows] for target in TARGET_FIELDS}
+    rows = []
+    for key in weaklabel_columns:
+        values = [_safe_float(r.get(key)) for r in matched_rows]
+        abs_error_values = [_safe_float(v) for v in targets["abs_error"]]
+        paired_n = sum(
+            1
+            for value, abs_error in zip(values, abs_error_values)
+            if value is not None and abs_error is not None
+        )
+        corr_abs_error = _pearson(values, abs_error_values)
+        source = key.split(":", 1)[0] if ":" in key else ""
+        row = {
+            "weaklabel_name": key,
+            "source": source,
+            "n": paired_n,
+            "corr_with_true_bdi": _pearson(values, [_safe_float(v) for v in targets["true_bdi"]]),
+            "corr_with_pred_bdi": _pearson(values, [_safe_float(v) for v in targets["pred_bdi"]]),
+            "corr_with_residual": _pearson(values, [_safe_float(v) for v in targets["residual"]]),
+            "corr_with_abs_error": corr_abs_error,
+            "abs_corr_with_abs_error": abs(corr_abs_error) if corr_abs_error is not None else None,
+        }
+        rows.append(row)
+
+    rows.sort(
+        key=lambda r: (r["abs_corr_with_abs_error"] is None, -(r["abs_corr_with_abs_error"] or 0))
+    )
+    return matched_rows, rows
+
+
+def _write_matched_weaklabel_report(
+    report_path,
+    correlation_rows,
+    matched_count,
+    total_count,
+    generated_files,
+    coupling_threshold=0.2,
+):
+    """Write a task-nuisance aligned matched-only A3 report."""
+    report_path = Path(report_path)
+    ensure_dir(report_path.parent)
+
+    error_coupled = [
+        r for r in correlation_rows
+        if r["abs_corr_with_abs_error"] is not None
+        and r["abs_corr_with_abs_error"] >= coupling_threshold
+    ]
+    label_only = [
+        r for r in correlation_rows
+        if r["abs_corr_with_abs_error"] is not None
+        and r["abs_corr_with_abs_error"] < coupling_threshold
+        and r["corr_with_true_bdi"] is not None
+        and abs(r["corr_with_true_bdi"]) >= coupling_threshold
+    ]
+
+    lines = [
+        "# Artifact Weak-label Matched-only Report (Shortcut Stage A3)",
+        "",
+        f"Input rows: {total_count}",
+        f"Prediction-matched rows: {matched_count}",
+        "",
+        "This report filters an artifact weak-label summary to videos with "
+        "prediction error targets, then recomputes weak-label correlations on "
+        "that matched subset only. It is the Stage A3 evidence used for "
+        "artifact/quality/context probes, case studies and group-wise "
+        "evaluation. It does not create a `z_art` training branch.",
+        "",
+        "## Weak-label Correlation (matched rows only)",
+        "",
+        "| weaklabel | source | paired n | corr(true_bdi) | corr(pred_bdi) | corr(residual) | corr(abs_error) |",
+        "|---|---|---:|---:|---:|---:|---:|",
+    ]
+    for row in correlation_rows:
+        lines.append(
+            f"| {row['weaklabel_name']} | {row['source']} | {row['n']} | "
+            f"{_format_scalar(row.get('corr_with_true_bdi'))} | "
+            f"{_format_scalar(row.get('corr_with_pred_bdi'))} | "
+            f"{_format_scalar(row.get('corr_with_residual'))} | "
+            f"{_format_scalar(row.get('corr_with_abs_error'))} |"
+        )
+
+    lines.extend(
+        [
+            "",
+            "## Stage A3 Use",
+            "",
+            f"Coupling threshold (|corr with abs_error|): {coupling_threshold}",
+            "",
+            f"- Error-coupled weak labels: {len(error_coupled)}",
+        ]
+    )
+    for row in error_coupled[:20]:
+        lines.append(
+            f"  - `{row['weaklabel_name']}`: corr(abs_error)="
+            f"{_format_scalar(row.get('corr_with_abs_error'))}, paired n={row['n']}"
+        )
+    if not error_coupled:
+        lines.append("  - None above threshold.")
+
+    lines.append(f"- Label-only/confound weak labels: {len(label_only)}")
+    for row in label_only[:20]:
+        lines.append(
+            f"  - `{row['weaklabel_name']}`: corr(true_bdi)="
+            f"{_format_scalar(row.get('corr_with_true_bdi'))}, paired n={row['n']}"
+        )
+    if not label_only:
+        lines.append("  - None above threshold.")
+
+    lines.extend(["", "## Generated Files", ""])
+    for path in generated_files:
+        lines.append(f"- `{path}`")
+
+    report_path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+    return report_path
+
+
+def run_matched_weaklabel_correlation(
+    summary_csv,
+    output_dir=None,
+    name=None,
+    coupling_threshold=0.2,
+    required_fields=DEFAULT_MATCH_REQUIRED_FIELDS,
+):
+    """Generate matched-only artifact weak-label summary/correlation/report.
+
+    Args:
+        summary_csv: Existing ``artifact_weaklabel_summary.csv``.
+        output_dir: Optional output directory. If omitted, outputs are written
+            next to the input summary/report using ``*_matched`` filenames.
+        name: Optional prefix for output filenames when processing multiple
+            summaries into a shared output directory.
+    """
+    summary_csv = Path(summary_csv)
+    summary_rows = read_csv_rows(summary_csv)
+    matched_rows, correlation_rows = compute_matched_weaklabel_correlations(
+        summary_rows,
+        required_fields=required_fields,
+    )
+
+    if not matched_rows:
+        raise ValueError(
+            f"No prediction-matched rows found in {summary_csv}. "
+            f"Required fields: {', '.join(required_fields)}"
+        )
+
+    if output_dir is None:
+        tables_dir = summary_csv.parent
+        base_dir = tables_dir.parent
+        reports_dir = base_dir / "reports"
+        prefix = "artifact_weaklabel"
+    else:
+        base_dir = ensure_dir(output_dir)
+        tables_dir = ensure_dir(base_dir / "tables")
+        reports_dir = ensure_dir(base_dir / "reports")
+        prefix = f"{name}_artifact_weaklabel" if name else "artifact_weaklabel"
+
+    summary_path = tables_dir / f"{prefix}_summary_matched.csv"
+    correlation_path = tables_dir / f"{prefix}_correlation_matched.csv"
+    report_path = reports_dir / f"{prefix}_report_matched.md"
+
+    output_columns = list(summary_rows[0].keys())
+    write_csv_rows(
+        summary_path,
+        [
+            {key: _format_scalar(row.get(key)) for key in output_columns}
+            for row in matched_rows
+        ],
+        output_columns,
+    )
+    write_csv_rows(
+        correlation_path,
+        [
+            {key: _format_scalar(row.get(key)) for key in MATCHED_CORRELATION_COLUMNS}
+            for row in correlation_rows
+        ],
+        MATCHED_CORRELATION_COLUMNS,
+    )
+    generated = [summary_path, correlation_path]
+    report_path = _write_matched_weaklabel_report(
+        report_path,
+        correlation_rows,
+        matched_count=len(matched_rows),
+        total_count=len(summary_rows),
+        generated_files=generated,
+        coupling_threshold=coupling_threshold,
+    )
+    generated.append(report_path)
+    return generated
 
 
 def _write_weaklabel_report(
