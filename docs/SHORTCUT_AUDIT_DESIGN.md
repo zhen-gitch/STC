@@ -1439,9 +1439,19 @@ tables/artifact_weaklabel_correlation.csv
 reports/artifact_weaklabel_report.md
 ```
 
+若 `artifact_weaklabel_summary.csv` 包含当前 split 以外的 weak-label 行，必须再生成 matched-only 输出，作为 A3 的正式预测误差耦合口径：
+
+```text
+tables/artifact_weaklabel_summary_matched.csv
+tables/artifact_weaklabel_correlation_matched.csv
+reports/artifact_weaklabel_report_matched.md
+```
+
+matched-only 只保留 `pred_bdi`、`residual`、`abs_error` 非空的视频。论文表格、Stage A 收口、shortcut/artifact probe 变量筛选和 artifact-risk group 构造均应使用 matched-only 文件；原始 `artifact_weaklabel_correlation.csv` 只作为弱标签整合中间产物。
+
 #### 判读
 
-- 若某弱标签与 abs_error / residual 中等以上相关（|r| > 0.2），则该伪迹参与错误模式，应进入 shortcut/artifact probe、case study 和 group-wise evaluation；
+- 若 matched-only 中某弱标签与 abs_error / residual 中等以上相关（|r| > 0.2），则该伪迹参与错误模式，应进入 shortcut/artifact probe、case study 和 group-wise evaluation；
 - 若弱标签只与 true_bdi 相关但与误差无关，说明伪迹与抑郁标签本身混杂（采集偏置），只作为 label-confound 证据，不作为第一版训练监督；
 - 若整体耦合弱，则仅保留为审计出口。
 

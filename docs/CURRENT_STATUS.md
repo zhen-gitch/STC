@@ -4,7 +4,7 @@
 
 ## 状态日期
 
-2026-07-06
+2026-07-08
 
 ## 阅读提示
 
@@ -22,8 +22,46 @@
 | 第一版 latent | `z_dep`、`z_nuisance` |
 | 可选 latent | `z_id`，仅在身份进入预测的证据充分时启用 |
 | 不做 | 不显式建 `z_art/z_ctx/z_pose/z_quality`，不做多级 RPDF |
-| 下一步 | A1-A4 证据收口，然后比较 identity-adversarial / severity-balanced / coarse disentanglement |
+| 下一步 | 进入 Stage B：比较 identity-adversarial MTL 与 severity-balanced regression 基线 |
 | 判据 | BDI metrics、identity risk、shortcut probe risk、severity bias、task consistency、train-val gap |
+
+### 2026-07-08 Stage A 证据收口结论
+
+本轮对 `logs/analysis_outputs` 进行了全量只读审查：目录下共有 205 个文件，包括 87 个 CSV、32 个 Markdown 报告、82 个 PNG 和 4 个 NPZ；未发现 0 字节或异常小的 CSV/Markdown 文件。`val` 与 `test` 均为 100 个视频、50 个 subject、Freeform/Northwind 各 50，且两者 `video_id` 与 `subject_id` 重叠均为 0。Stage A 的 A1/A2/A3/A4 主要产物已经齐全。
+
+RGB baseline 的预测表现显示稳定的 prediction compression：val MAE/RMSE/Pearson/CCC 为 8.4228/10.7286/0.4452/0.3599，test 为 8.9145/10.9530/0.3526/0.2925；预测标准差约为真实标准差的一半（val 6.1274 vs 11.9791，test 6.1587 vs 11.5387）。
+
+Stage A 四个结论如下：
+
+1. **A1 身份存在**：身份信息强且主要集中在 backbone 中层。val 中 `layer_block_6` same-subject top1=0.80、`layer_block_3` top1=0.79；test 中 `layer_block_3` 和 `layer_block_6` top1 均为 0.88。`layer_shared` 仍保留身份信息（val top1=0.52，test top1=0.66）。
+2. **A2 身份参与预测**：身份/严重程度邻域信号与 residual 存在稳定耦合。val 中 `corr_residual_vs_severity_agree` 最高为 0.5124，test 中 `layer_shared/layer_temporal corr_residual_vs_severity_agree` 为 0.4589；test 中 `corr_residual_vs_paired_identity_sim` 在多层达到 0.40 左右。因此 A1+A2 同时成立，Stage B 可以进入 identity-adversarial baseline，而不是仅做身份风险监控。
+3. **A3 artifact/quality 风险**：正式口径使用 `logs/analysis_outputs/artifact_weaklabels_matched/{val,test}/tables/artifact_weaklabel_correlation_matched.csv`。matched-only 表中 val/test 均为 100 行、122 个 weaklabel correlation，全部 `n=100`。val 中 `|corr(abs_error)| >= 0.2` 的 weaklabel 有 28 个，test 只有 5 个，交集仅 `openface_quality:AU10_r_mean`；val/test 相关向量稳定性弱（signed r=-0.1525，abs r=-0.1575）。因此 A3 只能作为 shortcut/artifact probe、case study 和 group-wise robustness 的依据，不作为显式 `z_art` 分支或训练监督损失。
+4. **A4 severity imbalance / compression**：severity imbalance 是稳定主问题。val minimal bias=+6.6194、severe bias=-15.7630、imbalance_ratio=6.5、compression_ratio=0.5115；test minimal bias=+6.8856、severe bias=-16.5032、imbalance_ratio=3.5714、compression_ratio=0.5337。Post-hoc calibration 只轻微改善 MAE/RMSE，但 CCC 从 0.2925 降到 0.2692，并进一步压缩 pred_std（6.1278 -> 5.3337）。因此 severity-balanced regression 应进入 Stage B 必跑基线。
+
+Stage A 已满足关闭条件。后续不再扩展普通 RGB mask、灰度、模糊、黑边替换或新的输入滤镜族；下一阶段固定比较 RGB baseline、identity-adversarial MTL、severity-balanced regression，以及二者组合。
+
+### 2026-07-08 Stage B 进入判定
+
+当前实验分析结果支持进入 Stage B。进入理由不是单一 MAE 或单一 shortcut 证据，而是 A1/A2/A4 同时给出可干预机制：
+
+- A1+A2 支持 identity-adversarial MTL：身份信息在 backbone 中层强可分，且 identity/severity 邻域信号与 residual 耦合。
+- A4 支持 severity-balanced regression：minimal 高估、severe 低估和 prediction compression 在 val/test 均稳定出现，post-hoc calibration 不能替代训练侧修正。
+- A3 不支持显式 `z_art`：artifact/quality/context 变量仅进入 probe、case study 和 group-wise robustness。
+
+Stage B 固定实验边界如下：
+
+```text
+E0 RGB MTL-Lite baseline
+E1 identity-adversarial MTL
+E2 severity-balanced regression
+E3 identity-adversarial MTL + severity-balanced regression
+```
+
+Stage B 只允许上层、可开关、可复现实验干预：GRL/subject attacker、severity-bin weighting 或 regression loss reweighting、二者组合。禁止同时引入 `TaskNuisanceBlock`、`z_nuisance`、`z_art/z_ctx/z_pose/z_quality`、新 RGB 输入滤镜、dynamic branch 或 late fusion。
+
+Stage B 成功不以 MAE 单点下降为准，最低判读指标固定为：MAE/RMSE/Pearson/CCC、pred_std/true_std、minimal/mild/moderate/severe bias 与 MAE、layer/shared identity retrieval 或 attacker risk、task_diff_mean、train-val gap、artifact-risk group 表现。若 E1/E2/E3 不能同时改善 identity risk 或 severity bias 且保持 CCC/task consistency 稳定，才进入 Stage C 的粗粒度 `z_dep/z_nuisance` 解耦设计。
+
+Stage B 实施路线已细化到 `docs/RGB_OVERFITTING_AUDIT_PLAN.md` 的“Stage B 实施路线（2026-07-08）”和 `docs/TODO.md` 的“立即可编程任务包”。后续编程按 B0 规格冻结 -> B1 identity-adversarial -> B2 severity-balanced -> B3/E0-E3 固定实验 -> B4 诊断汇总 -> B5 阶段判定推进。
 
 ### 2026-07-03 输入遮挡语义修正
 
@@ -63,20 +101,19 @@ Stage D 稳健性验证：multi-attacker、severity-balanced loss、group-wise r
 
 ### 当前正在推进什么
 
-当前应先完成 Stage A，然后进入 identity-adversarial baseline 与粗粒度 task-nuisance 解耦：
+Stage A 已完成收口。当前应进入 identity-adversarial baseline 与 severity-balanced baseline，之后再判断是否需要粗粒度 task-nuisance 解耦：
 
-1. **A1 layer-wise identity probe**：提取不同层 embedding，检查 identity 信息从哪个层级开始可分。
-2. **A2 error-identity coupling**：检查 prediction residual / abs_error 是否与 identity similarity、paired-task rank 或 severity neighbor agreement 耦合。
-3. **A3 shortcut/artifact audit**：整理 OpenFace confidence、bbox、center offset、black-border、edge gradient、valid ratio 等弱标签，作为评估变量和 case-study 证据，不直接承诺 `z_art` 训练分支。
-4. **A4 severity imbalance summary**：确认 severity-balanced regression 是必要对照、支线还是暂缓项。
-5. **B1 identity-adversarial baseline**：先验证 `z_dep` 在抑郁预测有效的同时能否降低 subject identity risk。
-6. **C1 coarse task-nuisance disentanglement**：实现 `H0 -> z_dep,z_nuisance`，必要时扩展为 `H0 -> z_dep,z_id,z_nuisance`。
+1. **B0 干预规格**：先写 identity-adversarial MTL 与 severity-balanced regression 的配置、损失、评估和默认关闭策略。
+2. **B1 identity-adversarial baseline**：验证 `z_dep` 在抑郁预测有效的同时能否降低 subject identity risk。
+3. **B2 severity-balanced regression**：验证 minimal 高估与 severe 低估是否可被 severity-bin reweighting 缓解。
+4. **B3 组合对照**：比较 identity-adversarial + severity-balanced 是否互补。
+5. **C1 coarse task-nuisance disentanglement**：仅在 B 阶段基线不足或机制收益明确时，实现 `H0 -> z_dep,z_nuisance`，必要时扩展为 `H0 -> z_dep,z_id,z_nuisance`。
 
-编程实施控制已细化到 `TODO.md` 的“编程实施控制（下一步）”。后续写代码时先按 A0 -> B0 -> B1 -> B2 -> C0 -> C1 gate 推进：A0 未关闭前不实现 GRL 或 `TaskNuisanceBlock`；B 阶段未证明 baseline 不足前不写粗粒度解耦代码。
+编程实施控制已细化到 `TODO.md` 的“编程实施控制（下一步）”。后续写代码时先按 B0 -> B1 -> B2 -> C0 -> C1 gate 推进：先完成 identity-adversarial / severity-balanced baseline 规格和最小实现；B 阶段未证明 baseline 不足前不写粗粒度解耦代码。
 
 ### 当前路线细化补充
 
-最新研究路线进一步明确为四个闭环：证据闭环、对抗基线闭环、粗粒度解耦闭环和稳健性验证闭环。短期不实现完整 RPDF-Net，也不显式划分 `ctx/art/pose/quality` 等难以完全验证的潜在因子；先完成 A1/A2，证明 identity 不仅存在于 embedding 中，而且可能与 prediction error 耦合。Stage B 固定比较 RGB baseline、identity-adversarial MTL 和 severity-balanced regression；Stage C 再比较 `z_dep + z_nuisance` 与可选 `z_dep + z_id + z_nuisance`。所有实验同时报告 BDI、identity risk、shortcut/artifact audit risk、severity bias、task consistency 和 train-val gap。
+最新研究路线进一步明确为四个闭环：证据闭环、对抗基线闭环、粗粒度解耦闭环和稳健性验证闭环。短期不实现完整 RPDF-Net，也不显式划分 `ctx/art/pose/quality` 等难以完全验证的潜在因子；Stage A 已证明 identity 不仅存在于 embedding 中，而且与 prediction residual / severity agreement 存在耦合。Stage B 固定比较 RGB baseline、identity-adversarial MTL 和 severity-balanced regression；Stage C 再比较 `z_dep + z_nuisance` 与可选 `z_dep + z_id + z_nuisance`。所有实验同时报告 BDI、identity risk、shortcut/artifact audit risk、severity bias、task consistency 和 train-val gap。
 
 ### 当前不做什么
 
@@ -1142,9 +1179,9 @@ Stage A 收口诊断
 
 Stage B 正式干预实验
   E0 RGB MTL-Lite baseline
-  E1 + severity-balanced regression
-  E2 + identity-adversarial MTL branch
-  E3 + severity-balanced regression + identity-adversarial branch
+  E1 + identity-adversarial MTL branch
+  E2 + severity-balanced regression
+  E3 + identity-adversarial MTL branch + severity-balanced regression
 
 Stage C 待考虑
   feature delta / AU delta / landmark-pose-gaze delta / static-dynamic fusion

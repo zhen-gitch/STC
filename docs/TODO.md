@@ -21,8 +21,8 @@ Stage A Shortcut 证据收口
 
 | 阶段 | 要回答的问题 | 下一步产出 |
 |---|---|---|
-| A. Shortcut 证据收口 | 身份、artifact/quality、severity imbalance 是否确实影响预测或误差？ | A1-A4 服务器结果和收口结论 |
-| B. Identity-adversarial baseline | 只抑制可验证身份捷径是否足够？ | RGB / identity-adversarial / severity-balanced 对照 |
+| A. Shortcut 证据收口 | 身份、artifact/quality、severity imbalance 是否确实影响预测或误差？ | 已完成：A1+A2 成立，A3 仅作评估，A4 支持 severity-balanced |
+| B. Identity-adversarial baseline | 只抑制可验证身份捷径是否足够？ | 下一步：RGB / identity-adversarial / severity-balanced 对照 |
 | C. Coarse task-nuisance 解耦 | `z_dep / z_nuisance` 是否优于共享表征和 GRL baseline？ | `TaskNuisanceBlock` 设计与消融 |
 | D. Robustness validation | 解耦是否真的减少捷径依赖，而不是只改善 MAE？ | multi-attacker、nuisance leakage、group-wise 报告 |
 
@@ -43,22 +43,63 @@ Stage A Shortcut 证据收口
 
 #### 立即可编程任务包
 
-1. **A0-result-gate**：为 A1-A4 服务器输出建立收口模板。
-   - 输入：A1 layerwise summary、A2 coupling report、A3 weaklabel report、A4 severity imbalance report。
-   - 输出：四条 yes/no/uncertain 结论和进入 B 阶段的建议。
-   - 改动范围：`docs/CURRENT_STATUS.md`、`docs/RGB_OVERFITTING_AUDIT_PLAN.md`，必要时补 summary helper；不改训练模型。
+1. **A0-result-gate**：已完成 A1-A4 服务器输出收口。
+   - 输入：A1 layerwise summary、A2 coupling report、A3 matched-only weaklabel report、A4 severity imbalance report。
+   - 输出：四条结论已写入 `docs/CURRENT_STATUS.md` 和 `docs/RGB_OVERFITTING_AUDIT_PLAN.md`。
+   - 结果：A1+A2 同时成立；A3 仅作为 probe/case/group-wise evaluation；A4 要求 severity-balanced regression 进入 Stage B。
 
-2. **B0-spec-first**：在写 GRL 代码前先写最小设计规格。
-   - 必须明确：特征入口 `H0` 来自哪里，`z_dep` 维度，id head 类别来源，GRL lambda schedule，默认配置是否关闭。
-   - 必须明确：若 A2 不成立，identity-adversarial 只作为 monitor-only baseline，不作为强抑制默认路线。
+2. **B0-stage-entry**：已确认 Stage B 可以推进。
+   - 固定对照：`E0 RGB MTL-Lite baseline`、`E1 identity-adversarial MTL`、`E2 severity-balanced regression`、`E3 identity-adversarial + severity-balanced`。
+   - 允许范围：GRL/subject attacker、severity-bin weighting 或 regression loss reweighting、二者组合。
+   - 禁止范围：`TaskNuisanceBlock`、`z_nuisance`、显式 `z_art/z_ctx/z_pose/z_quality`、新 RGB 输入滤镜、dynamic branch、late fusion。
+   - 成功条件：identity risk 或 severity bias 改善，且 CCC、task consistency、train-val gap 不明显恶化。
+
+3. **B0-spec-first**：在写 GRL 代码前先写最小设计规格。
+   - 特征入口：使用当前 MTL-Lite 的 `shared_features` 作为 Stage B `z_dep`，不新增 `TaskNuisanceBlock`。
+   - 配置原则：`identity_adversarial` 与 `severity_balanced_regression` 默认关闭；E0 默认 baseline 行为必须完全不变。
+   - id 类别来源：只从 train split subject 构建 `subject_id_to_index`；val/test subject 不进入类别表，不参与 identity loss。
+   - GRL 范围：先固定 `lambda_id = 0.02, 0.05, 0.10, 0.20` 小范围 sweep，优先选择最低有效强度。
+   - severity 权重：只从 train split 标签统计得到，按 minimal/mild/moderate/severe 四组计算，mean-normalize 并设置 min/max 截断。
+   - loss 边界：第一版只加权 regression MSE；CCC loss 与 ordinal auxiliary loss 暂不加权。
    - 改动范围：设计文档、配置草案、测试计划；不先改 `src/models/mtl_lite.py`。
 
-3. **B1-code-minimal**：只实现 identity-adversarial baseline 的最小闭环。
+4. **B1-code-minimal**：只实现 identity-adversarial baseline 的最小闭环。
    - 允许文件：`src/models/`、`src/trainers/`、`configs/`、`tests/` 中与 MTL-Lite baseline 直接相关的文件。
-   - 必备测试：import check、config loading check、dummy one-batch forward/loss、GRL 开关不会影响默认 baseline。
-   - 必备报告：identity risk 降低、BDI utility 未崩、severity bias 和 task consistency 不恶化。
+   - 输出接口：`MTLLiteOutput.identity_logits` 可选；loss 结构中增加可选 identity loss，默认不影响既有调用。
+   - 训练逻辑：`shared_features -> GRL -> subject_id head`；identity loss 仅在 train stage 且 subject 映射可用时启用。
+   - 数据逻辑：runner 或 data module 从 train split 构建 subject map，不能扫描 val/test 扩类别。
+   - 必备测试：import check、config loading check、dummy one-batch forward/loss、GRL 开关不会影响默认 baseline、val/test unknown subject 不触发 loss。
+   - 必备报告：A1/A2 identity risk 降低、BDI utility 未崩、severity bias 和 task consistency 不恶化。
 
-4. **C0-spec-before-code**：只有 B 阶段判读后才写 `TaskNuisanceBlock`。
+5. **B2-severity-balanced-minimal**：实现 severity-balanced regression 的最小闭环。
+   - 允许先支持 minimal/mild/moderate/severe 四组权重，权重只能由训练集统计生成或配置显式给定。
+   - 计算规则：推荐 `weight = (total / (num_bins * count_bin)) ** power`，先跑 `power=0.5`，再比较 `power=1.0`。
+   - 稳定性规则：权重 mean-normalize，并设置 `min_weight/max_weight`；训练日志记录 bin count、raw weight、clipped weight、normalized weight。
+   - 必备测试：权重计算、loss 缩放、默认关闭不改变 baseline、只改 regression MSE 不改 CCC/ordinal。
+   - 必备报告：minimal 高估、severe 低估、pred_std/true_std、CCC、identity risk 和 task consistency。
+
+6. **B3-fixed-experiments**：按固定矩阵跑完 Stage B，不临时加模块。
+   - E0：`RGB MTL-Lite baseline`。
+   - E1：`identity-adversarial MTL`。
+   - E2：`severity-balanced regression`。
+   - E3：`identity-adversarial + severity-balanced`。
+   - 可选配置路径：`configs/stage_b/e0_rgb_mtl_lite.yaml`、`configs/stage_b/e1_identity_adversarial.yaml`、`configs/stage_b/e2_severity_balanced.yaml`、`configs/stage_b/e3_identity_adversarial_severity_balanced.yaml`。
+   - 运行约束：四组必须使用同一 split、seed、input variant、optimizer、precision、checkpoint 和输出目录结构。
+
+7. **B4-stage-b-report**：每组训练后统一跑诊断并产出横向对照表。
+   - prediction：MAE/RMSE/Pearson/CCC、pred mean/std、train-val gap。
+   - severity：minimal/mild/moderate/severe 的 count、MAE、bias、abs error。
+   - identity：A1 layer/shared retrieval、A2 residual-identity coupling、subject attacker accuracy。
+   - consistency：同 subject Freeform/Northwind prediction diff 和 residual diff。
+   - artifact-risk：基于 matched-only A3 变量做分组评估，不把 A3 变量作为训练监督。
+
+8. **B5-stage-b-gate**：写出是否进入 Stage C 的判定。
+   - E1 有效：identity risk 下降且 BDI/severity/task consistency 未明显恶化。
+   - E2 有效：minimal/severe bias 和 compression 改善，CCC 与 identity risk 未明显恶化。
+   - E3 有效：同时优于或互补于 E1/E2，作为 Stage C 强 baseline。
+   - 只有 E1/E2/E3 均不能在可接受代价内改善风险时，才进入 C0 粗粒度解耦规格。
+
+9. **C0-spec-before-code**：只有 B 阶段判读后才写 `TaskNuisanceBlock`。
    - 先写接口和损失：`z_dep` 预测、`z_nuisance` 互补、低权重 recon、低权重 decorrelation。
    - 先写失败条件：若不优于 identity-adversarial baseline 或多 seed 不稳定，停止增加解耦复杂度。
    - 禁止把 artifact/context/pose/quality 做成显式 latent。
@@ -93,11 +134,11 @@ python -m pytest tests/test_error_identity_coupling.py tests/test_artifact_weakl
 #### A1 Layer-wise Identity Probe
 
 - [x] A1-1 在 `src/models/mtl_lite.py` 增加诊断用 `register_layer_hooks(layer_names)` 与逐层特征导出 forward（不动训练 `forward`/`compute_losses`/checkpoint）。已新增 `LAYERWISE_PROBE_LAYERS`、`resolve_layer_module`、`register_layer_hooks`/`clear_layer_hooks`/`_collect_layer_features`，`forward` 增 `return_layer_features` 参数；`MTLLiteOutput` 增 `layer_features` 槽位。
-- [ ] A1-2 设计 layer list：`layer_stem`、`layer_block_0/3/6/9/11`、`layer_backbone_out`、`layer_temporal`、`layer_shared`（对照基线）。
+- [x] A1-2 设计 layer list：`layer_stem`、`layer_block_0/3/6/9/11`、`layer_backbone_out`、`layer_temporal`、`layer_shared`（对照基线）。服务器输出已覆盖 9 层。
 - [x] A1-3 实现 `scripts/audit_layerwise_identity_probe.py`：逐层导出 NPZ，复用 `compute_identity_retrieval_metrics` 检索。新增 `src/diagnostics/layerwise_identity.py`（多键 NPZ 读写 + 逐层检索聚合，纯 numpy 可单测），script 负责 load config/model/data + hook 注册 + batch 收集 + 调用聚合。本地 `pytest tests/test_layerwise_identity.py` 6/6 通过，`--help` 与 import smoke 通过。
-- [ ] A1-4 输出每层 same-subject top1/top3/top5、paired-task rank、severity/task neighbor agreement、可选 subject proxy accuracy（kNN）。
+- [x] A1-4 输出每层 same-subject top1/top3/top5、paired-task rank、severity/task neighbor agreement。当前未启用可选 subject proxy accuracy，后续如需 multi-attacker 再补。
 - [x] A1-5 新增 `tests/test_layerwise_identity.py` 与 `tests/test_layerwise_identity_probe.py`，覆盖 hook 注册、多键 NPZ 读写、逐层检索聚合、layer 排序、训练路径零干扰、无 hook 回退、valid 帧切分、clear。本地 `pytest` 全部通过（6 + 6 = 12 个新测试），既有 36 个诊断测试 + 4 个 MTL-Lite 测试零回归。
-- [ ] A1-6 服务器对 RGB baseline 至少跑 test split，资源允许补 val。
+- [x] A1-6 服务器对 RGB baseline 跑完 val/test split：每个 split 9 层、100 query、50 subject。
 
 #### A2 Prediction Error x Identity Similarity Coupling
 
@@ -105,7 +146,7 @@ python -m pytest tests/test_error_identity_coupling.py tests/test_artifact_weakl
 - [x] A2-2 输出 `error_identity_correlation.csv`、`severity_bin_identity_error_summary.csv`、`high_error_high_identity_cases.csv`、报告。
 - [x] A2-3 实现 `scripts/audit_error_identity_coupling.py` 入口。
 - [x] A2-4 新增 `tests/test_error_identity_coupling.py`（7 个测试，本地全过）。
-- [ ] A2-5 明确写出"身份存在"与"身份参与预测"是否同时成立（需服务器在 RGB baseline 上运行 A1+A2 后填写）。
+- [x] A2-5 明确写出"身份存在"与"身份参与预测"同时成立：A1 中 backbone 中层身份检索强，A2 中 identity/severity 邻域信号与 residual 耦合。
 
 #### A3 Shortcut / Artifact Audit (evaluation only)
 
@@ -113,7 +154,7 @@ python -m pytest tests/test_error_identity_coupling.py tests/test_artifact_weakl
 - [x] A3-2 输出 `artifact_weaklabel_summary.csv`、`artifact_weaklabel_correlation.csv`、`artifact_weaklabel_report.md`。相关性按 |corr(abs_error)| 降序，报告含 artifact/quality 变量定位（error-coupled / label-only confound / 仅审计）。
 - [x] A3-3 实现 `scripts/audit_artifact_weaklabels.py` 入口。
 - [x] A3-4 新增 `tests/test_artifact_weaklabels.py`（8 个测试，本地全过）。
-- [ ] A3-5 在 RGB baseline 上运行 A3，并将 artifact/context/quality 变量定位为 evaluation/probe/case-study 维度；不再默认转成 `z_art` 训练分支。
+- [x] A3-5 在 RGB baseline 上运行 A3，并补齐 matched-only correlation。结论：artifact/context/quality 变量只作为 evaluation/probe/case-study/group-wise robustness 维度；不转成 `z_art` 训练分支。
 
 #### A4 Severity Imbalance / Prediction Compression Summary
 
@@ -121,21 +162,25 @@ python -m pytest tests/test_error_identity_coupling.py tests/test_artifact_weakl
 - [x] A4-2 输出 `severity_imbalance_summary.csv`、`severity_imbalance_report.md`。报告含 stage_b_baseline / stage_d_side_branch / stage_d_optional 三档推荐及判据。
 - [x] A4-3 实现 `scripts/summarize_severity_imbalance.py` 入口。
 - [x] A4-4 新增 `tests/test_severity_imbalance.py`（7 个测试，本地全过）。
-- [ ] A4-5 决定 severity-balanced regression 是 Stage B 必跑基线、Stage D 支线，还是暂缓项（需服务器在真实 run summary 上运行 A4 后填写结论）。
+- [x] A4-5 决定 severity-balanced regression 是 Stage B 必跑基线：val/test 均存在 prediction compression、minimal 高估和 severe 低估，post-hoc calibration 不解决 CCC。
 
 #### A0 Stage A 收口
 
-- [ ] A0-1 服务器对 RGB baseline 运行 A1-A4。
-- [ ] A0-2 在 `CURRENT_STATUS.md` 和 `RGB_OVERFITTING_AUDIT_PLAN.md` 写出四个结论：身份存在层级、身份是否参与预测、artifact/quality 是否只作为审计变量、severity-balanced 定位。
-- [ ] A0-3 正式关闭 Stage A，不再扩展普通输入滤镜、黑边替换、灰度/模糊/mask 族。
+- [x] A0-1 服务器对 RGB baseline 运行 A1-A4，并补齐 matched-only A3。
+- [x] A0-2 在 `CURRENT_STATUS.md` 和 `RGB_OVERFITTING_AUDIT_PLAN.md` 写出四个结论：身份存在层级、身份是否参与预测、artifact/quality 是否只作为审计变量、severity-balanced 定位。
+- [x] A0-3 正式关闭 Stage A，不再扩展普通输入滤镜、黑边替换、灰度/模糊/mask 族。
 
 ### B. Identity-adversarial Task Representation
 
-- [ ] B1 设计最小 identity-adversarial MTL 接口：`H0 -> z_dep -> BDI`，并用 GRL/attacker 抑制 `z_dep -> subject_id`。
-- [ ] B1 不引入 `z_art`、`z_m`、多级递进、learned gate 或 dynamic features。
-- [ ] B2 固定对照：`RGB MTL-Lite baseline`、`identity-adversarial MTL`、`severity-balanced MTL`。
-- [ ] B3 统一报告 BDI metrics、identity retrieval/probe、severity bias、task consistency、train-val gap。
-- [ ] B4 若 A1 成立但 A2 不成立，只把 identity adversarial 作为轻量风险监控/对照，不进入强 suppression 主线。
+- [x] B0 固定 Stage B 进入条件和实验边界：E0/E1/E2/E3 四组对照，禁止在 Stage B 混入 `TaskNuisanceBlock`、细粒度 latent、新输入滤镜或 dynamic branch。
+- [ ] B1 设计并实现最小 identity-adversarial MTL：`shared_features -> z_dep -> BDI`，并用 GRL/attacker 抑制 `z_dep -> subject_id`。
+- [ ] B1 只使用 train split subject map；identity loss 只在 train stage 启用，val/test 只做诊断。
+- [ ] B1 不引入 `z_art`、`z_m`、多级递进、learned gate、`TaskNuisanceBlock` 或 dynamic features。
+- [ ] B2 设计并实现 severity-balanced regression 最小接口：train-only severity-bin 权重、mean-normalize、min/max 截断、默认关闭配置。
+- [ ] B2 第一版只加权 regression MSE，不加权 CCC loss 或 ordinal auxiliary loss。
+- [ ] B3 固定对照：`E0 RGB MTL-Lite baseline`、`E1 identity-adversarial MTL`、`E2 severity-balanced regression`、`E3 identity-adversarial + severity-balanced`。
+- [ ] B4 统一报告 BDI metrics、identity retrieval/probe、severity bias、task consistency、train-val gap、artifact-risk group。
+- [ ] B5 Stage B 判读：若 E1/E2/E3 不能充分缓解 identity risk 与 severity bias，或代价表现为 CCC/task consistency 明显恶化，再进入 C0 粗粒度解耦规格。
 
 ### C. Coarse Task-Nuisance Disentanglement
 
@@ -159,10 +204,10 @@ python -m pytest tests/test_error_identity_coupling.py tests/test_artifact_weakl
 
 ### 路线细化后的执行闭环
 
-- [ ] A1/A2 完成后，明确写出“身份存在”和“身份参与预测”是否同时成立；若只成立 A1，不直接进入强 identity suppression。
-- [ ] A3 完成后，只决定 artifact/quality/context 变量的审计和报告方式，不再决定 `z_art` 是否进入第一版模型。
-- [ ] A4 完成后，决定 severity-balanced regression 是 Stage B 必跑基线、Stage D 支线，还是暂缓项。
-- [ ] B0 固定 Stage B 对照：`RGB baseline`、`identity-adversarial MTL`、`severity-balanced regression`。
+- [x] A1/A2 完成后，明确写出“身份存在”和“身份参与预测”同时成立，允许进入 identity-adversarial baseline。
+- [x] A3 完成后，只决定 artifact/quality/context 变量的审计和报告方式，不决定 `z_art` 进入第一版模型。
+- [x] A4 完成后，决定 severity-balanced regression 是 Stage B 必跑基线。
+- [x] B0 固定 Stage B 对照：`RGB baseline`、`identity-adversarial MTL`、`severity-balanced regression`、`identity-adversarial + severity-balanced`。
 - [ ] C0 固定 Stage C 对照：`z_dep+z_nuisance` 与可选 `z_dep+z_id+z_nuisance`。
 - [ ] D0 固定统一报告：BDI metrics、severity bias、identity risk、shortcut/artifact probe risk、task consistency、train-val gap。
 - [ ] 停止规则：若粗粒度解耦不优于 identity-adversarial baseline，或多 seed 结果不稳定，停止增加解耦复杂度，转为诊断型贡献。
@@ -668,12 +713,12 @@ split integrity audit
 
 #### Stage B：正式干预实验
 
-- [ ] B1 实现 severity-balanced regression loss，支持 severity bin count / smoothed count 权重。
-- [ ] B1 配置 `p=0.5` 与 `p=1.0` 两组起始实验；分箱先使用 minimal / mild / moderate / severe。
-- [ ] B1 运行 E1：`RGB baseline + severity-balanced regression`。
-- [ ] B2 实现 Gradient Reversal Layer 和 subject identity adversarial head，接入 MTL-Lite shared representation。
-- [ ] B2 配置 `lambda_id=0.02,0.05,0.10,0.20` sweep。
-- [ ] B2 运行 E2：`RGB baseline + identity-adversarial branch`。
+- [ ] B1 实现 Gradient Reversal Layer 和 subject identity adversarial head，接入 MTL-Lite shared representation。
+- [ ] B1 配置 `lambda_id=0.02,0.05,0.10,0.20` sweep。
+- [ ] B1 运行 E1：`RGB baseline + identity-adversarial branch`。
+- [ ] B2 实现 severity-balanced regression loss，支持 severity bin count / smoothed count 权重。
+- [ ] B2 配置 `p=0.5` 与 `p=1.0` 两组起始实验；分箱先使用 minimal / mild / moderate / severe。
+- [ ] B2 运行 E2：`RGB baseline + severity-balanced regression`。
 - [ ] B3 选择最稳的 severity weight 与 identity lambda，运行 E3：`severity-balanced regression + identity-adversarial branch`。
 - [ ] 对 E0/E1/E2/E3 统一运行 prediction summary、identity retrieval summary、severity calibration summary、training overfit summary 和 task consistency summary。
 - [ ] 将 E0/E1/E2/E3 汇总为机制对照表：`MAE/RMSE/CCC/pred_std/severe_bias/task_diff/same_subject_top1/top5/severity_agree/train-val gap`。
@@ -686,8 +731,8 @@ split integrity audit
 
 #### 判读规则
 
-- [ ] E1 只有在少数 severity 分段 MAE/bias 改善且 CCC、task consistency、identity retrieval 不明显恶化时，才算 severity imbalance mitigation 成功。
-- [ ] E2 只有在 identity retrieval / subject proxy accuracy 下降且 BDI 指标不崩坏时，才算 identity-adversarial 成功。
+- [ ] E1 只有在 identity retrieval / subject proxy accuracy 下降且 BDI 指标不崩坏时，才算 identity-adversarial 成功。
+- [ ] E2 只有在少数 severity 分段 MAE/bias 改善且 CCC、task consistency、identity retrieval 不明显恶化时，才算 severity imbalance mitigation 成功。
 - [ ] E3 只有在同时满足 E1/E2 的核心约束，并且 train-val gap 或 task consistency 有改善时，才作为该历史阶段的候选方案。
 
 ### 文献映射后的身份抑制任务

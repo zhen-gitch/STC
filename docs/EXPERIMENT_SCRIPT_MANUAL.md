@@ -688,6 +688,24 @@ python scripts/summarize_artifact_weaklabels_matched.py \
   --output-dir $RUN_DIR/diagnostics/artifact_weaklabels_matched
 ```
 
+若使用独立 `analysis_outputs` 汇总目录，可采用当前项目的组织方式：
+
+```bash
+python scripts/summarize_artifact_weaklabels_matched.py \
+  --summary val=logs/analysis_outputs/val/artifact_weaklabels/tables/artifact_weaklabel_summary.csv \
+  --summary test=logs/analysis_outputs/test/artifact_weaklabels/tables/artifact_weaklabel_summary.csv \
+  --output-dir logs/analysis_outputs/artifact_weaklabels_matched
+```
+
+后续 Stage A3 结论、论文表格、shortcut/artifact probe 变量筛选和 artifact-risk group 构造应使用：
+
+```text
+logs/analysis_outputs/artifact_weaklabels_matched/val/tables/artifact_weaklabel_correlation_matched.csv
+logs/analysis_outputs/artifact_weaklabels_matched/test/tables/artifact_weaklabel_correlation_matched.csv
+```
+
+原始 `artifact_weaklabel_correlation.csv` 只作为弱标签整合中间产物，不作为最终预测误差耦合口径。
+
 如果只处理单个 split，且希望输出写回原 A3 目录，可省略 `--output-dir`：
 
 ```bash

@@ -37,6 +37,26 @@ Stage A 不只是普通诊断，而是决定后续是否需要强 identity suppr
 
 最关键的逻辑是：A1 只能证明 embedding 中有身份信息，A2 才能证明 prediction head 可能使用了身份相关 shortcut。只有 A1 没有 A2，论文说服力不足。
 
+#### 2026-07-08 Stage A 收口结果
+
+已对 `logs/analysis_outputs` 完成全量审查。当前目录包含 205 个诊断文件，val/test 均为 100 个视频、50 个 subject、Freeform/Northwind 各 50，且 val/test 的 `video_id` 与 `subject_id` 无重叠。Stage A 的 A1/A2/A3/A4 主要证据完整，结论如下：
+
+| 任务 | 结论 | 后续决策 |
+|---|---|---|
+| A1 layer-wise identity probe | 身份信息强且主要来自 backbone 中层。val 中 `layer_block_6` top1=0.80、`layer_block_3` top1=0.79；test 中 `layer_block_3/6` top1=0.88。`layer_shared` 仍保留身份信息。 | identity risk 不是最终层偶然现象，Stage B 必须报告逐层/最终表征身份风险。 |
+| A2 error-identity coupling | 身份/严重程度邻域信号与 residual 耦合。val 最高 `corr_residual_vs_severity_agree=0.5124`，test 中 `layer_shared/layer_temporal corr_residual_vs_severity_agree=0.4589`，多层 `corr_residual_vs_paired_identity_sim` 约 0.40。 | A1+A2 同时成立，进入 identity-adversarial MTL baseline，而不是仅做风险监控。 |
+| A3 shortcut/artifact audit | matched-only A3 中 val 有 28 个 `|corr(abs_error)|>=0.2` 的 weaklabel，test 只有 5 个，交集仅 `openface_quality:AU10_r_mean`；跨 split 相关向量不稳定。 | artifact/quality/context 只作为 probe、case study 和 group-wise evaluation；不建立 `z_art`，不作为强监督损失。 |
+| A4 severity imbalance summary | val/test 都存在 minimal 高估、severe 低估和 prediction compression。val compression ratio=0.5115，test=0.5337；post-hoc calibration 降低 CCC。 | severity-balanced regression 是 Stage B 必跑基线，不是可选支线。 |
+
+正式 A3 证据必须引用：
+
+```text
+logs/analysis_outputs/artifact_weaklabels_matched/val/tables/artifact_weaklabel_correlation_matched.csv
+logs/analysis_outputs/artifact_weaklabels_matched/test/tables/artifact_weaklabel_correlation_matched.csv
+```
+
+原始 `artifact_weaklabel_correlation.csv` 只作为弱标签整合中间产物，不作为最终预测误差耦合口径。Stage A 到此关闭；后续不再扩展普通 RGB mask、灰度、模糊、黑边替换或新的输入滤镜族。
+
 ### 闭环 2：对抗基线闭环，回答“显式抑制可验证捷径是否必要”
 
 Stage B 先不做复杂解耦，而是验证最小 identity-adversarial task representation：
@@ -47,7 +67,7 @@ prediction = Head(z_dep)
 subject_attacker = GRL(z_dep) -> subject_id
 ```
 
-这个闭环回答：在保持 BDI utility 的前提下，是否能显著降低 `z_dep` 的 identity retrieval/probe risk。若 A1 成立但 A2 不成立，应把 identity-adversarial MTL 作为轻量对照，而不是直接进入强 suppression 主线。
+这个闭环回答：在保持 BDI utility 的前提下，是否能显著降低 `z_dep` 的 identity retrieval/probe risk。当前 A1+A2 已同时成立，因此 Stage B 可以进入 identity-adversarial baseline；A4 同时证明 severity-balanced regression 是必跑基线。
 
 建议固定对照组：
 
@@ -55,7 +75,115 @@ subject_attacker = GRL(z_dep) -> subject_id
 E0 RGB MTL-Lite baseline
 E1 identity-adversarial MTL baseline
 E2 severity-balanced regression baseline
+E3 identity-adversarial MTL + severity-balanced regression
 ```
+
+Stage B 的允许边界是上层、可开关、可复现实验干预：GRL/subject attacker、severity-bin weighting 或 regression loss reweighting，以及二者组合。Stage B 不允许同时加入 `TaskNuisanceBlock`、`z_nuisance`、显式 `z_art/z_ctx/z_pose/z_quality`、新的 RGB 输入滤镜、dynamic branch 或 late fusion。这样可以单独回答两类已被 Stage A 证明的风险：identity shortcut 与 severity compression。
+
+Stage B 成功标准不是单一 MAE 下降，而是：
+
+- identity-adversarial 分支降低 layer/shared identity risk 或 subject attacker risk，且 BDI MAE/RMSE/CCC 不崩；
+- severity-balanced regression 降低 minimal 高估和 severe 低估，且 pred_std/CCC 不恶化；
+- E3 若优于 E1/E2，应体现两类机制互补，而不是仅通过抬高预测均值改善某一分段；
+- 所有实验必须同时报告 task consistency、train-val gap、A3 artifact-risk group 表现和 case-study 变化。
+
+只有当 E1/E2/E3 不能充分缓解 identity risk 与 severity bias，或改善代价表现为 CCC/task consistency 明显恶化时，才进入 Stage C 的 `z_dep/z_nuisance` 粗粒度解耦设计。
+
+#### Stage B 实施路线（2026-07-08）
+
+Stage B 的工程目标是把已被 Stage A 证明的两类问题拆成最小可控干预：身份捷径用 GRL/subject attacker 检验，severity compression 用训练侧重加权检验。代码实现不得改变默认 RGB baseline 行为；所有新能力都必须通过配置显式打开。
+
+**B0 规格冻结**
+
+- 特征入口固定为当前 MTL-Lite 的 `shared_features`，即 temporal pooling 和 `proj` 后进入 regression head 的共享表征；文档中称为 `z_dep`，但 Stage B 不新增 `TaskNuisanceBlock`。
+- 新增配置只允许控制 `identity_adversarial` 与 `severity_balanced_regression` 两类开关，默认均为关闭。
+- E0/E1/E2/E3 使用同一 split、seed、backbone、输入变体、optimizer、precision、checkpoint 策略和 metric 输出路径。
+- id head 的类别只来自 train split subject；val/test 的 unseen subject 不参与 identity loss，只用于诊断。
+- severity 权重只从 train split 标签统计得到，不能用 val/test 分布调权。
+
+**B1 Identity-Adversarial MTL**
+
+最小实现路线：
+
+```text
+shared_features -> regression / ordinal heads
+shared_features -> GRL(lambda) -> subject_id head
+```
+
+实现控制：
+
+- 在 `MTLLiteOutput` 中增加可选 `identity_logits`；在 loss 结构中增加可选 `identity` loss，默认 `None` 或 0，不影响既有测试。
+- 在 runner 或数据模块初始化阶段从 train split 构建 `subject_id_to_index`，并写入模型配置或传入模型；不要从 val/test 扩展类别表。
+- `compute_losses` 需要知道当前 stage，identity loss 只在 `stage == "train"` 且 batch subject 都能映射时启用；val/test 的 BDI loss 口径保持和 E0 可比。
+- GRL 初始 sweep 只跑小范围：`lambda_id = 0.02, 0.05, 0.10, 0.20`，优先找“不损伤 BDI utility 的最低有效强度”。
+- 诊断必须同时报告训练中的 subject-head accuracy 和离线 A1/A2 identity risk；不能只用训练 adversarial loss 证明去身份成功。
+
+通过条件：
+
+- `layer_shared` 或最终表征的 same-subject top1/top5、paired rank、subject attacker risk 至少有明确下降趋势。
+- MAE/RMSE/CCC 不出现明显崩坏，severity bias 和 task consistency 不比 E0 明显恶化。
+- 若 identity risk 下降但 CCC、severity agreement 或 Freeform/Northwind consistency 明显下降，不视为成功。
+
+**B2 Severity-Balanced Regression**
+
+最小实现路线：
+
+```text
+loss_reg = mean( weight(severity_bin(y_i)) * MSE(pred_i, y_i_norm) )
+```
+
+实现控制：
+
+- 第一版只对 regression MSE 做 severity-bin reweighting；CCC loss、ordinal auxiliary loss 暂不加权，避免 batch 级 CCC 和 ordinal 解释混在一起。
+- severity bin 固定为 `minimal / mild / moderate / severe`，权重由 train split 计数计算，推荐从 `power=0.5` 开始，再比较 `power=1.0`。
+- 权重需要 mean-normalize，并设置 `min_weight/max_weight` 截断，避免小样本 severe bin 让梯度失控。
+- 训练日志必须记录每个 bin 的计数、原始权重、截断后权重和最终 normalized weight。
+- 不在第一版引入 balanced sampler、Huber/MAE/CCC 混合 sweep 或 ordinal 改造；这些只作为 Stage B 失败后的局部扩展。
+
+通过条件：
+
+- minimal 高估和 severe 低估相对 E0 有实质改善，且 `pred_std/true_std` 更接近真实分布。
+- CCC 不明显下降，identity risk 不升高，task consistency 不恶化。
+- 若只是整体均值上移导致 severe bias 变小、但 minimal bias 或 CCC 明显恶化，不视为成功。
+
+**B3 固定实验矩阵**
+
+```text
+E0 RGB MTL-Lite baseline
+E1 identity-adversarial MTL
+E2 severity-balanced regression
+E3 identity-adversarial MTL + severity-balanced regression
+```
+
+建议配置文件：
+
+```text
+configs/stage_b/e0_rgb_mtl_lite.yaml
+configs/stage_b/e1_identity_adversarial.yaml
+configs/stage_b/e2_severity_balanced.yaml
+configs/stage_b/e3_identity_adversarial_severity_balanced.yaml
+```
+
+如果已有 baseline 配置能够复现实验，E0 可以只记录 resolved config 和运行命令，不强制新增重复配置文件。
+
+**B4 诊断与汇总**
+
+每个实验完成后至少输出：
+
+- prediction summary：MAE/RMSE/Pearson/CCC、pred mean/std、train-val gap；
+- severity summary：minimal/mild/moderate/severe 的 count、MAE、bias、abs error；
+- identity summary：A1 layer/shared retrieval、A2 residual-identity coupling、subject attacker accuracy；
+- task consistency：同 subject Freeform/Northwind prediction diff 和 residual diff；
+- artifact-risk group：基于 matched-only A3 变量做分组评估，不重新把 A3 变量变成训练监督。
+
+Stage B 的表格应以 E0 为基准，逐列比较 E1/E2/E3 的增益和代价，而不是分别写孤立结论。
+
+**B5 阶段判定**
+
+- 若 E1 有效：保留 identity-adversarial 作为 Stage C 的必要对照，并在后续 `z_dep` 上继续报告 identity leakage。
+- 若 E2 有效：保留 severity-balanced regression 作为 Stage C/D 支线，但仍需检查它是否提高 identity risk。
+- 若 E3 明显优于 E1/E2：说明 identity shortcut 与 severity compression 存在互补干预价值，Stage C 必须以 E3 作为强 baseline。
+- 若 E1/E2/E3 均不能在不损伤 CCC/task consistency 的情况下改善风险，才进入 Stage C 的粗粒度 `z_dep/z_nuisance` 解耦。
 
 ### 闭环 3：粗粒度解耦闭环，回答“任务-干扰分流是否比共享表征更合理”
 
@@ -113,19 +241,18 @@ E5 E4 + severity-balanced loss
 
 | 阶段 | 作用 | 当前状态 | 输出 |
 |---|---|---|---|
-| Stage A | Shortcut 证据收口 | 下一步立即做 | layer-wise identity probe；error-identity coupling；artifact/quality audits as evaluation |
-| Stage B | Identity-adversarial baseline | Stage A 后执行 | `z_dep` 抑郁预测 + identity suppression |
+| Stage A | Shortcut 证据收口 | 已完成并关闭 | A1+A2 成立；A3 仅作 probe/evaluation；A4 支持 severity-balanced baseline |
+| Stage B | Identity-adversarial baseline | 下一步执行 | `z_dep` 抑郁预测 + identity suppression；同时跑 severity-balanced baseline |
 | Stage C | Coarse task-nuisance disentanglement | Stage B 后执行 | `z_dep/z_nuisance`，可选 `z_id` |
 | Stage D | 稳健性验证 | 逐步执行 | multi-attacker、nuisance leakage、severity-balanced loss、group-wise robustness |
 
 当前最重要的下一步：
 
 ```text
-A1 layer-wise identity probe
-A2 prediction error x identity similarity coupling
-A3 shortcut/artifact audit as evaluation
-A4 severity imbalance summary
+B0 identity-adversarial / severity-balanced baseline specification
 B1 identity-adversarial task representation
+B2 severity-balanced regression baseline
+B3 identity-adversarial + severity-balanced combined baseline
 C1 coarse task-nuisance disentanglement
 ```
 
@@ -692,19 +819,42 @@ Stage A 完成条件：能够回答身份信息是否稳定存在、身份相似
 
 Stage B 是当前主实验计划，只包含两类目标明确的上层干预：
 
-1. `severity-balanced regression`：缓解 score-bin / severity-bin 不均衡。
-2. `identity-adversarial MTL`：通过 GRL 和 identity head 抑制共享表征中的 subject 可用性。
+1. `identity-adversarial MTL`：通过 GRL 和 identity head 抑制共享表征中的 subject 可用性。
+2. `severity-balanced regression`：缓解 score-bin / severity-bin 不均衡。
 
 正式实验组：
 
 | 组别 | 机制 | 目的 |
 |---|---|---|
 | E0 | RGB MTL-Lite baseline | 固定对照 |
-| E1 | + severity-balanced regression | 检验 severity imbalance 是否导致中间分数段塌缩 |
-| E2 | + identity-adversarial branch | 检验上层 MTL 能否降低 subject shortcut |
-| E3 | + severity-balanced regression + identity-adversarial branch | 检验两类 shortcut 是否互补 |
+| E1 | + identity-adversarial branch | 检验上层 MTL 能否降低 subject shortcut |
+| E2 | + severity-balanced regression | 检验 severity imbalance 是否导致中间分数段塌缩 |
+| E3 | + identity-adversarial branch + severity-balanced regression | 检验两类 shortcut 是否互补 |
 
-#### B1 Severity-Balanced Regression
+#### B1 Identity-Adversarial MTL
+
+结构：
+
+```text
+shared representation
+  -> depression regression head
+  -> existing auxiliary MTL heads
+  -> Gradient Reversal Layer -> subject identity head
+```
+
+训练逻辑：identity head 学习预测 subject ID；GRL 反转 identity loss 对共享表征的梯度，使共享表征对 subject ID 更不敏感。普通 identity classification head 不等于去身份化，必须使用 adversarial / GRL 机制。
+
+建议 lambda sweep：
+
+```text
+lambda_id = 0.02, 0.05, 0.10, 0.20
+```
+
+不建议一开始设置过大，因为身份、年龄、脸型、表情和行为线索可能纠缠，过强去身份可能损伤有效面部行为信号。
+
+判读指标：identity retrieval top1/top5 是否下降、subject proxy accuracy 是否下降、MAE/RMSE/CCC 是否稳定、severity group bias 是否改善、Freeform/Northwind task consistency 是否不恶化、train-val gap 是否缩小。
+
+#### B2 Severity-Balanced Regression
 
 目标不是提高预测值方差，而是降低标签分数段不均对梯度的支配，缓解 minimal / severe 等少数分段的系统偏置。
 
@@ -734,29 +884,6 @@ balanced sampler
 ```
 
 判读指标：overall MAE/RMSE/CCC、各 severity group MAE/bias、prediction mean/std、calibration 后 CCC 是否继续下降、identity retrieval 是否恶化。
-
-#### B2 Identity-Adversarial MTL
-
-结构：
-
-```text
-shared representation
-  -> depression regression head
-  -> existing auxiliary MTL heads
-  -> Gradient Reversal Layer -> subject identity head
-```
-
-训练逻辑：identity head 学习预测 subject ID；GRL 反转 identity loss 对共享表征的梯度，使共享表征对 subject ID 更不敏感。普通 identity classification head 不等于去身份化，必须使用 adversarial / GRL 机制。
-
-建议 lambda sweep：
-
-```text
-lambda_id = 0.02, 0.05, 0.10, 0.20
-```
-
-不建议一开始设置过大，因为身份、年龄、脸型、表情和行为线索可能纠缠，过强去身份可能损伤有效面部行为信号。
-
-判读指标：identity retrieval top1/top5 是否下降、subject proxy accuracy 是否下降、MAE/RMSE/CCC 是否稳定、severity group bias 是否改善、Freeform/Northwind task consistency 是否不恶化、train-val gap 是否缩小。
 
 ### Stage C：后续待考虑项，不列入当前实验计划
 
@@ -788,14 +915,14 @@ task_consistency_summary
 
 成功标准：
 
-- E1 成功：少数 severity 分段 MAE/bias 改善，overall CCC 不明显下降，identity retrieval 不恶化。
-- E2 成功：identity retrieval / subject proxy accuracy 下降，prediction metrics 不崩坏，severity bias 不恶化。
+- E1 成功：identity retrieval / subject proxy accuracy 下降，prediction metrics 不崩坏，severity bias 不恶化。
+- E2 成功：少数 severity 分段 MAE/bias 改善，overall CCC 不明显下降，identity retrieval 不恶化。
 - E3 成功：同时满足 E1/E2 的核心约束，并且 train-val gap 或 task consistency 有改善。
 
 停止规则：
 
-- 若 E1 只抬高 severe prediction 但 CCC、task consistency 或 identity retrieval 恶化，不视为成功。
-- 若 E2 降低 identity retrieval 但 severity agreement 或 CCC 明显下降，不视为去身份成功。
+- 若 E1 降低 identity retrieval 但 severity agreement 或 CCC 明显下降，不视为去身份成功。
+- 若 E2 只抬高 severe prediction 但 CCC、task consistency 或 identity retrieval 恶化，不视为成功。
 - 若 E3 没有优于 E1/E2，则不要继续堆更多模块，应回到 Stage A case-level coupling 分析。
 - 在完成 Stage B 之前，不启动动态特征分支、optical flow、two-stream fusion 或新的输入滤镜族。
 
