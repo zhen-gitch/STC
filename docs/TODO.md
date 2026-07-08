@@ -85,6 +85,7 @@ Stage A Shortcut 证据收口
    - E3：`identity-adversarial + severity-balanced`。
    - 可选配置路径：`configs/stage_b/e0_rgb_mtl_lite.yaml`、`configs/stage_b/e1_identity_adversarial.yaml`、`configs/stage_b/e2_severity_balanced.yaml`、`configs/stage_b/e3_identity_adversarial_severity_balanced.yaml`。
    - 运行约束：四组必须使用同一 split、seed、input variant、optimizer、precision、checkpoint 和输出目录结构。
+   - 执行脚本与命令清单：`scripts/stage_b/run_stage_b_matrix.sh`（训练+sweep+per-run 诊断）、`scripts/stage_b/aggregate_stage_b.sh`（横向对照表）；完整 runbook 见 `docs/STAGE_B_RUNBOOK.md`。
 
 7. **B4-stage-b-report**：每组训练后统一跑诊断并产出横向对照表。
    - prediction：MAE/RMSE/Pearson/CCC、pred mean/std、train-val gap。
