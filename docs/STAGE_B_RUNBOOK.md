@@ -96,6 +96,20 @@ bash scripts/stage_b/aggregate_stage_b.sh
 
 **version-aware 聚合**：`aggregate_stage_b.sh` 通过 `scripts/stage_b/resolve_run_specs.py` 枚举每个实验的所有 `version_N`，按各自 `resolved_config.yaml` 的 `LAMBDA_ID`/`POWER` 打标签——base 配置 → `eN`，lambda sweep → `eN_lambda0.02`/`eN_lambda0.1`/`eN_lambda0.2`，power sweep → `eN_power1.0`，同一 sweep 签名的多个 version 只取最新。一张表覆盖 base + 全部 sweep。用 `RUN_E0=.../version_K` 可固定某个 version（跳过该实验的自动发现）。
 
+### 4.1.1 全新重跑（清空旧 run）
+
+当旧 run 会污染 version-aware 聚合时（例如修复前的 E1/E3 lambda sweep 实际都跑成 lambda=0.05，旧 version 的 `resolved_config.yaml` 仍读 0.05，会被标成 base 与真 base 去重碰撞），用 `clean_restart.sh` 清空后从 version_0 重跑：
+
+```bash
+bash scripts/stage_b/clean_restart.sh --dry-run   # 预览会清什么
+bash scripts/stage_b/clean_restart.sh             # 默认备份旧 run 到 stage_b_archive_<时间戳>
+bash scripts/stage_b/clean_restart.sh --delete    # 硬删除（省磁盘；checkpoint 较大）
+bash scripts/stage_b/run_stage_b_matrix.sh        # 全矩阵重跑（version_0 起）
+bash scripts/stage_b/aggregate_stage_b.sh
+```
+
+清空范围：Stage B group 目录（全部 4 个实验的所有 version，含 checkpoint/metrics/diagnostics/tables）、生成的 sweep override（`configs/stage_b/sweeps/`）、聚合输出（`logs/stage_b/aggregate/`）。默认移到带时间戳的备份目录（可逆），archive 目录不被聚合扫描。
+
 ### 4.2 per-run 审计的自动产出
 
 `run_stage_b_matrix.sh` 的 `diagnose_run` 现在在每个 run 训练后自动跑完整 B4 审计链，无需手动补：
