@@ -93,23 +93,41 @@ bash scripts/stage_b/aggregate_stage_b.sh
 - `identity_retrieval/identity_retrieval_run_summary.csv`：A1 layer/shared retrieval top1/top5、paired rank。
 - `severity_calibration/severity_calibration_run_summary.csv`：val 拟合 a/b、test original vs calibrated。
 
-### 4.2 需手动跑的 per-run 审计（A2 / matched-only A3）
+### 4.2 per-run 审计的自动产出
 
-这两个审计输入较重（依赖 features_npz / weaklabel summary），不在自动聚合里，按需对每个 run 跑：
+`run_stage_b_matrix.sh` 的 `diagnose_run` 现在在每个 run 训练后自动跑完整 B4 审计链，无需手动补：
 
-**A2 error-identity coupling**（每个 run）：
+| 审计 | 脚本 | 产物 | 聚合消费方 |
+|------|------|------|------------|
+| 核心诊断 | `diagnose_mtl_lite.py` | `diagnostics/<split>/regression/<split>_predictions.csv` + 单层 features + plots | prediction / calibration 聚合 |
+| A1 层级 identity | `audit_layerwise_identity_probe.py` | `diagnostics/test/a1_layerwise/test_layerwise_features.npz` + `tables/embedding_identity_summary.csv` | identity 聚合（+ A2 输入） |
+| A2 error-identity coupling | `audit_error_identity_coupling.py` | `diagnostics/test/a2_coupling/` | B5 identity 判定 |
+| severity calibration | `audit_severity_calibration.py` | `tables/severity_calibration_fit.csv` | calibration 聚合 |
+
+关键点：A1/A2 需要**层级** NPZ，`diagnose_mtl_lite.py` 的单层 NPZ 不够，所以 `audit_layerwise_identity_probe.py` 会重新跑一遍模型（带 layer hooks）产出层级 NPZ —— 这与 Stage A 的 A1 同口径。这是诊断阶段最重的步骤（每个 run 多过一遍 test 数据）。
+
+A1 的 identity summary 会被复制到 `<run_dir>/tables/embedding_identity_summary.csv`，`aggregate_stage_b.sh` 直接从这里读。
+
+### 4.3 需手动跑的审计（matched-only A3）
+
+A3 artifact weaklabel 依赖多个外部 summary（black_artifacts / alignment_geometry / openface_quality / temporal_sampling），依赖链较重，不在自动流程里。A3 在 B5 里是辅助判定（artifact-risk group），不是主门槛。按需对每个 run 跑：
+
 ```bash
-python scripts/audit_error_identity_coupling.py \
-  --features-npz <RUN_DIR>/diagnostics/test/layer_features.npz \
-  --predictions  <RUN_DIR>/diagnostics/test/test_predictions.csv \
-  --output-dir   <RUN_DIR>/diagnostics/test/a2_coupling \
-  --layers layer_shared,layer_block_6,layer_block_3
-```
+# 先准备依赖 summary（若尚未生成）
+python scripts/audit_black_artifacts.py --run-dir <RUN_DIR> --split test \
+  --output-dir <RUN_DIR>/diagnostics/test/black_artifacts
+python scripts/audit_alignment_geometry.py --run-dir <RUN_DIR> --split test \
+  --output-dir <RUN_DIR>/diagnostics/test/alignment_geometry
 
-**A3 matched-only artifact weaklabels**（每个 run，需先有 `audit_artifact_weaklabels.py` 的 summary）：
-```bash
-python scripts/audit_artifact_weaklabels.py --run-dir <RUN_DIR> --split test \
-  --output-dir <RUN_DIR>/diagnostics/test/a3_weaklabels
+# A3 weaklabel audit（接口是 --predictions，不是 --run-dir）
+python scripts/audit_artifact_weaklabels.py \
+  --predictions <RUN_DIR>/diagnostics/test/regression/test_predictions.csv \
+  --black-artifacts <RUN_DIR>/diagnostics/test/black_artifacts/tables/black_artifact_summary.csv \
+  --alignment-geometry <RUN_DIR>/diagnostics/test/alignment_geometry/tables/alignment_geometry_summary.csv \
+  --output-dir <RUN_DIR>/diagnostics/test/a3_weaklabels \
+  --coupling-threshold 0.2
+
+# matched-only 汇总（跨 E0-E3）
 python scripts/summarize_artifact_weaklabels_matched.py \
   --summary e0=<RUN_DIR_E0>/diagnostics/test/a3_weaklabels/artifact_weaklabel_summary.csv \
   --summary e1=<RUN_DIR_E1>/diagnostics/test/a3_weaklabels/artifact_weaklabel_summary.csv \
@@ -123,15 +141,15 @@ A3 只做 probe / case / group-wise 评估，**不把 A3 变量变成训练监�
 
 ## 5. 报告项（B4 五类，以 E0 为基准横向对照）
 
-每组 run 完成后至少核对：
+每组 run 完成后至少核对（前四类由 `aggregate_stage_b.sh` 自动产出横向对照表）：
 
-1. **prediction**：MAE/RMSE/Pearson/CCC、pred mean/std、train-val gap；
-2. **severity**：minimal/mild/moderate/severe 的 count、MAE、bias、abs error、compression；
-3. **identity**：A1 layer/shared retrieval top1/top5、A2 residual-identity coupling、subject attacker accuracy；
-4. **task consistency**：同 subject Freeform/Northwind prediction diff 与 residual diff；
-5. **artifact-risk group**：基于 matched-only A3 变量做分组评估。
+1. **prediction**（自动）：MAE/RMSE/Pearson/CCC、pred mean/std、train-val gap；
+2. **severity**（自动）：minimal/mild/moderate/severe 的 count、MAE、bias、compression；
+3. **identity**（自动）：A1 layer/shared retrieval top1/top5、A2 residual-identity coupling；
+4. **task consistency**（自动，随 prediction summary 产出 `task_consistency_summary.csv`）：同 subject Freeform/Northwind prediction diff 与 residual diff；
+5. **artifact-risk group**（手动，见 4.3）：基于 matched-only A3 变量做分组评估。
 
-task consistency 与 artifact-risk 若 `aggregate_stage_b.sh` 未覆盖，用 `compare_behavior_predictions.py` 与 A3 matched summary 手动补。
+subject attacker accuracy（identity 第三项）若需要，对 E1/E3 的 subject_id_head 单独评估 —— 训练日志的 `train_identity_loss` 已部分反映，离线 accuracy 可用 `audit_layerwise_identity_probe` 的 per-query 结果近似。
 
 ## 6. B5 阶段判定门槛
 
@@ -152,3 +170,5 @@ task consistency 与 artifact-risk 若 `aggregate_stage_b.sh` 未覆盖，用 `c
 - **severity bin 计数为 0**：会打印 `[SEVERITY-BALANCE] Incomplete train bin counts ...` 并回退到 plain MSE；检查 `LABEL_DIR` 下 `<subject>_Depression.csv` 是否齐全。
 - **sweep run 覆盖**：base 与 sweep 共享 `EXPERIMENT_NAME`，version 自增不覆盖；若手动跑同一配置多次，`resolve_run_dir` 总取最新 version。
 - **忘了叠加 base_regression_only**：单独跑 `eX_*.yaml` 而不叠加 `base_regression_only.yaml` 会回落到 `avec2014_base.yaml` 默认（backbone 全解冻、无权重、ordinal 开、CLASS_STEP=2、80 epoch），与 Stage A 基准不一致，E0–E3 对照失效。`run_stage_b_matrix.sh` 已自动叠加；手动跑务必带 `--override configs/stage_b/base_regression_only.yaml`。
+- **A1 layerwise probe 失败 / 层级为空**：`audit_layerwise_identity_probe.py` 依赖 backbone 暴露 `patch_embed`/`blocks`。deit_tiny 满足；若换 backbone 看到 `[LAYER-PROBE] Skipped unresolved layers`，identity 聚合会缺对应层。probe 失败时 identity 聚合会报 `embedding_identity_summary.csv not found`。
+- **聚合时 prediction CSV 找不到**：`aggregate_stage_b.sh` 现在指到 `<run_dir>/diagnostics/test/regression/test_predictions.csv`。若该文件缺失，说明 `diagnose_mtl_lite.py` 没跑或 test split 未诊断 —— 用 `SKIP_TRAIN=1 bash scripts/stage_b/run_stage_b_matrix.sh <exp>` 补诊断。

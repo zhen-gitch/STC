@@ -66,7 +66,9 @@ echo "  E1: ${E1_DIR:-(missing)}"
 echo "  E2: ${E2_DIR:-(missing)}"
 echo "  E3: ${E3_DIR:-(missing)}"
 
-# Build the --run NAME=PATH list, skipping any experiment whose dir is empty.
+# Build the --run NAME=PATH list for audits that read run_dir-level summaries
+# (identity_retrieval / severity_calibration put their summaries under
+# <run_dir>/tables/).  Skips any experiment whose dir is missing.
 RUNS=()
 for name in e0 e1 e2 e3; do
   dirvar="RUN_${name^^}"
@@ -81,41 +83,62 @@ if [[ ${#RUNS[@]} -lt 2 ]]; then
   exit 1
 fi
 
-# ----- prediction (MAE/RMSE/Pearson/CCC, pred mean/std, train-val gap) -----
-echo "[STAGE-B-AGG] prediction summary ..."
-python scripts/summarize_prediction_runs.py \
-  "${RUNS[@]}" --baseline e0 \
-  --split test \
-  --output-dir "$OUT_ROOT/prediction" || echo "[WARN] prediction aggregation failed"
+# prediction run specs point at the per-run test prediction CSV produced by
+# diagnose_mtl_lite.py (under diagnostics/test/regression/), NOT the run_dir
+# root -- summarize_prediction_runs looks for <path>/test_predictions.csv.
+PRED_RUNS=()
+for name in e0 e1 e2 e3; do
+  dirvar="RUN_${name^^}"
+  dir="${!dirvar:-$(resolve_run_dir "$name" 2>/dev/null || true)}"
+  pred_csv="$dir/diagnostics/test/regression/test_predictions.csv"
+  if [[ -f "$pred_csv" ]]; then
+    PRED_RUNS+=("--run" "${name}=${pred_csv}")
+  else
+    echo "[WARN] $name: test prediction CSV missing ($pred_csv); excluded from prediction summary"
+  fi
+done
 
-# ----- severity imbalance (A4: minimal/mild/moderate/severe count/MAE/bias) -
-echo "[STAGE-B-AGG] severity imbalance summary ..."
-# severity_imbalance consumes prediction_run_summary.csv + severity_bias_summary.csv
-# + severity_calibration_run_summary.csv produced by the per-run audits.  We
-# point it at the prediction summary dir from the step above plus any per-run
-# severity_bias / calibration summaries if present.
-PRED_SUMMARY="$OUT_ROOT/prediction/prediction_run_summary.csv"
-SEVERITY_BIAS=""
-CALIB_SUMMARY=""
-# Prefer aggregated calibration summary if it exists (built below), else null.
-python scripts/summarize_severity_imbalance.py \
-  ${PRED_SUMMARY:+--prediction-summary "$PRED_SUMMARY"} \
-  ${CALIB_SUMMARY:+--calibration-summary "$CALIB_SUMMARY"} \
-  ${SEVERITY_BIAS:+--severity-bias "$SEVERITY_BIAS"} \
-  --output-dir "$OUT_ROOT/severity_imbalance" \
-  --run e0 --run e1 --run e2 --run e3 || echo "[WARN] severity imbalance aggregation failed"
+# ----- prediction (MAE/RMSE/Pearson/CCC, pred mean/std, train-val gap) -----
+# Also writes severity_bias_summary.csv + task_consistency_summary.csv, which
+# the severity_imbalance step below consumes.
+echo "[STAGE-B-AGG] prediction summary ..."
+if [[ ${#PRED_RUNS[@]} -ge 2 ]]; then
+  python scripts/summarize_prediction_runs.py \
+    "${PRED_RUNS[@]}" --baseline e0 \
+    --split test \
+    --output-dir "$OUT_ROOT/prediction" || echo "[WARN] prediction aggregation failed"
+else
+  echo "[WARN] fewer than 2 prediction CSVs found; skipping prediction summary"
+fi
 
 # ----- identity retrieval (A1: layer/shared top1/top5, paired rank) --------
+# Reads <run_dir>/tables/embedding_identity_summary.csv from audit_identity_retrieval.
 echo "[STAGE-B-AGG] identity retrieval summary ..."
 python scripts/summarize_identity_retrieval_runs.py \
   "${RUNS[@]}" \
   --output-dir "$OUT_ROOT/identity_retrieval" || echo "[WARN] identity aggregation failed"
 
 # ----- severity calibration (val fits a,b; test evaluates) -----------------
+# Reads <run_dir>/tables/severity_calibration_fit.csv from audit_severity_calibration.
 echo "[STAGE-B-AGG] severity calibration summary ..."
 python scripts/summarize_severity_calibration_runs.py \
   "${RUNS[@]}" \
   --output-dir "$OUT_ROOT/severity_calibration" || echo "[WARN] calibration aggregation failed"
+
+# ----- severity imbalance (A4: minimal/mild/moderate/severe count/MAE/bias) -
+# Runs LAST: it consumes prediction_run_summary.csv + severity_bias_summary.csv
+# (from the prediction step above) and severity_calibration_run_summary.csv
+# (from the calibration step above).
+echo "[STAGE-B-AGG] severity imbalance summary ..."
+PRED_SUMMARY="$OUT_ROOT/prediction/tables/prediction_run_summary.csv"
+SEVERITY_BIAS="$OUT_ROOT/prediction/tables/severity_bias_summary.csv"
+CALIB_SUMMARY="$OUT_ROOT/severity_calibration/tables/severity_calibration_run_summary.csv"
+python scripts/summarize_severity_imbalance.py \
+  ${PRED_SUMMARY:+--prediction-summary "$PRED_SUMMARY"} \
+  ${SEVERITY_BIAS:+--severity-bias "$SEVERITY_BIAS"} \
+  ${CALIB_SUMMARY:+--calibration-summary "$CALIB_SUMMARY"} \
+  --output-dir "$OUT_ROOT/severity_imbalance" \
+  --run e0 --run e1 --run e2 --run e3 || echo "[WARN] severity imbalance aggregation failed"
 
 echo ""
 echo "[STAGE-B-AGG] done.  Tables under $OUT_ROOT/:"

@@ -108,6 +108,23 @@ train_run() {
 
 # -----------------------------------------------------------------------------
 # Diagnose one run (B4).  $1=experiment id.
+#
+# Three stages:
+#  1. diagnose_mtl_lite.py -- per-split prediction CSV + single-layer features
+#     + plots.  Writes <run_dir>/diagnostics/<split>/regression/<split>_predictions.csv
+#     (consumed by prediction + calibration aggregation).
+#  2. audit_layerwise_identity_probe.py -- re-runs the model with layer hooks
+#     to produce a LAYER-WISE NPZ + tables/embedding_identity_summary.csv.
+#     This is the A1 tool (same as Stage A), needed because diagnose_mtl_lite's
+#     NPZ is single-layer and cannot feed the per-layer A1/A2 audits.  Output
+#     goes to <run_dir>/diagnostics/test/a1_layerwise/ ; the identity summary
+#     is also copied/located so aggregate_stage_b.sh finds it under <run_dir>.
+#  3. A2 error-identity coupling + severity calibration, both reading step 1/2
+#     outputs.
+#
+# Calibration needs BOTH val and test prediction CSVs, so DIAG_SPLITS must
+# include both (default "val test").  The layerwise probe is test-only (A1
+# identity risk is evaluated on test, matching Stage A).
 # -----------------------------------------------------------------------------
 diagnose_run() {
   local exp="$1"
@@ -120,14 +137,59 @@ diagnose_run() {
     echo "[WARN] run dir not found for $exp, skipping diagnostics: $run_dir"
     return
   fi
-  # Core B4 diagnostics: prediction/severity/identity/correlation + training
-  # curves.  Occlusion/keyframes/model-attention are expensive and left for a
-  # focused pass on selected cases, not the full matrix.
+
+  # Stage 1: core diagnostics (prediction CSV + single-layer features + plots).
   python scripts/diagnose_mtl_lite.py \
     --run-dir "$run_dir" --ckpt best \
     --split $DIAG_SPLITS \
     --enable-training-curves --enable-regression \
     --enable-embeddings --enable-correlation
+
+  local test_pred="$run_dir/diagnostics/test/regression/test_predictions.csv"
+  local val_pred="$run_dir/diagnostics/val/regression/val_predictions.csv"
+  local a1_dir="$run_dir/diagnostics/test/a1_layerwise"
+  local layerwise_npz="$a1_dir/test_layerwise_features.npz"
+
+  # Stage 2: A1 layerwise identity probe (produces layer-wise NPZ + identity
+  # summary).  This is heavier (re-runs the model with hooks) but is the only
+  # way to get per-layer identity retrieval comparable to Stage A.
+  python scripts/audit_layerwise_identity_probe.py \
+    --run-dir "$run_dir" --ckpt best \
+    --split test \
+    --output-dir "$a1_dir" \
+    ${test_pred:+--predictions "$test_pred"} \
+    || echo "[WARN] A1 layerwise identity probe failed for $exp"
+
+  # Mirror the identity summary into <run_dir>/tables/ so aggregate_stage_b.sh
+  # (which looks under <run_dir>/tables/) finds it without path special-casing.
+  if [[ -f "$a1_dir/tables/embedding_identity_summary.csv" ]]; then
+    mkdir -p "$run_dir/tables"
+    cp "$a1_dir/tables/embedding_identity_summary.csv" "$run_dir/tables/embedding_identity_summary.csv"
+  fi
+
+  # Stage 3a: A2 error-identity coupling (uses the LAYER-WISE NPZ from step 2,
+  # not diagnose_mtl_lite's single-layer NPZ).
+  if [[ -f "$layerwise_npz" && -f "$test_pred" ]]; then
+    python scripts/audit_error_identity_coupling.py \
+      --features-npz "$layerwise_npz" \
+      --predictions "$test_pred" \
+      --output-dir "$run_dir/diagnostics/test/a2_coupling" \
+      || echo "[WARN] A2 error-identity coupling audit failed for $exp"
+  else
+    echo "[WARN] layerwise NPZ or test predictions missing for $exp, skipping A2 audit"
+  fi
+
+  # Stage 3b: severity calibration (val fits a,b; test evals).  Uses the
+  # prediction CSVs from step 1.  Writes tables/severity_calibration_fit.csv
+  # under <run_dir>, which aggregate_stage_b.sh consumes.
+  if [[ -f "$val_pred" && -f "$test_pred" ]]; then
+    python scripts/audit_severity_calibration.py \
+      --val-predictions "$val_pred" \
+      --test-predictions "$test_pred" \
+      --output-dir "$run_dir" || echo "[WARN] severity calibration audit failed for $exp"
+  else
+    echo "[WARN] val/test prediction CSV missing for $exp, skipping calibration audit"
+  fi
 }
 
 # -----------------------------------------------------------------------------
