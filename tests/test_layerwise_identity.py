@@ -194,3 +194,80 @@ def test_load_rejects_npz_without_layer_features(tmp_path):
     )
     with pytest.raises(ValueError, match="No per-layer feature arrays"):
         load_layerwise_features_npz(npz_path)
+
+
+def test_convenience_single_run_files_for_shared_layer(tmp_path):
+    """The audit also emits single-run-schema files for the layer_shared row.
+
+    summarize_identity_retrieval_runs reads tables/embedding_identity_summary.csv
+    (one row, single-run schema).  The layerwise probe must produce it from the
+    layer_shared row so a separate single-run audit pass is not needed.
+    """
+    from src.diagnostics.identity_retrieval import (
+        RETRIEVAL_COLUMNS,
+        SUMMARY_COLUMNS as SINGLE_SUMMARY_COLUMNS,
+    )
+    from src.diagnostics.io import read_csv_rows
+
+    records = _make_records()
+    video_ids, subject_ids, targets, preds = _metadata_lists(records)
+    layer_features = {
+        "layer_stem": _make_subject_separable_features(dim=6, seed=1),
+        "layer_shared": _make_subject_separable_features(dim=4, seed=3),
+    }
+    npz_path = tmp_path / "layerwise.npz"
+    save_layerwise_features_npz(
+        npz_path, layer_features, subject_ids, targets, preds, video_ids=video_ids
+    )
+
+    generated = run_layerwise_identity_audit(npz_path, tmp_path / "out", top_k=3)
+
+    emb_summary = tmp_path / "out" / "tables" / "embedding_identity_summary.csv"
+    emb_retrieval = tmp_path / "out" / "tables" / "embedding_identity_retrieval.csv"
+    assert emb_summary in generated
+    assert emb_retrieval in generated
+    assert emb_summary.exists() and emb_retrieval.exists()
+
+    # Summary is a single row, single-run schema (no layer_name column).
+    summary_rows = read_csv_rows(emb_summary)
+    assert len(summary_rows) == 1
+    assert "layer_name" not in summary_rows[0]
+    assert set(SINGLE_SUMMARY_COLUMNS).issubset(set(summary_rows[0].keys()))
+
+    # Per-query carries only the layer_shared rows (one per query), single-run
+    # schema, and its metrics match the layer_shared row of the layerwise table.
+    per_query_rows = read_csv_rows(emb_retrieval)
+    assert len(per_query_rows) == len(records)
+    assert "layer_name" not in per_query_rows[0]
+    assert set(RETRIEVAL_COLUMNS).issubset(set(per_query_rows[0].keys()))
+
+    layerwise_summary = read_csv_rows(
+        tmp_path / "out" / "tables" / "layerwise_identity_summary.csv"
+    )
+    shared_row = next(r for r in layerwise_summary if r["layer_name"] == "layer_shared")
+    assert (
+        float(summary_rows[0]["same_subject_top1_rate"])
+        == float(shared_row["same_subject_top1_rate"])
+    )
+
+
+def test_no_convenience_files_when_shared_layer_absent(tmp_path):
+    """No embedding_identity_* files when layer_shared is not probed."""
+    records = _make_records()
+    video_ids, subject_ids, targets, preds = _metadata_lists(records)
+    layer_features = {
+        "layer_stem": _make_subject_separable_features(dim=6, seed=1),
+        "layer_block_3": _make_subject_separable_features(dim=8, seed=2),
+    }
+    npz_path = tmp_path / "layerwise.npz"
+    save_layerwise_features_npz(
+        npz_path, layer_features, subject_ids, targets, preds, video_ids=video_ids
+    )
+
+    generated = run_layerwise_identity_audit(npz_path, tmp_path / "out", top_k=3)
+
+    emb_summary = tmp_path / "out" / "tables" / "embedding_identity_summary.csv"
+    emb_retrieval = tmp_path / "out" / "tables" / "embedding_identity_retrieval.csv"
+    assert emb_summary not in generated
+    assert emb_retrieval not in generated
+    assert not emb_summary.exists() and not emb_retrieval.exists()

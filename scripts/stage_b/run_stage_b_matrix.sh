@@ -160,11 +160,16 @@ diagnose_run() {
     ${test_pred:+--predictions "$test_pred"} \
     || echo "[WARN] A1 layerwise identity probe failed for $exp"
 
-  # Mirror the identity summary into <run_dir>/tables/ so aggregate_stage_b.sh
-  # (which looks under <run_dir>/tables/) finds it without path special-casing.
+  # Mirror the identity summary (+ per-query retrieval) into <run_dir>/tables/
+  # so aggregate_stage_b.sh (which looks under <run_dir>/tables/) finds them
+  # without path special-casing.  The per-query CSV feeds the per-severity
+  # identity summary; without it that sub-table is silently skipped.
   if [[ -f "$a1_dir/tables/embedding_identity_summary.csv" ]]; then
     mkdir -p "$run_dir/tables"
     cp "$a1_dir/tables/embedding_identity_summary.csv" "$run_dir/tables/embedding_identity_summary.csv"
+    if [[ -f "$a1_dir/tables/embedding_identity_retrieval.csv" ]]; then
+      cp "$a1_dir/tables/embedding_identity_retrieval.csv" "$run_dir/tables/embedding_identity_retrieval.csv"
+    fi
   fi
 
   # Stage 3a: A2 error-identity coupling (uses the LAYER-WISE NPZ from step 2,

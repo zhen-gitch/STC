@@ -18,6 +18,12 @@ Outputs:
 - ``layerwise_identity_per_query.csv``: per-query, per-layer retrieval rows for
   case-level analysis (A2 consumes this).
 - ``layerwise_identity_report.md``: markdown comparison report.
+- ``embedding_identity_summary.csv`` / ``embedding_identity_retrieval.csv``:
+  convenience single-run-schema files holding the ``layer_shared`` rows only,
+  so consumers of the single-run audit output (e.g.
+  :func:`src.diagnostics.identity_retrieval_runs.summarize_identity_retrieval_runs`)
+  can read the layerwise probe without a separate single-run audit pass.
+  Emitted only when the probed layer set includes ``layer_shared``.
 """
 
 import math
@@ -26,6 +32,8 @@ from pathlib import Path
 import numpy as np
 
 from src.diagnostics.identity_retrieval import (
+    RETRIEVAL_COLUMNS as _SINGLE_RETRIEVAL_COLUMNS,
+    SUMMARY_COLUMNS as _SINGLE_SUMMARY_COLUMNS,
     compute_identity_retrieval_metrics,
     load_embeddings_and_predictions,
 )
@@ -269,6 +277,36 @@ def run_layerwise_identity_audit(
     per_query_path = tables_dir / "layerwise_identity_per_query.csv"
     write_csv_rows(per_query_path, per_query_rows, PER_QUERY_COLUMNS)
     generated.append(per_query_path)
+
+    # Convenience: also emit single-run-schema files for the shared embedding
+    # layer, so consumers that expect the single-run identity-retrieval output
+    # (e.g. summarize_identity_retrieval_runs, which reads
+    # tables/embedding_identity_summary.csv) can consume the layerwise probe
+    # without a separate single-run audit pass.  ``layer_shared`` is the MTL
+    # shared representation (z_dep) and the canonical layer for cross-run
+    # identity-risk comparison; its row carries the same metrics the single-run
+    # audit would produce on the shared features (same
+    # compute_identity_retrieval_metrics call).  Skipped silently when the
+    # probed layer set does not include ``layer_shared``.
+    shared_summary_rows = [
+        r for r in summary_rows if r.get("layer_name") == "layer_shared"
+    ]
+    if shared_summary_rows:
+        shared_summary = {
+            col: shared_summary_rows[0].get(col) for col in _SINGLE_SUMMARY_COLUMNS
+        }
+        emb_summary_path = tables_dir / "embedding_identity_summary.csv"
+        write_csv_rows(emb_summary_path, [shared_summary], _SINGLE_SUMMARY_COLUMNS)
+        generated.append(emb_summary_path)
+
+        shared_per_query = [
+            {col: row.get(col) for col in _SINGLE_RETRIEVAL_COLUMNS}
+            for row in per_query_rows
+            if row.get("layer_name") == "layer_shared"
+        ]
+        emb_retrieval_path = tables_dir / "embedding_identity_retrieval.csv"
+        write_csv_rows(emb_retrieval_path, shared_per_query, _SINGLE_RETRIEVAL_COLUMNS)
+        generated.append(emb_retrieval_path)
 
     report_path = _write_layerwise_report(
         reports_dir / "layerwise_identity_report.md",
