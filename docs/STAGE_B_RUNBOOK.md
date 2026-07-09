@@ -92,6 +92,9 @@ bash scripts/stage_b/aggregate_stage_b.sh
 - `severity_imbalance/severity_imbalance_summary.csv`：minimal/mild/moderate/severe 的 count/MAE/bias、compression、imbalance_ratio。
 - `identity_retrieval/identity_retrieval_run_summary.csv`：A1 layer/shared retrieval top1/top5、paired rank。
 - `severity_calibration/severity_calibration_run_summary.csv`：val 拟合 a/b、test original vs calibrated。
+- `training_overfit/training_overfit_summary.csv`：best-val vs last epoch、train/val gap、`overfit_after_best_val` 标志。
+
+**version-aware 聚合**：`aggregate_stage_b.sh` 通过 `scripts/stage_b/resolve_run_specs.py` 枚举每个实验的所有 `version_N`，按各自 `resolved_config.yaml` 的 `LAMBDA_ID`/`POWER` 打标签——base 配置 → `eN`，lambda sweep → `eN_lambda0.02`/`eN_lambda0.1`/`eN_lambda0.2`，power sweep → `eN_power1.0`，同一 sweep 签名的多个 version 只取最新。一张表覆盖 base + 全部 sweep。用 `RUN_E0=.../version_K` 可固定某个 version（跳过该实验的自动发现）。
 
 ### 4.2 per-run 审计的自动产出
 
@@ -155,9 +158,10 @@ subject attacker accuracy（identity 第三项）若需要，对 E1/E3 的 subje
 
 对照聚合表逐项判定（任一“有效”需同时满足主指标改善 + 代价不恶化）：
 
-- **E1 有效**：identity risk（A1 top1/top5、A2 coupling、subject attacker accuracy）下降，且 MAE/RMSE/CCC、severity bias、task consistency、train-val gap 不明显恶化。
-- **E2 有效**：minimal 高估 / severe 低估 / compression 改善，且 `pred_std/true_std` 更接近真实分布，CCC 与 identity risk 未明显恶化。
+- **E1 有效**：identity risk（A1 top1/top5、A2 coupling、subject attacker accuracy）下降，且 MAE/RMSE/CCC、severity bias、task consistency、train-val gap 不明显恶化。sweep 行（`e1_lambda0.02/0.1/0.2`）需横向比较，选“不损伤 BDI utility 的最低有效 lambda”。
+- **E2 有效**：minimal 高估 / severe 低估 / compression 改善，且 `pred_std/true_std` 更接近真实分布，CCC 与 identity risk 未明显恶化。sweep 行 `e2_power1.0` 与 base `e2`(POWER 0.5) 对照。
 - **E3 有效**：同时优于或互补于 E1/E2，作为 Stage C 强 baseline。
+- **train-val gap / 过拟合**：`training_overfit/training_overfit_summary.csv` 的 `overfit_after_best_val` 标志与 best-val→last 的 val 恶化幅度纳入代价评估；若所有 run 都在 best val 后持续恶化，支持后续加 EarlyStopping（不改变 B5 判定，但进 Stage C 前记录）。
 - **均不能在可接受代价内改善风险** → 进入 Stage C 的粗粒度 `z_dep / z_nuisance` 解耦（`docs/TODO.md` C0-spec-before-code）。
 
 判定结果写入 `docs/CURRENT_STATUS.md` 与 `docs/RGB_OVERFITTING_AUDIT_PLAN.md` 的 Stage B 段落，再决定 Stage C 是否开工。
@@ -168,7 +172,28 @@ subject attacker accuracy（identity 第三项）若需要，对 E1/E3 的 subje
 - **bf16 下 GRL 反向不稳定**：若 E1 出现 NaN，先用 `PRECISION: "32-true"` 跑一个 E1 smoke 确认是否精度问题；若是，记录并在 sweep 里跳过高 lambda。
 - **subject 注入失败**：runner 启动时会打印 `[RUNNER] identity-adversarial ON: N train subjects`；若 N=0，检查 `DATASET_SPLIT_FILE` 与 `IMAGE_DIR` 是否指向真实 train split。
 - **severity bin 计数为 0**：会打印 `[SEVERITY-BALANCE] Incomplete train bin counts ...` 并回退到 plain MSE；检查 `LABEL_DIR` 下 `<subject>_Depression.csv` 是否齐全。
-- **sweep run 覆盖**：base 与 sweep 共享 `EXPERIMENT_NAME`，version 自增不覆盖；若手动跑同一配置多次，`resolve_run_dir` 总取最新 version。
+- **sweep run 覆盖**：base 与 sweep 共享 `EXPERIMENT_NAME`，version 自增不覆盖；聚合按 sweep 签名去重取最新 version（见 4.1 version-aware）。
+- **lambda sweep 之前不生效（已修复）**：早期 `run_stage_b_matrix.sh` 把 lambda override 写成字面带点 key `IDENTITY_ADVERSARIAL.LAMBDA_ID:`，OmegaConf 不展开，模型仍读 base 的 0.05 —— E1/E3 的所有 lambda sweep version 实际等价，best val RMSE / prediction 指标完全相同即为该症状。已改为嵌套 YAML。**修复前跑出的 E1/E3 sweep version 无效，需重跑**（见 4.4 重跑指引）。POWER sweep 一直是嵌套写法，不受影响。
 - **忘了叠加 base_regression_only**：单独跑 `eX_*.yaml` 而不叠加 `base_regression_only.yaml` 会回落到 `avec2014_base.yaml` 默认（backbone 全解冻、无权重、ordinal 开、CLASS_STEP=2、80 epoch），与 Stage A 基准不一致，E0–E3 对照失效。`run_stage_b_matrix.sh` 已自动叠加；手动跑务必带 `--override configs/stage_b/base_regression_only.yaml`。
 - **A1 layerwise probe 失败 / 层级为空**：`audit_layerwise_identity_probe.py` 依赖 backbone 暴露 `patch_embed`/`blocks`。deit_tiny 满足；若换 backbone 看到 `[LAYER-PROBE] Skipped unresolved layers`，identity 聚合会缺对应层。probe 失败时 identity 聚合会报 `embedding_identity_summary.csv not found`。
+- **A1 产物文件名**：probe 产出的单 run schema 文件是 `tables/embedding_identity_summary.csv`（取 `layer_shared` 行）；多层文件是 `layerwise_identity_summary.csv`。`backfill_a1_identity.sh` 和 `diagnose_run` 都会把单 run 文件镜像到 `<run_dir>/tables/`，聚合从那里读。
 - **聚合时 prediction CSV 找不到**：`aggregate_stage_b.sh` 现在指到 `<run_dir>/diagnostics/test/regression/test_predictions.csv`。若该文件缺失，说明 `diagnose_mtl_lite.py` 没跑或 test split 未诊断 —— 用 `SKIP_TRAIN=1 bash scripts/stage_b/run_stage_b_matrix.sh <exp>` 补诊断。
+- **sweep version 的 A1 缺失**：聚合是 version-aware 的，会读每个 sweep version 的 `<run_dir>/tables/embedding_identity_summary.csv`。若某 sweep version 的 A1 没跑过（早于诊断修复），用 `ALL_VERSIONS=1 bash scripts/stage_b/backfill_a1_identity.sh` 一次性补全所有 version（不只是最新）。
+
+### 4.4 重跑指引（lambda sweep 修复后）
+
+修复 lambda sweep 后，E1/E3 的旧 sweep version 无效，需重跑。最小重跑集（E2/E0 不受影响，无需重跑）：
+
+```bash
+# 1. 拉取修复（lambda 嵌套 + version-aware 聚合 + overfit 汇总）
+git pull origin dev
+
+# 2. 重跑 E1 / E3 的完整矩阵（base + 3 个 lambda sweep 各一次）
+#    （E3 还含 power sweep，但 power 一直有效；为干净起见整组重跑）
+bash scripts/stage_b/run_stage_b_matrix.sh e1 e3
+
+# 3. 重聚合（现在 version-aware，一张表含 base + 全部 sweep + overfit）
+bash scripts/stage_b/aggregate_stage_b.sh
+```
+
+若不想重跑、只想给**已存在**的 version 补 A1 诊断（例如修复前跑的 version 想保留作对照），用 `ALL_VERSIONS=1 bash scripts/stage_b/backfill_a1_identity.sh`。但注意：旧 E1/E3 sweep version 的 `resolved_config.yaml` 里 `LAMBDA_ID` 仍是 0.05（因为 sweep 没生效），version-aware 聚合会把它们标成 base `e1`/`e3` 并与真 base 去重——不会产生假的 sweep 行。

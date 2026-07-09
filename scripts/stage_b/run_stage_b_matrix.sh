@@ -197,20 +197,6 @@ diagnose_run() {
   fi
 }
 
-# -----------------------------------------------------------------------------
-# Write a 2-line sweep override file on the fly (avoids pre-creating many
-# near-duplicate configs).  $1=path, $2=key, $3=value.
-# -----------------------------------------------------------------------------
-write_sweep_override() {
-  local path="$1" key="$2" value="$3"
-  mkdir -p "$(dirname "$path")"
-  cat > "$path" <<EOF
-MODEL:
-  ${key}: ${value}
-EOF
-  echo "$path"
-}
-
 # =============================================================================
 # Main
 # =============================================================================
@@ -238,7 +224,16 @@ for exp in "${EXPERIMENTS[@]}"; do
           # 0.05 is the base config value; skip the duplicate run.
           [[ "$lam" == "0.05" ]] && continue
           ov="configs/stage_b/sweeps/${exp}_lambda_${lam}.yaml"
-          write_sweep_override "$ov" "IDENTITY_ADVERSARIAL.LAMBDA_ID" "$lam"
+          # LAMBDA_ID lives under IDENTITY_ADVERSARIAL; must be NESTED YAML.
+          # A flat literal dotted key (IDENTITY_ADVERSARIAL.LAMBDA_ID) is NOT
+          # expanded by OmegaConf, so the model would keep reading the base
+          # 0.05 and every lambda sweep would silently run at the same value.
+          mkdir -p "$(dirname "$ov")"
+          cat > "$ov" <<EOF
+MODEL:
+  IDENTITY_ADVERSARIAL:
+    LAMBDA_ID: ${lam}
+EOF
           if [[ -z "${SKIP_TRAIN:-}" ]]; then train_run "$exp" "$ov"; fi
           if [[ -z "${SKIP_DIAG:-}" ]]; then diagnose_run "$exp"; fi
         done

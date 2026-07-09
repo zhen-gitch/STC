@@ -13,8 +13,9 @@
 # summary will be found.
 #
 # Usage:
-#   bash scripts/stage_b/backfill_a1_identity.sh           # all 4 base runs
-#   bash scripts/stage_b/backfill_a1_identity.sh e1 e3      # only named runs
+#   bash scripts/stage_b/backfill_a1_identity.sh           # latest version of each base run
+#   bash scripts/stage_b/backfill_a1_identity.sh e1 e3      # only named experiments
+#   ALL_VERSIONS=1 bash scripts/stage_b/backfill_a1_identity.sh   # every version (base + sweeps)
 #   CKPT=last bash scripts/stage_b/backfill_a1_identity.sh  # use last instead of best
 # =============================================================================
 set -euo pipefail
@@ -23,13 +24,7 @@ PROJECT_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 cd "$PROJECT_ROOT"
 
 CKPT="${CKPT:-best}"
-
-declare -A EXP_NAME=(
-  [e0]="e0_rgb_mtl_lite"
-  [e1]="e1_identity_adversarial"
-  [e2]="e2_severity_balanced"
-  [e3]="e3_identity_adversarial_severity_balanced"
-)
+RESOLVER="$PROJECT_ROOT/scripts/stage_b/resolve_run_specs.py"
 
 if [[ $# -gt 0 ]]; then
   EXPERIMENTS=("$@")
@@ -37,45 +32,27 @@ else
   EXPERIMENTS=(e0 e1 e2 e3)
 fi
 
-# Resolve the latest run_dir for one experiment (mirrors aggregate_stage_b.sh).
-resolve_run_dir() {
-  python - "$1" <<'PY'
-import sys, glob
-from pathlib import Path
-from omegaconf import OmegaConf
-from src.config import resolve_config_path, load_yaml_config, DEFAULT_BASE_CONFIG
-name = sys.argv[1]
-cfg = load_yaml_config(DEFAULT_BASE_CONFIG)
-lp = resolve_config_path("configs/local_paths.yaml")
-if lp.exists():
-    cfg = OmegaConf.merge(cfg, OmegaConf.load(lp))
-cfg = OmegaConf.merge(cfg, OmegaConf.load("configs/stage_b/base_regression_only.yaml"))
-ov = glob.glob(f"configs/stage_b/{name}_*.yaml")
-if ov:
-    cfg = OmegaConf.merge(cfg, OmegaConf.load(ov[0]))
-log_dir = getattr(cfg, "LOG_DIR", None)
-if not log_dir:
-    sys.exit("LOG_DIR not set")
-root = Path(log_dir)
-if not root.is_absolute():
-    root = Path.cwd() / root
-base = root / str(getattr(cfg, "EXPERIMENT_GROUP", "default")) / str(getattr(cfg, "EXPERIMENT_NAME", name))
-if not base.exists():
-    sys.exit(f"run dir not found: {base}")
-versions = sorted([p for p in base.glob("version_*") if p.is_dir()],
-                  key=lambda p: int(p.name.split("_")[1]))
-print(versions[-1])
-PY
-}
+# Resolve target runs:
+#   ALL_VERSIONS=1 -> every version per experiment, labeled by sweep
+#                    (eN, eN_lambda0.02, eN_power1.0, ...).  Needed so
+#                    aggregation can read identity summaries for sweep versions
+#                    that predate the per-version diagnose fix.
+#   default        -> latest version per experiment only (the training matrix
+#                    already diagnoses each version right after it trains).
+RESOLVER_FLAGS=()
+if [[ -n "${ALL_VERSIONS:-}" ]]; then
+  RESOLVER_FLAGS=()           # version-aware (default behavior of the resolver)
+else
+  RESOLVER_FLAGS=("--latest-only")
+fi
+mapfile -t TARGETS < <(python "$RESOLVER" "${RESOLVER_FLAGS[@]}" "${EXPERIMENTS[@]}" 2>/dev/null || true)
 
-for exp in "${EXPERIMENTS[@]}"; do
-  ename="${EXP_NAME[$exp]:-}"
-  if [[ -z "$ename" ]]; then
-    echo "[WARN] unknown experiment: $exp (skip)"; continue
-  fi
-  run_dir="$(resolve_run_dir "$exp")"
+for spec in "${TARGETS[@]}"; do
+  [[ -z "$spec" ]] && continue
+  label="${spec%%=*}"
+  run_dir="${spec#*=}"
   echo "================================================================"
-  echo "[A1-BACKFILL] $exp -> $run_dir"
+  echo "[A1-BACKFILL] $label -> $run_dir"
   echo "================================================================"
   if [[ ! -d "$run_dir" ]]; then
     echo "[ERROR] run dir not found, skipping: $run_dir"
@@ -92,7 +69,7 @@ for exp in "${EXPERIMENTS[@]}"; do
     --split test \
     --output-dir "$a1_dir" \
     ${test_pred:+--predictions "$test_pred"} \
-    || { echo "[ERROR] A1 probe failed for $exp"; continue; }
+    || { echo "[ERROR] A1 probe failed for $label"; continue; }
 
   # Mirror the identity summary into <run_dir>/tables/ so aggregate_stage_b.sh
   # (which looks under <run_dir>/tables/) finds it.
@@ -104,9 +81,9 @@ for exp in "${EXPERIMENTS[@]}"; do
     if [[ -f "$a1_dir/tables/embedding_identity_retrieval.csv" ]]; then
       cp "$a1_dir/tables/embedding_identity_retrieval.csv" "$run_dir/tables/embedding_identity_retrieval.csv"
     fi
-    echo "[A1-BACKFILL] $exp done: $run_dir/tables/embedding_identity_summary.csv"
+    echo "[A1-BACKFILL] $label done: $run_dir/tables/embedding_identity_summary.csv"
   else
-    echo "[ERROR] $exp: probe ran but no summary produced under $a1_dir/tables/"
+    echo "[ERROR] $label: probe ran but no summary produced under $a1_dir/tables/"
   fi
 done
 
