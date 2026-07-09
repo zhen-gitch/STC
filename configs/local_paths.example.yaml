@@ -8,3 +8,12 @@ DATASET_SPLIT_FILE: "/path/to/AVEC2014/dataset_split.json"
 # Primary output root for all experiments.
 # Runs are written as <LOG_DIR>/<EXPERIMENT_GROUP>/<EXPERIMENT_NAME>/version_N/.
 LOG_DIR: "/path/to/experiment/logs"
+
+# Backbone pretrained weights.  Required when EXTRACT_FEATURE.FREEZE_BACKBONE
+# is True (Stage B base_regression_only.yaml freezes the backbone + finetunes
+# the last 2 blocks).  Set to null to train from scratch.  Example (server):
+#   "/usr/local/conda/zhen/stc/weights/deit_tiny_patch16_224/model.pth"
+# This is merged on top of the base config, so it overrides
+# EXTRACT_FEATURE.MODEL_WEIGHT_PATH without touching other EXTRACT_FEATURE keys.
+EXTRACT_FEATURE:
+  MODEL_WEIGHT_PATH: null

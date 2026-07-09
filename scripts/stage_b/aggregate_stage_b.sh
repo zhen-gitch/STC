@@ -34,6 +34,7 @@ cfg = load_yaml_config(DEFAULT_BASE_CONFIG)
 lp = resolve_config_path("configs/local_paths.yaml")
 if lp.exists():
     cfg = OmegaConf.merge(cfg, OmegaConf.load(lp))
+cfg = OmegaConf.merge(cfg, OmegaConf.load("configs/stage_b/base_regression_only.yaml"))
 ov = glob.glob(f"configs/stage_b/{name}_*.yaml")
 if ov:
     cfg = OmegaConf.merge(cfg, OmegaConf.load(ov[0]))

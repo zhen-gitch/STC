@@ -3,7 +3,7 @@
 本文档是 Stage B 在服务器上执行的 runbook：从代码已落地的 E0–E3 配置出发，按统一协议跑完矩阵与 sweep，产出横向对照表，再对照 B5 门槛判定是否进入 Stage C。
 
 前置条件：
-- `configs/local_paths.yaml` 已配置真实 AVEC2014 数据路径与 `LOG_DIR`（从 `configs/local_paths.example.yaml` 复制）。
+- `configs/local_paths.yaml` 已配置真实 AVEC2014 数据路径、`LOG_DIR`，以及 backbone 权重路径 `EXTRACT_FEATURE.MODEL_WEIGHT_PATH`（从 `configs/local_paths.example.yaml` 复制后填入）。Stage B 的 `base_regression_only.yaml` 冻结 backbone，**必须**配权重路径，否则冻结的是随机初始化权重。
 - GPU 可用；`configs/avec2014_base.yaml` 的 `DEVICES` / `PRECISION` 按机器调整。
 - B1+B2 代码已提交（commit `9ea0a4c`）：`src/models/gradient_reversal.py`、`src/models/mtl_lite.py`、`src/trainers/mtl_lite_runner.py`、`src/models/outputs.py`、`configs/stage_b/*`。
 - 本地 27 项测试全过：`python -m pytest tests/test_mtl_lite_*.py tests/test_gradient_reversal.py`。
@@ -12,7 +12,7 @@
 
 ## 1. 实验矩阵
 
-四组配置都是 `configs/avec2014_base.yaml` 之上的 override 层，共用同一 split / seed / backbone / optimizer / precision / checkpoint 策略（`monitor=val_RMSE_epoch, mode=min`）。`EXPERIMENT_GROUP=stage_b` 把所有 run 归到同一目录便于横向对照。
+四组配置的 override 栈是 `configs/avec2014_base.yaml` → `configs/local_paths.yaml` → `configs/stage_b/base_regression_only.yaml` → `eX_*.yaml`。`base_regression_only.yaml` 复现 Stage A 的 regression_only 基准（冻结 deit_tiny + 微调最后 2 层、ordinal 关闭、纯回归、40 epoch），E0–E3 在此之上只切换 `identity_adversarial` / `severity_balanced_regression` 两个开关，共用同一 split / seed / backbone / optimizer / precision / checkpoint 策略（`monitor=val_RMSE_epoch, mode=min`）。`EXPERIMENT_GROUP=stage_b` 把所有 run 归到同一目录便于横向对照。
 
 | 实验 | 配置 | identity_adversarial | severity_balanced_regression |
 |------|------|----------------------|------------------------------|
@@ -47,12 +47,17 @@ bash scripts/stage_b/run_stage_b_matrix.sh
 
 ### 3.2 单独跑一个实验
 
+每个实验需要两层 override：`base_regression_only.yaml`（共享基准）+ 对应的 `eX_*.yaml`（开关）。
+
 ```bash
 # E0 baseline
-python scripts/train_mtl_lite.py --override configs/stage_b/e0_rgb_mtl_lite.yaml
+python scripts/train_mtl_lite.py \
+  --override configs/stage_b/base_regression_only.yaml \
+  --override configs/stage_b/e0_rgb_mtl_lite.yaml
 
 # E1 + lambda_id=0.10 sweep
 python scripts/train_mtl_lite.py \
+  --override configs/stage_b/base_regression_only.yaml \
   --override configs/stage_b/e1_identity_adversarial.yaml \
   --override configs/stage_b/sweeps/e1_lambda_0.10.yaml
 ```
@@ -141,7 +146,9 @@ task consistency 与 artifact-risk 若 `aggregate_stage_b.sh` 未覆盖，用 `c
 
 ## 7. 常见排雷
 
+- **backbone 权重未加载**：`base_regression_only.yaml` 设 `FREEZE_BACKBONE=True`，必须配权重。启动日志应出现 `[BACKBONE] Loaded external weights for deit_tiny_patch16_224: ...`；若只看到 `no external weight path` 或 `weight file not found`，说明 `configs/local_paths.yaml` 的 `EXTRACT_FEATURE.MODEL_WEIGHT_PATH` 未设或路径错误 —— 此时冻结的是随机权重，结果无意义。
 - **bf16 下 GRL 反向不稳定**：若 E1 出现 NaN，先用 `PRECISION: "32-true"` 跑一个 E1 smoke 确认是否精度问题；若是，记录并在 sweep 里跳过高 lambda。
 - **subject 注入失败**：runner 启动时会打印 `[RUNNER] identity-adversarial ON: N train subjects`；若 N=0，检查 `DATASET_SPLIT_FILE` 与 `IMAGE_DIR` 是否指向真实 train split。
 - **severity bin 计数为 0**：会打印 `[SEVERITY-BALANCE] Incomplete train bin counts ...` 并回退到 plain MSE；检查 `LABEL_DIR` 下 `<subject>_Depression.csv` 是否齐全。
 - **sweep run 覆盖**：base 与 sweep 共享 `EXPERIMENT_NAME`，version 自增不覆盖；若手动跑同一配置多次，`resolve_run_dir` 总取最新 version。
+- **忘了叠加 base_regression_only**：单独跑 `eX_*.yaml` 而不叠加 `base_regression_only.yaml` 会回落到 `avec2014_base.yaml` 默认（backbone 全解冻、无权重、ordinal 开、CLASS_STEP=2、80 epoch），与 Stage A 基准不一致，E0–E3 对照失效。`run_stage_b_matrix.sh` 已自动叠加；手动跑务必带 `--override configs/stage_b/base_regression_only.yaml`。

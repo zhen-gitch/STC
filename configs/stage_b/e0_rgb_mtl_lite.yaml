@@ -1,15 +1,20 @@
-# Stage B E0: RGB MTL-Lite baseline (identity-adversarial OFF, severity-balanced OFF).
+# Stage B E0: regression_only baseline (both Stage B switches OFF).
 #
-# This is the Stage B reference baseline. Both Stage B switches are explicitly
-# off so the resolved config is self-documenting; the model's defaults are also
-# off, so this file is numerically identical to the existing MTL-Lite baseline.
-# E0 is the comparison anchor for E1/E2/E3 (docs/MTL_LITE_DESIGN.md section 13.6).
+# Layer on top of configs/stage_b/base_regression_only.yaml, which reproduces
+# the Stage A regression_only baseline (frozen deit_tiny + last-2-block
+# finetune, ordinal off, pure regression).  E0 is the comparison anchor for
+# E1/E2/E3 -- the four experiments share that base and differ ONLY in the
+# switches below.
+#
+# Run:
+#   python scripts/train_mtl_lite.py \
+#     --override configs/stage_b/base_regression_only.yaml \
+#     --override configs/stage_b/e0_rgb_mtl_lite.yaml
 
-EXPERIMENT_GROUP: "stage_b"
 EXPERIMENT_NAME: "e0_rgb_mtl_lite"
 
 MODEL:
   IDENTITY_ADVERSARIAL:
     ENABLE: False
-    LAMBDA_ID: 0.05
-    NUM_SUBJECT_CLASSES: 0
+  SEVERITY_BALANCED_REGRESSION:
+    ENABLE: False

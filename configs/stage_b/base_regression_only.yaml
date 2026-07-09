@@ -1,0 +1,49 @@
+# Stage B shared base: reproduces the regression_only baseline.
+#
+# E0/E1/E2/E3 all layer on top of this file so the four experiments share one
+# base (same backbone trainability, weights, seq len, epochs, ordinal-off pure
+# regression) and differ ONLY in the identity_adversarial /
+# severity_balanced_regression switches.  This is required because the Stage A
+# evidence (A1 identity risk, A2 residual-identity coupling, A4 severity
+# compression) was collected on this exact baseline; E0 must reproduce it for
+# E1/E2/E3 improvements to be comparable.
+#
+# Reproduces the server config
+#   /usr/local/conda/zhen/stc/configs/experiments/regression_only.yaml
+# (the Stage A baseline).  Legacy full-model fields from that file
+# (MODEL.NAME, ENABLE_CGC, ENABLE_ADAPTIVE_MASK, ENABLE_PCGRAD,
+# ENABLE_UNCERTAINTY_WEIGHTING, CONTRASTIVE, LDS_WEIGHTING, DIST_WEIGHT,
+# REGRESSION) are omitted because MTLLiteDepressionModel does not read them --
+# they are no-ops for the MTL-Lite mainline.
+#
+# MODEL_WEIGHT_PATH is intentionally null here.  Set it in
+# configs/local_paths.yaml (gitignored) under EXTRACT_FEATURE.MODEL_WEIGHT_PATH
+# on the server, e.g.
+#   "/usr/local/conda/zhen/stc/weights/deit_tiny_patch16_224/model.pth"
+# FREEZE_BACKBONE=True with no weights would freeze a randomly-initialized
+# backbone, so the weight path MUST be injected before training.
+
+EXPERIMENT_GROUP: "stage_b"
+
+EXTRACT_FEATURE:
+  # MODEL_WEIGHT_PATH is intentionally NOT set here.  Inject it in
+  # configs/local_paths.yaml (gitignored) under EXTRACT_FEATURE.MODEL_WEIGHT_PATH
+  # on the server, e.g.
+  #   "/usr/local/conda/zhen/stc/weights/deit_tiny_patch16_224/model.pth"
+  # Setting it to null here would override the local_paths value, so the field
+  # is omitted entirely.  FREEZE_BACKBONE=True with no weights would freeze a
+  # randomly-initialized backbone, so the weight path MUST be injected.
+  FREEZE_BACKBONE: True
+  FINETUNE_LAST_N_BLOCKS: 2
+
+PROCESS_TEMPORAL:
+  MAX_SEQ_LEN: 2000
+  CLASS_STEP: 10
+  MAX_EPOCHS: 40
+
+MODEL:
+  AUXILIARY_TASKS:
+    ORDINAL_CLASSIFICATION: False
+
+LOSSES:
+  ORDINAL_WEIGHT: 0.1

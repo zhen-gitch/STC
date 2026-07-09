@@ -610,7 +610,6 @@ MODEL:
   IDENTITY_ADVERSARIAL:
     ENABLE: False            # B1 总开关，默认关闭
     LAMBDA_ID: 0.05          # GRL 系数，sweep: 0.02 / 0.05 / 0.10 / 0.20
-    NUM_SUBJECT_CLASSES: 0   # 由 runner 从 train split 注入，配置中只占位
   SEVERITY_BALANCED_REGRESSION:
     ENABLE: False            # B2 总开关，默认关闭
     POWER: 0.5               # 先 0.5，再比较 1.0
@@ -619,16 +618,24 @@ MODEL:
     EDGES: [13, 19, 28]      # 复用 src/diagnostics/io.py:severity_group 边界
 ```
 
-**固定实验矩阵配置文件**（`configs/stage_b/`，B1/B2 落地时创建）：
+subject 类别数不由配置给定，而是 runner 从 train split 构建 `subject_id_to_index` 后注入模型（`set_subject_index`），所以配置中不再设 `NUM_SUBJECT_CLASSES` 占位字段。
+
+**配置结构**（`configs/stage_b/`，已落地）：
 
 ```text
-configs/stage_b/e0_rgb_mtl_lite.yaml                       # 两开关均 False（或省略），即现 baseline
+configs/stage_b/base_regression_only.yaml                  # 共享 base：复现 regression_only 基准
+configs/stage_b/e0_rgb_mtl_lite.yaml                       # 两开关 OFF（baseline）
 configs/stage_b/e1_identity_adversarial.yaml               # IDENTITY_ADVERSARIAL.ENABLE True
 configs/stage_b/e2_severity_balanced.yaml                  # SEVERITY_BALANCED_REGRESSION.ENABLE True
 configs/stage_b/e3_identity_adversarial_severity_balanced.yaml  # 两开关均 True
+configs/stage_b/sweeps/                                    # lambda_id / POWER 的 2 行 override（B3 运行时生成）
 ```
 
-E0 若能由现有 baseline 配置复现，可只记录 resolved config 与运行命令，不强制新增重复文件。`lambda_id` 与 `power` 的 sweep 通过同一份配置 + CLI override 产生多 run，不复制多份近似配置。
+`base_regression_only.yaml` 复现 Stage A 的 regression_only 基准（Stage A 的 A1/A2/A4 证据在该基准上收集）：冻结 deit_tiny + 微调最后 2 层、`MAX_SEQ_LEN=2000`、`CLASS_STEP=10`、`MAX_EPOCHS=40`、`ORDINAL_CLASSIFICATION=False`（纯回归）、`ORDINAL_WEIGHT=0.1`、`CCC_WEIGHT=0.0`。legacy full-model 字段（`ENABLE_CGC`/`ENABLE_PCGRAD`/`ENABLE_ADAPTIVE_MASK`/`CONTRASTIVE`/`LDS_WEIGHTING`/`DIST_WEIGHT`/`MODEL.NAME`/`REGRESSION`）对 MTL-Lite 是 no-op，已省略。E0–E3 在此之上只写 `EXPERIMENT_NAME` + 各自开关，override 栈为 `avec2014_base.yaml` → `local_paths.yaml` → `base_regression_only.yaml` → `eX_*.yaml`。
+
+**权重路径**：`base_regression_only.yaml` 不设 `MODEL_WEIGHT_PATH`（避免覆盖 local_paths），在 `configs/local_paths.yaml`（gitignored）里设 `EXTRACT_FEATURE.MODEL_WEIGHT_PATH`。`FREEZE_BACKBONE=True` 必须配权重。
+
+`lambda_id` 与 `power` 的 sweep 通过 2 行 override 文件 + CLI override 产生多 run，不复制多份近似配置。完整运行命令与执行清单见 `docs/STAGE_B_RUNBOOK.md`。
 
 ### 13.4 B1 Identity-Adversarial 接口规格
 

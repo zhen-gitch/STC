@@ -1,20 +1,23 @@
-# Stage B E1: identity-adversarial MTL (GRL + subject-id attacker).
+# Stage B E1: identity-adversarial MTL on top of the regression_only baseline.
 #
-# Data flow: shared_features -> GRL(lambda_id) -> subject_id_head -> identity_logits.
-# The subject-id head is built lazily from a train-only subject table injected by
-# the runner (build_train_subject_index); val/test unseen subjects produce no
-# identity loss.  identity loss is train-stage only (docs/MTL_LITE_DESIGN.md
-# section 13.4).
+# Layer on top of configs/stage_b/base_regression_only.yaml.  Data flow:
+#   shared_features -> GRL(lambda_id) -> subject_id_head -> identity_logits
+# The subject-id head is built lazily from a train-only subject table injected
+# by the runner; val/test unseen subjects produce no identity loss.  Identity
+# loss is train-stage only (docs/MTL_LITE_DESIGN.md section 13.4).
 #
-# lambda_id sweep (run as separate runs, B3): 0.02, 0.05, 0.10, 0.20.
-# To sweep without duplicating this file, either edit LAMBDA_ID below or layer a
-# 2-line override file via `--override configs/stage_b/sweeps/e1_lambda_0.02.yaml`.
+# lambda_id sweep (run as separate runs, B3): 0.02, 0.05, 0.10, 0.20.  0.05 is
+# the base value here; for other values layer a 2-line override file, e.g.
+#   --override configs/stage_b/sweeps/e1_lambda_0.10.yaml
+#
+# Run:
+#   python scripts/train_mtl_lite.py \
+#     --override configs/stage_b/base_regression_only.yaml \
+#     --override configs/stage_b/e1_identity_adversarial.yaml
 
-EXPERIMENT_GROUP: "stage_b"
 EXPERIMENT_NAME: "e1_identity_adversarial"
 
 MODEL:
   IDENTITY_ADVERSARIAL:
     ENABLE: True
     LAMBDA_ID: 0.05          # sweep: 0.02 / 0.05 / 0.10 / 0.20
-    NUM_SUBJECT_CLASSES: 0   # placeholder; runner injects len(train subjects)

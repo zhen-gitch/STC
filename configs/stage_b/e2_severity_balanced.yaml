@@ -1,15 +1,18 @@
-# Stage B E2: severity-balanced regression (regression MSE reweighted by bin).
+# Stage B E2: severity-balanced regression on top of the regression_only baseline.
 #
-# Only the regression MSE term is reweighted by per-bin weights derived from
-# the train split; CCC and ordinal auxiliary losses are left unweighted.  Bin
-# edges default to [13, 19, 28] matching src/diagnostics/io.severity_group, so
-# training-time reweighting and the A4/severity diagnostics share one
-# definition (docs/MTL_LITE_DESIGN.md section 13.5).
+# Layer on top of configs/stage_b/base_regression_only.yaml.  Only the
+# regression MSE term is severity-bin reweighted (weights from train split
+# only); CCC and ordinal are left unweighted.  Bin edges default to [13,19,28]
+# matching src/diagnostics/io.severity_group (docs/MTL_LITE_DESIGN.md 13.5).
 #
-# POWER sweep (run as separate runs, B3): 0.5 then 1.0.  Edit POWER below or
-# layer a 2-line override file.
+# POWER sweep (run as separate runs, B3): 0.5 then 1.0.  0.5 is the base value
+# here; for 1.0 layer a 2-line override file.
+#
+# Run:
+#   python scripts/train_mtl_lite.py \
+#     --override configs/stage_b/base_regression_only.yaml \
+#     --override configs/stage_b/e2_severity_balanced.yaml
 
-EXPERIMENT_GROUP: "stage_b"
 EXPERIMENT_NAME: "e2_severity_balanced"
 
 MODEL:

@@ -24,8 +24,12 @@ set -euo pipefail
 PROJECT_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 cd "$PROJECT_ROOT"
 
-# Experiments: name -> base override config.  Sweeps are layered on top as
-# 2-line override files (see configs/stage_b/sweeps/).
+# Shared Stage B base (reproduces the regression_only baseline).  Every
+# experiment layers its own thin override on top of this.
+STAGE_BASE="configs/stage_b/base_regression_only.yaml"
+
+# Experiments: name -> thin override config (EXPERIMENT_NAME + switches).
+# Sweeps are layered on top as 2-line override files (configs/stage_b/sweeps/).
 declare -A EXP_CONFIG=(
   [e0]="configs/stage_b/e0_rgb_mtl_lite.yaml"
   [e1]="configs/stage_b/e1_identity_adversarial.yaml"
@@ -63,7 +67,7 @@ name = sys.argv[1]
 cfg = OmegaConf.merge(
     load_yaml_config(DEFAULT_BASE_CONFIG),
     load_yaml_config(resolve_config_path("configs/local_paths.yaml")),
-    load_yaml_config(resolve_config_path(f"configs/stage_b/{name}_*.yaml")) if False else OmegaConf.create({}),
+    OmegaConf.load("configs/stage_b/base_regression_only.yaml"),
 )
 # Load the actual stage_b override to get EXPERIMENT_NAME.
 import glob
@@ -92,7 +96,7 @@ PY
 # -----------------------------------------------------------------------------
 train_run() {
   local exp="$1"; local extra="${2:-}"
-  local overrides=("--override" "${EXP_CONFIG[$exp]}")
+  local overrides=("--override" "$STAGE_BASE" "--override" "${EXP_CONFIG[$exp]}")
   if [[ -n "$extra" ]]; then
     overrides+=("--override" "$extra")
   fi
