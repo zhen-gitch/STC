@@ -4,7 +4,7 @@
 
 ## 状态日期
 
-2026-07-08
+2026-07-10
 
 ## 阅读提示
 
@@ -22,8 +22,8 @@
 | 第一版 latent | `z_dep`、`z_nuisance` |
 | 可选 latent | `z_id`，仅在身份进入预测的证据充分时启用 |
 | 不做 | 不显式建 `z_art/z_ctx/z_pose/z_quality`，不做多级 RPDF |
-| 下一步 | 进入 Stage B：比较 identity-adversarial MTL 与 severity-balanced regression 基线 |
-| 判据 | BDI metrics、identity risk、shortcut probe risk、severity bias、task consistency、train-val gap |
+| 下一步 | Stage B 已完成（见 2026-07-10 B5 收口）：E2 弱有效作 baseline，E1/E3 无效，进入 Stage C 粗粒度 `z_dep/z_nuisance` 解耦 |
+| 判据 | BDI metrics、identity risk（A1 NN + fresh attacker）、shortcut probe risk、severity bias、task consistency、train-val gap |
 
 ### 2026-07-08 Stage A 证据收口结论
 
@@ -63,6 +63,43 @@ Stage B 成功不以 MAE 单点下降为准，最低判读指标固定为：MAE/
 
 Stage B 实施路线已细化到 `docs/RGB_OVERFITTING_AUDIT_PLAN.md` 的“Stage B 实施路线（2026-07-08）”和 `docs/TODO.md` 的“立即可编程任务包”。后续编程按 B0 规格冻结 -> B1 identity-adversarial -> B2 severity-balanced -> B3/E0-E3 固定实验 -> B4 诊断汇总 -> B5 阶段判定推进。
 
+### 2026-07-10 Stage B B5 证据收口结论
+
+Stage B 固定实验矩阵已全部跑完并通过 version-aware 聚合：E0（base）+ E1/E3 的 lambda_id sweep（0.02/0.05/0.10/0.20）+ E2/E3 的 POWER sweep（0.5/1.0），共 12 个 run，每个 run 跑完整 B4 诊断链（prediction / A1 layerwise / A2 coupling / severity calibration / fresh-probe attacker / A3 artifact chain）。聚合表在 `logs/stage_b/aggregate/{prediction,identity_retrieval,severity_calibration,severity_imbalance,training_overfit,subject_attacker}/`，A3 matched 汇总在 `logs/stage_b/aggregate/a3_matched/`。下表为 12 run 的全信号对照（test split，100 视频/50 subject，true_std=11.54，chance=0.02）：
+
+| run | MAE | CCC | atk_top1 | A1_top1 | cal ΔMAE | val退化↑ |
+|-----|-----|-----|----------|---------|----------|----------|
+| e0（base） | 8.915 | 0.293 | 0.54 | 0.66 | −0.07 | +0.76 |
+| e1 | 8.903 | 0.389 | 0.56 | 0.65 | −0.26 | +2.18 |
+| e1_lambda0.02 | 8.855 | 0.399 | 0.55 | 0.66 | −0.27 | +1.78 |
+| e1_lambda0.1 | 8.977 | 0.377 | 0.55 | 0.65 | −0.25 | +2.18 |
+| e1_lambda0.2 | 9.034 | 0.360 | 0.55 | 0.63 | −0.19 | +1.83 |
+| **e2** | 8.914 | **0.410** | 0.55 | 0.67 | **−0.62** | +0.69 |
+| **e2_power1.0** | 8.882 | **0.410** | 0.57 | 0.68 | **−0.66** | +0.64 |
+| e3 | 9.100 | 0.333 | 0.55 | 0.65 | −0.19 | +2.21 |
+| e3_lambda0.02 | 9.046 | 0.343 | 0.55 | 0.66 | −0.19 | +2.05 |
+| e3_lambda0.1 | 9.165 | 0.315 | 0.55 | 0.64 | −0.16 | +2.66 |
+| e3_lambda0.2 | 9.355 | 0.283 | 0.54 | 0.64 | −0.20 | +2.55 |
+| e3_power1.0 | 9.247 | 0.297 | 0.55 | 0.66 | −0.21 | +1.90 |
+
+说明：`atk_top1` 是 fresh linear-probe attacker（LOVO Ridge on `z_dep`，coverage=1.0），`A1_top1` 是 same-subject NN retrieval，两者都测 `z_dep` 的身份可分性（chance=0.02）。`cal ΔMAE` 是 val 拟合 a/b 后 test 校准的 MAE 变化。`val退化↑` = last_val_rmse − best_val_rmse（越大越过拟合）。
+
+**B5 收口五条结论**：
+
+1. **E2（severity-balanced regression）= 唯一接近有效的弱 baseline**：CCC 0.41（+0.12 vs e0）、calibration 收益最大（−0.62/−0.66）、过拟合最轻（+0.64-0.69）、修复 prediction compression（pred_std 6.16→8.72-9.18，true=11.54）。但 identity 仍泄漏（atk 0.55、A1 0.67，未降）——E2 只解了「预测压缩」与「severity 分布」，没解 identity shortcut。可作 Stage C 强 baseline 候选。
+
+2. **E1/E3（identity-adversarial）= 无效**：atk_top1 与 A1 都没有下降（e1 atk=0.56 反而 > e0=0.54，e2_power1.0=0.57 最高），且 E3 utility 全面劣化（CCC 0.28-0.34 全线低于 e0 0.29，MAE 9.1-9.4）。lambda sweep 单调代价清晰（e1 CCC 0.399→0.360 随 0.02→0.2）。GRL 强度太弱，identity 对抗在当前 lambda 范围未能把 subject identity 从 `z_dep` 抹除。
+
+3. **identity 泄漏全局未解（两条独立信号收敛）**：fresh attacker top1 0.54-0.57（chance 0.02）+ A1 NN 0.63-0.68，参数化线性 probe 与非参数 NN 两套独立口径一致确认 `z_dep` 强泄漏 subject identity。E1/E3 的对抗头未改善任一信号。
+
+4. **A3 artifact-risk group 未被任何 defense 改善**：matched-only A3（12 run × 100 视频）显示最强 shortcut 轴是 OpenFace 头部姿态 `pose_rz_mean`（\|corr\|=0.319）+ 多个 AU。按 pose_rz 中位数切 high/low 组，e0 high-group MAE=10.38 vs low=7.45（gap 2.93），**所有 12 run 在 high-risk 组的 MAE 都不低于 e0**——E1/E3 普遍恶化 +0.4~0.7，E2_power1.0 仅在 AU26/face_offset_y 两轴改善，pose_rz/black_border 仍恶化。整体平均耦合（122 变量）E2 系最低（0.081-0.085 vs e0 0.095），但 high-risk 组未改善说明 E2 的整体收益是「假分散」而非真解耦。
+
+5. **普遍过拟合（12/12）**：所有 run `overfit_after_best_val=True`，best-val→last 的 val 退化 0.64-2.66（E3 系最重 1.9-2.66）。best ckpt 被正确选用，但跑满 40 epoch 浪费算力且末态严重过拟合——进 Stage C 前建议加 EarlyStopping。
+
+**subject attacker 说明**：AVEC2014 是 subject-disjoint split，联合训练的 `subject_id_head` 没见过任何 test subject（旧复用 train head 的 attacker 给 coverage=0、空指标，B5 该门槛原为死的）。已改为 fresh linear-probe attacker（LOVO Ridge on `z_dep`，在 test subject 自身上训，coverage=100%），让所有 run 含 E0/E2 baseline 都出真数字。该信号与 A1 NN **收敛不分化**（都测 z_dep 身份可分性），价值是让 B5 门槛 live 并提供参数化（线性）视角作为 A1 的收敛证据，不提供新的差异化结构。
+
+**B5 阶段判定**：Stage B 的轻量级可开关 defense（identity 对抗 + severity 平衡）不足以解除 shortcut。E2 可作弱 baseline（整体 CCC 改善但 artifact/identity 组未改善），E1/E3 明确无效。**满足进入 Stage C 的条件**——下一步实现显式粗粒度 `z_dep / z_nuisance` 解耦（`docs/TODO.md` C0-spec-before-code），针对 pose_rz / AU / black_border 等已验证 shortcut 轴施加弱监督或解耦约束。进 Stage C 前加 EarlyStopping 缓解过拟合。详细执行命令见 `docs/STAGE_B_RUNBOOK.md`。
+
 ### 2026-07-03 输入遮挡语义修正
 
 对真实 OpenFace aligned 输入帧的人工审查显示，历史 `center_mask` 只保留约 13.5% 总像素，在 18 张样例帧上仅保留约 16.6%-18.2% 可见非黑区域，视觉上主要覆盖鼻梁、鼻子和鼻下/上唇附近。因此，历史 `center_mask` 结果不得继续解释为“保留面部中心行为区域”或“中心脸行为有效”；更准确的解释是 **tiny central nose/mouth patch ablation**，即通过强遮挡删除大部分身份外观、脸部轮廓、眼镜/胡须/头发和对齐边界线索。
@@ -93,21 +130,22 @@ Stage D 稳健性验证：multi-attacker、severity-balanced loss、group-wise r
 
 ### 现在已经完成什么
 
-- RGB input ablation、temporal sampling、identity retrieval、severity calibration、alignment geometry 等审计已经形成阶段性证据。
+- RGB input ablation、temporal sampling、identity retrieval、severity calibration、alignment geometry 等审计已经形成阶段性证据（Stage A 收口）。
+- Stage B 固定实验矩阵（E0-E3 + lambda/power sweep，12 run）已全部跑完并 version-aware 聚合，B5 判定完成：E2 弱有效作 Stage C baseline，E1/E3 无效，identity 泄漏全局未解（atk+A1 双信号收敛），A3 artifact-risk group 未被任何 defense 改善，12/12 普遍过拟合。
 - 现有输入变体能改变 overall MAE、severity bias 和 task consistency，但没有任何变体同时解决 identity retrieval、severe underestimation、CCC 和 task consistency。
 - 输入级 `identity_texture_suppressed` / boundary smoothing 2x2 作为机制证据保留，不再作为下一阶段主线继续扩展。
 - Post-hoc linear calibration 全部降低 CCC，因此只作为 prediction compression 诊断，不作为模型方案。
-- `Shortcut-Regularized MTL` 保留为重要基线：`severity-balanced regression` 和 `identity-adversarial MTL` 将作为粗粒度解耦前置对照和支线消融。
+- `Shortcut-Regularized MTL` 保留为重要基线：`severity-balanced regression`（E2）作为 Stage C 强 baseline 候选，`identity-adversarial MTL`（E1，已证无效）作为支线消融对照。
 
 ### 当前正在推进什么
 
-Stage A 已完成收口。当前应进入 identity-adversarial baseline 与 severity-balanced baseline，之后再判断是否需要粗粒度 task-nuisance 解耦：
+Stage A、Stage B 均已完成收口（见上方 2026-07-08 Stage A 结论与 2026-07-10 Stage B B5 结论）。Stage B 证明轻量级可开关 defense（identity 对抗 + severity 平衡）不足以解除 shortcut，下一步进入 Stage C 粗粒度解耦：
 
-1. **B0 干预规格**：先写 identity-adversarial MTL 与 severity-balanced regression 的配置、损失、评估和默认关闭策略。
-2. **B1 identity-adversarial baseline**：验证 `z_dep` 在抑郁预测有效的同时能否降低 subject identity risk。
-3. **B2 severity-balanced regression**：验证 minimal 高估与 severe 低估是否可被 severity-bin reweighting 缓解。
-4. **B3 组合对照**：比较 identity-adversarial + severity-balanced 是否互补。
-5. **C1 coarse task-nuisance disentanglement**：仅在 B 阶段基线不足或机制收益明确时，实现 `H0 -> z_dep,z_nuisance`，必要时扩展为 `H0 -> z_dep,z_id,z_nuisance`。
+1. ~~**B0 干预规格**~~：已完成（identity-adversarial MTL + severity-balanced regression 配置/损失/评估/默认关闭）。
+2. ~~**B1 identity-adversarial baseline**~~：已完成（E1）——无效，identity risk 未降。
+3. ~~**B2 severity-balanced regression**~~：已完成（E2）——弱有效，CCC +0.12、calibration 收益最大，但 identity/artifact 未解。
+4. ~~**B3 组合对照**~~：已完成（E3）——无效，两约束叠加互相干扰，utility 劣化。
+5. **C1 coarse task-nuisance disentanglement**：Stage B 基线不足已证明，实现 `H0 -> z_dep,z_nuisance`，针对 pose_rz/AU/black_border 等已验证 shortcut 轴施加弱监督或解耦约束；进 Stage C 前加 EarlyStopping 缓解过拟合。
 
 编程实施控制已细化到 `TODO.md` 的“编程实施控制（下一步）”。后续写代码时先按 B0 -> B1 -> B2 -> C0 -> C1 gate 推进：先完成 identity-adversarial / severity-balanced baseline 规格和最小实现；B 阶段未证明 baseline 不足前不写粗粒度解耦代码。
 
