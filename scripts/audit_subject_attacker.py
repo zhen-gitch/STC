@@ -18,7 +18,7 @@ summary instead of erroring, so the diagnose chain and aggregator handle them
 uniformly.
 
 Checkpoint load order matters: ``subject_id_head`` is built lazily by
-:meth:`MTLLitDepressionModel.set_subject_index`, so the head module must exist
+:meth:`MTLLiteDepressionModel.set_subject_index`, so the head module must exist
 BEFORE ``load_state_dict`` or its weights are silently skipped (strict=False).
 The order here is: construct model -> set_subject_index (build head) ->
 load_state_dict (fill weights) -> eval.
@@ -85,9 +85,9 @@ def _load_model_with_head(cfgs, checkpoint_path, device, subject_index):
     """
     import torch
 
-    from src.models.mtl_lite import MTLLitDepressionModel
+    from src.models.mtl_lite import MTLLiteDepressionModel
 
-    model = MTLLitDepressionModel(cfgs)
+    model = MTLLiteDepressionModel(cfgs)
     model.set_subject_index(subject_index)  # builds subject_id_head when identity on
 
     checkpoint = torch.load(checkpoint_path, map_location="cpu")
