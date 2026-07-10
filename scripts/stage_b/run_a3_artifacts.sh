@@ -70,7 +70,7 @@ for spec in "${TARGETS[@]}"; do
   [[ -z "$spec" ]] && continue
   label="${spec%%=*}"
   run_dir="${spec#*=}"
-  wl="$run_dir/diagnostics/test/a3_weaklabels/artifact_weaklabel_summary.csv"
+  wl="$run_dir/diagnostics/test/a3_weaklabels/tables/artifact_weaklabel_summary.csv"
   [[ -f "$wl" ]] && SUMMARY_ARGS+=(--summary "${label}=${wl}")
 done
 
