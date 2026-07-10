@@ -185,6 +185,35 @@ Stage B 的表格应以 E0 为基准，逐列比较 E1/E2/E3 的增益和代价�
 - 若 E3 明显优于 E1/E2：说明 identity shortcut 与 severity compression 存在互补干预价值，Stage C 必须以 E3 作为强 baseline。
 - 若 E1/E2/E3 均不能在不损伤 CCC/task consistency 的情况下改善风险，才进入 Stage C 的粗粒度 `z_dep/z_nuisance` 解耦。
 
+#### 2026-07-10 Stage B B5 收口结果
+
+Stage B 固定实验矩阵已全部跑完并通过 version-aware 聚合：E0（base）+ E1/E3 的 `lambda_id` sweep（0.02/0.05/0.10/0.20）+ E2/E3 的 `POWER` sweep（0.5/1.0），共 12 run，每个 run 跑完整 B4 诊断链。聚合表在 `logs/stage_b/aggregate/`，A3 matched 汇总在 `logs/stage_b/aggregate/a3_matched/`。下表为 12 run 全信号对照（test split，100 视频/50 subject，true_std=11.54，chance=0.02）：
+
+| run | MAE | CCC | atk_top1 | A1_top1 | cal ΔMAE | val退化↑ |
+|-----|-----|-----|----------|---------|----------|----------|
+| e0（base） | 8.915 | 0.293 | 0.54 | 0.66 | −0.07 | +0.76 |
+| e1 | 8.903 | 0.389 | 0.56 | 0.65 | −0.26 | +2.18 |
+| e1_lambda0.02 | 8.855 | 0.399 | 0.55 | 0.66 | −0.27 | +1.78 |
+| e1_lambda0.1 | 8.977 | 0.377 | 0.55 | 0.65 | −0.25 | +2.18 |
+| e1_lambda0.2 | 9.034 | 0.360 | 0.55 | 0.63 | −0.19 | +1.83 |
+| **e2** | 8.914 | **0.410** | 0.55 | 0.67 | **−0.62** | +0.69 |
+| **e2_power1.0** | 8.882 | **0.410** | 0.57 | 0.68 | **−0.66** | +0.64 |
+| e3 | 9.100 | 0.333 | 0.55 | 0.65 | −0.19 | +2.21 |
+| e3_lambda0.02 | 9.046 | 0.343 | 0.55 | 0.66 | −0.19 | +2.05 |
+| e3_lambda0.1 | 9.165 | 0.315 | 0.55 | 0.64 | −0.16 | +2.66 |
+| e3_lambda0.2 | 9.355 | 0.283 | 0.54 | 0.64 | −0.20 | +2.55 |
+| e3_power1.0 | 9.247 | 0.297 | 0.55 | 0.66 | −0.21 | +1.90 |
+
+`atk_top1` 是 fresh linear-probe attacker（LOVO Ridge on `z_dep`，coverage=1.0；AVEC2014 subject-disjoint，联合训练 head 给 coverage=0 故改用 fresh probe），`A1_top1` 是 same-subject NN retrieval，两者都测 `z_dep` 身份可分性（chance=0.02）。五条结论：
+
+1. **E2（severity-balanced）= 唯一接近有效的弱 baseline**：CCC 0.41（+0.12 vs e0）、calibration 收益最大（−0.62/−0.66）、过拟合最轻（+0.64-0.69）、修复 prediction compression（pred_std 6.16→8.72-9.18）。但 identity 仍泄漏（atk 0.55、A1 0.67 未降）——E2 只解了预测压缩与 severity 分布，没解 identity shortcut。作 Stage C 强 baseline 候选。
+2. **E1/E3（identity-adversarial）= 无效**：atk_top1 与 A1 都没下降（e1 atk=0.56 反 > e0=0.54），E3 utility 全面劣化（CCC 0.28-0.34 低于 e0，MAE 9.1-9.4），lambda sweep 单调代价清晰。GRL 强度太弱，当前 lambda 范围未能把 subject identity 从 `z_dep` 抹除。
+3. **identity 泄漏全局未解（双信号收敛）**：fresh attacker 0.54-0.57 + A1 NN 0.63-0.68，参数化线性 probe 与非参数 NN 两套口径一致确认 `z_dep` 强泄漏 subject identity；E1/E3 未改善任一信号。
+4. **A3 artifact-risk group 未被任何 defense 改善**：最强 shortcut 轴是 OpenFace 头部姿态 `pose_rz_mean`（\|corr\|=0.319）。按 pose_rz 中位数切 high/low 组，e0 high-group MAE=10.38 vs low=7.45（gap 2.93），所有 12 run 在 high-risk 组 MAE 都不低于 e0——E1/E3 普遍恶化 +0.4~0.7，E2 整体耦合最低但 high-risk 组未改善，说明其整体收益是「假分散」而非真解耦。
+5. **普遍过拟合（12/12）**：所有 run `overfit_after_best_val=True`，best-val→last 的 val 退化 0.64-2.66（E3 系最重）。进 Stage C 前加 EarlyStopping。
+
+**B5 判定**：Stage B 轻量级可开关 defense 不足以解除 shortcut。满足进入 Stage C 条件——实现显式粗粒度 `z_dep / z_nuisance` 解耦，针对 pose_rz / AU / black_border 等已验证 shortcut 轴施加弱监督或解耦约束，以 E2 为强 baseline 候选，并加 EarlyStopping。详细执行命令见 `docs/STAGE_B_RUNBOOK.md`。
+
 ### 闭环 3：粗粒度解耦闭环，回答“任务-干扰分流是否比共享表征更合理”
 
 Stage C 只验证粗粒度单级解耦：
@@ -242,18 +271,20 @@ E5 E4 + severity-balanced loss
 | 阶段 | 作用 | 当前状态 | 输出 |
 |---|---|---|---|
 | Stage A | Shortcut 证据收口 | 已完成并关闭 | A1+A2 成立；A3 仅作 probe/evaluation；A4 支持 severity-balanced baseline |
-| Stage B | Identity-adversarial baseline | 下一步执行 | `z_dep` 抑郁预测 + identity suppression；同时跑 severity-balanced baseline |
-| Stage C | Coarse task-nuisance disentanglement | Stage B 后执行 | `z_dep/z_nuisance`，可选 `z_id` |
+| Stage B | Identity-adversarial baseline | 已完成并关闭（2026-07-10 B5） | E2 弱有效作 Stage C baseline，E1/E3 无效，identity 泄漏全局未解；进 Stage C |
+| Stage C | Coarse task-nuisance disentanglement | 下一步执行 | `z_dep/z_nuisance`，可选 `z_id`；以 E2 为强 baseline 候选，加 EarlyStopping |
 | Stage D | 稳健性验证 | 逐步执行 | multi-attacker、nuisance leakage、severity-balanced loss、group-wise robustness |
 
 当前最重要的下一步：
 
 ```text
-B0 identity-adversarial / severity-balanced baseline specification
-B1 identity-adversarial task representation
-B2 severity-balanced regression baseline
-B3 identity-adversarial + severity-balanced combined baseline
-C1 coarse task-nuisance disentanglement
+[已完成] B0 identity-adversarial / severity-balanced baseline specification
+[已完成] B1 identity-adversarial task representation
+[已完成] B2 severity-balanced regression baseline
+[已完成] B3 identity-adversarial + severity-balanced combined baseline
+[已完成] B5 Stage B 判定 -> 进入 Stage C（E2 弱有效，E1/E3 无效）
+[进行中] C0 spec-before-code：TaskNuisanceBlock 接口 + 失败条件 + EarlyStopping
+[下一步] C1 coarse task-nuisance disentanglement
 ```
 
 旧实验的定位：

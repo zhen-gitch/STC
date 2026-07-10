@@ -22,8 +22,8 @@ Stage A Shortcut 证据收口
 | 阶段 | 要回答的问题 | 下一步产出 |
 |---|---|---|
 | A. Shortcut 证据收口 | 身份、artifact/quality、severity imbalance 是否确实影响预测或误差？ | 已完成：A1+A2 成立，A3 仅作评估，A4 支持 severity-balanced |
-| B. Identity-adversarial baseline | 只抑制可验证身份捷径是否足够？ | 下一步：RGB / identity-adversarial / severity-balanced 对照 |
-| C. Coarse task-nuisance 解耦 | `z_dep / z_nuisance` 是否优于共享表征和 GRL baseline？ | `TaskNuisanceBlock` 设计与消融 |
+| B. Identity-adversarial baseline | 只抑制可验证身份捷径是否足够？ | 已完成：E2 弱有效，E1/E3 无效，identity 泄漏全局未解，进入 Stage C（结论见 `CURRENT_STATUS.md` 2026-07-10 B5） |
+| C. Coarse task-nuisance 解耦 | `z_dep / z_nuisance` 是否优于共享表征和 GRL baseline？ | 下一步：C0 spec-before-code + `TaskNuisanceBlock` 设计与消融；进 C 前加 EarlyStopping |
 | D. Robustness validation | 解耦是否真的减少捷径依赖，而不是只改善 MAE？ | multi-attacker、nuisance leakage、group-wise 报告 |
 
 阅读规则：只执行新任务时读到“暂缓项”为止即可；后续章节主要是历史任务、已完成基础设施和旧阶段记录。
@@ -42,6 +42,8 @@ Stage A Shortcut 证据收口
 | C1 最小解耦代码 | 实现 `H0 -> z_dep,z_nuisance`，预测只读 `z_dep`，recon/decorrelation 低权重可开关 | 显式划分 `z_art/z_ctx/z_pose/z_quality`，堆叠多级门控 | C 对照不弱于 B，且 nuisance leakage / multi-attacker 报告完整 |
 
 #### 立即可编程任务包
+
+> 状态（2026-07-10）：**Stage B（B0-B5，下方第 2-8 项）已全部完成**，12 run 矩阵跑完并 version-aware 聚合，B5 判定进入 Stage C。结论详见 `docs/CURRENT_STATUS.md` 的「2026-07-10 Stage B B5 证据收口结论」。**当前活动任务包为第 9 项 C0-spec-before-code**；下方 B 项保留为执行规格记录。
 
 1. **A0-result-gate**：已完成 A1-A4 服务器输出收口。
    - 输入：A1 layerwise summary、A2 coupling report、A3 matched-only weaklabel report、A4 severity imbalance report。
@@ -100,10 +102,15 @@ Stage A Shortcut 证据收口
    - E3 有效：同时优于或互补于 E1/E2，作为 Stage C 强 baseline。
    - 只有 E1/E2/E3 均不能在可接受代价内改善风险时，才进入 C0 粗粒度解耦规格。
 
-9. **C0-spec-before-code**：只有 B 阶段判读后才写 `TaskNuisanceBlock`。
+9. **C0-spec-before-code**（当前活动任务包）：B5 判定已确认 Stage B baseline 不足，进入 Stage C 粗粒度解耦规格。在写 `TaskNuisanceBlock` 代码前先冻结接口和失败条件。
    - 先写接口和损失：`z_dep` 预测、`z_nuisance` 互补、低权重 recon、低权重 decorrelation。
-   - 先写失败条件：若不优于 identity-adversarial baseline 或多 seed 不稳定，停止增加解耦复杂度。
-   - 禁止把 artifact/context/pose/quality 做成显式 latent。
+   - 先写失败条件：若不优于 E2（severity-balanced）baseline 或多 seed 不稳定，停止增加解耦复杂度。
+   - 禁止把 artifact/context/pose/quality 做成显式 latent；只对 pose_rz / AU / black_border 等已验证 shortcut 轴施加弱监督或解耦约束。
+   - 前置工程项：加 EarlyStopping（Stage B 12/12 普遍 `overfit_after_best_val=True`，val 退化 0.64-2.66），避免 Stage C 重蹈跑满 40 epoch 的过拟合浪费。
+10. **C1-minimal-disentangle**：在 C0 spec 冻结后实现最小闭环。
+    - 实现 `H0 -> z_dep, z_nuisance`，预测只读 `z_dep`，recon/decorrelation 低权重可开关。
+    - 固定对照组：`E0 RGB baseline`、`E1 identity-adversarial`、`E2 severity-balanced`（Stage C 强 baseline 候选）、`E3 z_dep+z_nuisance`，可选 `z_dep+z_id+z_nuisance`。
+    - 必备报告：BDI MAE/CCC、fresh attacker top1 + A1 retrieval（identity）、A3 artifact-risk group、severity bias、task consistency、train-val gap，全部以 E0 为基准横向对照。
 
 #### 实施验收命令
 
@@ -173,15 +180,17 @@ python -m pytest tests/test_error_identity_coupling.py tests/test_artifact_weakl
 
 ### B. Identity-adversarial Task Representation
 
+> 已完成（2026-07-10 B5 收口）。E0-E3 + lambda/power sweep 共 12 run 跑完，结论：E2 弱有效（CCC +0.12、calibration 收益最大、过拟合最轻，作 Stage C 强 baseline 候选），E1/E3 无效（identity risk 未降、E3 utility 全面劣化），identity 泄漏全局未解（fresh attacker + A1 双信号收敛），A3 artifact-risk group 未被任何 defense 改善，12/12 普遍过拟合。详见 `CURRENT_STATUS.md` 2026-07-10 B5 结论。
+
 - [x] B0 固定 Stage B 进入条件和实验边界：E0/E1/E2/E3 四组对照，禁止在 Stage B 混入 `TaskNuisanceBlock`、细粒度 latent、新输入滤镜或 dynamic branch。
-- [ ] B1 设计并实现最小 identity-adversarial MTL：`shared_features -> z_dep -> BDI`，并用 GRL/attacker 抑制 `z_dep -> subject_id`。
-- [ ] B1 只使用 train split subject map；identity loss 只在 train stage 启用，val/test 只做诊断。
-- [ ] B1 不引入 `z_art`、`z_m`、多级递进、learned gate、`TaskNuisanceBlock` 或 dynamic features。
-- [ ] B2 设计并实现 severity-balanced regression 最小接口：train-only severity-bin 权重、mean-normalize、min/max 截断、默认关闭配置。
-- [ ] B2 第一版只加权 regression MSE，不加权 CCC loss 或 ordinal auxiliary loss。
-- [ ] B3 固定对照：`E0 RGB MTL-Lite baseline`、`E1 identity-adversarial MTL`、`E2 severity-balanced regression`、`E3 identity-adversarial + severity-balanced`。
-- [ ] B4 统一报告 BDI metrics、identity retrieval/probe、severity bias、task consistency、train-val gap、artifact-risk group。
-- [ ] B5 Stage B 判读：若 E1/E2/E3 不能充分缓解 identity risk 与 severity bias，或代价表现为 CCC/task consistency 明显恶化，再进入 C0 粗粒度解耦规格。
+- [x] B1 设计并实现最小 identity-adversarial MTL：`shared_features -> z_dep -> BDI`，并用 GRL/attacker 抑制 `z_dep -> subject_id`。
+- [x] B1 只使用 train split subject map；identity loss 只在 train stage 启用，val/test 只做诊断。
+- [x] B1 不引入 `z_art`、`z_m`、多级递进、learned gate、`TaskNuisanceBlock` 或 dynamic features。
+- [x] B2 设计并实现 severity-balanced regression 最小接口：train-only severity-bin 权重、mean-normalize、min/max 截断、默认关闭配置。
+- [x] B2 第一版只加权 regression MSE，不加权 CCC loss 或 ordinal auxiliary loss。
+- [x] B3 固定对照：`E0 RGB MTL-Lite baseline`、`E1 identity-adversarial MTL`、`E2 severity-balanced regression`、`E3 identity-adversarial + severity-balanced`。
+- [x] B4 统一报告 BDI metrics、identity retrieval/probe、severity bias、task consistency、train-val gap、artifact-risk group。
+- [x] B5 Stage B 判读：E1/E2/E3 不能在不损伤 CCC/task consistency 的情况下充分缓解 identity risk 与 severity bias → 满足进入 C0 粗粒度解耦条件。
 
 ### C. Coarse Task-Nuisance Disentanglement
 
@@ -209,9 +218,10 @@ python -m pytest tests/test_error_identity_coupling.py tests/test_artifact_weakl
 - [x] A3 完成后，只决定 artifact/quality/context 变量的审计和报告方式，不决定 `z_art` 进入第一版模型。
 - [x] A4 完成后，决定 severity-balanced regression 是 Stage B 必跑基线。
 - [x] B0 固定 Stage B 对照：`RGB baseline`、`identity-adversarial MTL`、`severity-balanced regression`、`identity-adversarial + severity-balanced`。
-- [ ] C0 固定 Stage C 对照：`z_dep+z_nuisance` 与可选 `z_dep+z_id+z_nuisance`。
+- [x] B5 Stage B 收口：12 run 跑完，E2 弱有效、E1/E3 无效、identity 泄漏全局未解，判定进入 Stage C（结论见 `CURRENT_STATUS.md` 2026-07-10）。
+- [ ] C0 固定 Stage C 对照：`z_dep+z_nuisance` 与可选 `z_dep+z_id+z_nuisance`，以 E2（severity-balanced）为强 baseline 候选。
 - [ ] D0 固定统一报告：BDI metrics、severity bias、identity risk、shortcut/artifact probe risk、task consistency、train-val gap。
-- [ ] 停止规则：若粗粒度解耦不优于 identity-adversarial baseline，或多 seed 结果不稳定，停止增加解耦复杂度，转为诊断型贡献。
+- [ ] 停止规则：若粗粒度解耦不优于 E2（severity-balanced）baseline，或多 seed 结果不稳定，停止增加解耦复杂度，转为诊断型贡献。
 
 ### 暂缓项
 
