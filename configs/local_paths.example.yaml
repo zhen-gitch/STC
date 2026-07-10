@@ -5,6 +5,14 @@ IMAGE_DIR: "/path/to/AVEC2014/face_images"
 LABEL_DIR: "/path/to/AVEC2014/depression_labels"
 DATASET_SPLIT_FILE: "/path/to/AVEC2014/dataset_split.json"
 
+# OpenFace per-video landmark/quality CSV root (AVEC2014 OpenFace-aligned).
+# Read by audit_alignment_geometry.py (landmarks) and audit_openface_quality.py
+# (confidence/success/pose/gaze) for the A3 artifact weak-label chain.  Set to
+# null (or leave unset) to gracefully skip those two A3 sub-steps; black_artifacts
+# and temporal_sampling only need IMAGE_DIR and still run.
+DATASET:
+  OPENFACE_ROOT: null
+
 # Primary output root for all experiments.
 # Runs are written as <LOG_DIR>/<EXPERIMENT_GROUP>/<EXPERIMENT_NAME>/version_N/.
 LOG_DIR: "/path/to/experiment/logs"

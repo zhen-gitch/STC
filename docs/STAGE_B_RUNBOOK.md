@@ -120,38 +120,86 @@ bash scripts/stage_b/aggregate_stage_b.sh
 | A1 层级 identity | `audit_layerwise_identity_probe.py` | `diagnostics/test/a1_layerwise/test_layerwise_features.npz` + `tables/embedding_identity_summary.csv` | identity 聚合（+ A2 输入） |
 | A2 error-identity coupling | `audit_error_identity_coupling.py` | `diagnostics/test/a2_coupling/` | B5 identity 判定 |
 | severity calibration | `audit_severity_calibration.py` | `tables/severity_calibration_fit.csv` | calibration 聚合 |
+| subject attacker（Stage 3c） | `audit_subject_attacker.py` | `diagnostics/test/subject_attacker/` + `tables/subject_attacker_summary.csv` | subject_attacker 聚合 |
+| A3 artifact weaklabel（Stage 3d） | `_run_a3_for_run.sh`（black + temporal + alignment + openface + join） | `diagnostics/test/a3_weaklabels/artifact_weaklabel_summary.csv` | matched-only A3 汇总 |
 
 关键点：A1/A2 需要**层级** NPZ，`diagnose_mtl_lite.py` 的单层 NPZ 不够，所以 `audit_layerwise_identity_probe.py` 会重新跑一遍模型（带 layer hooks）产出层级 NPZ —— 这与 Stage A 的 A1 同口径。这是诊断阶段最重的步骤（每个 run 多过一遍 test 数据）。
 
-A1 的 identity summary 会被复制到 `<run_dir>/tables/embedding_identity_summary.csv`，`aggregate_stage_b.sh` 直接从这里读。
+A1 与 subject attacker 的 summary 会被复制到 `<run_dir>/tables/`，`aggregate_stage_b.sh` 直接从这里读。
 
-### 4.3 需手动跑的审计（matched-only A3）
+subject attacker（identity 第三项，Stage 3c）：对 E1/E3 的 `subject_id_head` 在 test 上评估 top1/top3 accuracy + coverage（seen subject 占比），E0/E2（无 head）写一份 `skipped` summary 使聚合统一处理。成功的对抗防御把 accuracy 压向 chance（`1/num_subject_classes`）同时保留 BDI utility —— 这是 A1 retrieval 之外的 identity-risk 互补信号。`SKIP_A3=1` 可跳过 Stage 3d（A3 是 B5 辅助信号，不是主门槛）。
 
-A3 artifact weaklabel 依赖多个外部 summary（black_artifacts / alignment_geometry / openface_quality / temporal_sampling），依赖链较重，不在自动流程里。A3 在 B5 里是辅助判定（artifact-risk group），不是主门槛。按需对每个 run 跑：
+A3（Stage 3d）优雅降级：从 `resolved_config.yaml` 读 `IMAGE_DIR` + `DATASET.OPENFACE_ROOT`。`IMAGE_DIR` 缺失 → 整条 A3 chain 跳过；`OPENFACE_ROOT` 缺失 → alignment_geometry + openface_quality 跳过（openface_quality 写空 summary），black_artifacts + temporal_sampling 仍跑，weaklabel join 在已有 summary 上跑（部分 A3）。要跑完整 A3 需在 `configs/local_paths.yaml` 配 `DATASET.OPENFACE_ROOT`（见 `configs/local_paths.example.yaml`）。
+
+### 4.3 standalone 补跑 A3 / attacker（可选）
+
+A3 与 subject attacker 已在 `diagnose_run`（Stage 3c/3d）自动跑。下列脚本用于**不重跑训练/诊断**就给已有 run 补 A3，或在改了 `OPENFACE_ROOT` 后单独重跑 A3。
+
+#### 4.3.1 跨 run 一键补 A3（version-aware）
+
+`run_a3_artifacts.sh` 枚举每个实验的所有 version（base + sweep，按 `resolved_config.yaml` 打标签），对每个 run 跑完整 A3 chain（black + temporal + alignment + openface + weaklabel join），再跨 run 建 matched-only 汇总：
 
 ```bash
-# 先准备依赖 summary（若尚未生成）
-python scripts/audit_black_artifacts.py --run-dir <RUN_DIR> --split test \
+# 全部 version × 全部实验
+bash scripts/stage_b/run_a3_artifacts.sh
+
+# 只补 E1/E3（含 sweep）
+bash scripts/stage_b/run_a3_artifacts.sh e1 e3
+
+# 只补每个实验最新 version
+bash scripts/stage_b/run_a3_artifacts.sh --latest-only
+
+# 改了 OPENFACE_ROOT 后重跑（OUT_ROOT 可覆盖输出目录）
+OUT_ROOT=logs/stage_b/aggregate/a3_matched bash scripts/stage_b/run_a3_artifacts.sh
+```
+
+产物：每个 run 的 `diagnostics/test/{black_artifacts,alignment_geometry,openface_quality,temporal_sampling,a3_weaklabels}/` + 跨 run 的 `logs/stage_b/aggregate/a3_matched/`。
+
+#### 4.3.2 单 run 跑 A3 chain
+
+```bash
+# 复用 diagnose_run 的 Stage 3d helper（读 resolved_config.yaml 的 IMAGE_DIR + OPENFACE_ROOT）
+bash scripts/stage_b/_run_a3_for_run.sh <RUN_DIR> \
+  <RUN_DIR>/diagnostics/test/regression/test_predictions.csv
+```
+
+子步接口（`_run_a3_for_run.sh` 内部调用，需手动跑时按此签名）：
+
+```bash
+# black_artifacts / temporal_sampling：需 IMAGE_DIR
+python scripts/audit_black_artifacts.py \
+  --predictions <RUN_DIR>/diagnostics/test/regression/test_predictions.csv \
+  --image-root <IMAGE_DIR> \
   --output-dir <RUN_DIR>/diagnostics/test/black_artifacts
-python scripts/audit_alignment_geometry.py --run-dir <RUN_DIR> --split test \
+
+# alignment_geometry：需 OPENFACE_ROOT（读 OpenFace landmark CSV）
+python scripts/audit_alignment_geometry.py \
+  --predictions <RUN_DIR>/diagnostics/test/regression/test_predictions.csv \
+  --openface-root <OPENFACE_ROOT> \
   --output-dir <RUN_DIR>/diagnostics/test/alignment_geometry
 
-# A3 weaklabel audit（接口是 --predictions，不是 --run-dir）
+# openface_quality：--openface-root 或 --run-dir（读 resolved_config.yaml）；缺失写空 summary
+python scripts/audit_openface_quality.py \
+  --run-dir <RUN_DIR> \
+  --output-dir <RUN_DIR>/diagnostics/test/openface_quality
+
+# weaklabel join：传存在的 summary 即可
 python scripts/audit_artifact_weaklabels.py \
   --predictions <RUN_DIR>/diagnostics/test/regression/test_predictions.csv \
   --black-artifacts <RUN_DIR>/diagnostics/test/black_artifacts/tables/black_artifact_summary.csv \
   --alignment-geometry <RUN_DIR>/diagnostics/test/alignment_geometry/tables/alignment_geometry_summary.csv \
+  --openface-quality <RUN_DIR>/diagnostics/test/openface_quality/tables/openface_quality_summary.csv \
+  --temporal-sampling <RUN_DIR>/diagnostics/test/temporal_sampling/tables/temporal_sampling_summary.csv \
   --output-dir <RUN_DIR>/diagnostics/test/a3_weaklabels \
   --coupling-threshold 0.2
+```
 
-# matched-only 汇总（跨 E0-E3）
-python scripts/summarize_artifact_weaklabels_matched.py \
-  --summary e0=<RUN_DIR_E0>/diagnostics/test/a3_weaklabels/artifact_weaklabel_summary.csv \
-  --summary e1=<RUN_DIR_E1>/diagnostics/test/a3_weaklabels/artifact_weaklabel_summary.csv \
-  --summary e2=<RUN_DIR_E2>/diagnostics/test/a3_weaklabels/artifact_weaklabel_summary.csv \
-  --summary e3=<RUN_DIR_E3>/diagnostics/test/a3_weaklabels/artifact_weaklabel_summary.csv \
-  --output-dir logs/stage_b/aggregate/a3_matched \
-  --coupling-threshold 0.2
+#### 4.3.3 单 run 补 subject attacker（通常无需，diagnose_run 已自动跑）
+
+```bash
+python scripts/audit_subject_attacker.py \
+  --run-dir <RUN_DIR> --ckpt best --split test \
+  --output-dir <RUN_DIR>/diagnostics/test/subject_attacker
 ```
 
 A3 只做 probe / case / group-wise 评估，**不把 A3 变量变成训练监督**。
@@ -164,17 +212,18 @@ A3 只做 probe / case / group-wise 评估，**不把 A3 变量变成训练监�
 2. **severity**（自动）：minimal/mild/moderate/severe 的 count、MAE、bias、compression；
 3. **identity**（自动）：A1 layer/shared retrieval top1/top5、A2 residual-identity coupling；
 4. **task consistency**（自动，随 prediction summary 产出 `task_consistency_summary.csv`）：同 subject Freeform/Northwind prediction diff 与 residual diff；
-5. **artifact-risk group**（手动，见 4.3）：基于 matched-only A3 变量做分组评估。
+5. **artifact-risk group**（自动 Stage 3d，跨 run 汇总见 4.3.1）：基于 matched-only A3 变量做分组评估。
 
-subject attacker accuracy（identity 第三项）若需要，对 E1/E3 的 subject_id_head 单独评估 —— 训练日志的 `train_identity_loss` 已部分反映，离线 accuracy 可用 `audit_layerwise_identity_probe` 的 per-query 结果近似。
+subject attacker accuracy（identity 第三项，自动 Stage 3c）：对 E1/E3 的 `subject_id_head` 在 test 上评估 top1/top3 accuracy + coverage（seen subject 占比），聚合到 `subject_attacker/subject_attacker_run_summary.csv`。成功的对抗防御把 accuracy 压向 chance（`1/num_subject_classes`）同时保留 BDI utility。训练日志的 `train_identity_loss` 只反映训练侧梯度强度，**不能**当作离线 accuracy 的替代——必须看 attacker summary 的 top1/top3 + coverage。
 
 ## 6. B5 阶段判定门槛
 
 对照聚合表逐项判定（任一“有效”需同时满足主指标改善 + 代价不恶化）：
 
-- **E1 有效**：identity risk（A1 top1/top5、A2 coupling、subject attacker accuracy）下降，且 MAE/RMSE/CCC、severity bias、task consistency、train-val gap 不明显恶化。sweep 行（`e1_lambda0.02/0.1/0.2`）需横向比较，选“不损伤 BDI utility 的最低有效 lambda”。
+- **E1 有效**：identity risk 下降——A1 top1/top5 retrieval、A2 coupling、`subject_attacker_run_summary.csv` 的 top1/top3 accuracy（向 chance `1/num_subject_classes` 靠拢）+ coverage（seen 占比）均纳入——且 MAE/RMSE/CCC、severity bias、task consistency、train-val gap 不明显恶化。sweep 行（`e1_lambda0.02/0.1/0.2`）需横向比较，选“不损伤 BDI utility 的最低有效 lambda”。
 - **E2 有效**：minimal 高估 / severe 低估 / compression 改善，且 `pred_std/true_std` 更接近真实分布，CCC 与 identity risk 未明显恶化。sweep 行 `e2_power1.0` 与 base `e2`(POWER 0.5) 对照。
 - **E3 有效**：同时优于或互补于 E1/E2，作为 Stage C 强 baseline。
+- **attacker accuracy 解读**：top1 越低（越接近 chance）越好，但必须与 coverage 一起看——coverage 低（大量 unseen subject 被排除）会让 top1 在小样本上虚高/虚低，不代表真实防御强度。E0/E2 行为 `skipped`（无 head），不参与 attacker 对照。
 - **train-val gap / 过拟合**：`training_overfit/training_overfit_summary.csv` 的 `overfit_after_best_val` 标志与 best-val→last 的 val 恶化幅度纳入代价评估；若所有 run 都在 best val 后持续恶化，支持后续加 EarlyStopping（不改变 B5 判定，但进 Stage C 前记录）。
 - **均不能在可接受代价内改善风险** → 进入 Stage C 的粗粒度 `z_dep / z_nuisance` 解耦（`docs/TODO.md` C0-spec-before-code）。
 
@@ -193,6 +242,9 @@ subject attacker accuracy（identity 第三项）若需要，对 E1/E3 的 subje
 - **A1 产物文件名**：probe 产出的单 run schema 文件是 `tables/embedding_identity_summary.csv`（取 `layer_shared` 行）；多层文件是 `layerwise_identity_summary.csv`。`backfill_a1_identity.sh` 和 `diagnose_run` 都会把单 run 文件镜像到 `<run_dir>/tables/`，聚合从那里读。
 - **聚合时 prediction CSV 找不到**：`aggregate_stage_b.sh` 现在指到 `<run_dir>/diagnostics/test/regression/test_predictions.csv`。若该文件缺失，说明 `diagnose_mtl_lite.py` 没跑或 test split 未诊断 —— 用 `SKIP_TRAIN=1 bash scripts/stage_b/run_stage_b_matrix.sh <exp>` 补诊断。
 - **sweep version 的 A1 缺失**：聚合是 version-aware 的，会读每个 sweep version 的 `<run_dir>/tables/embedding_identity_summary.csv`。若某 sweep version 的 A1 没跑过（早于诊断修复），用 `ALL_VERSIONS=1 bash scripts/stage_b/backfill_a1_identity.sh` 一次性补全所有 version（不只是最新）。
+- **subject_id_head 权重未加载（attacker 全是 chance 附近但 coverage 异常）**：`audit_subject_attacker.py` 的加载顺序必须是「构造 model → `set_subject_index`（建 head）→ 检查 state_dict 含 head key → `load_state_dict(strict=False)`（填权重）→ eval」。若先 load 再建 head，head 是随机初始化且 `strict=False` 不会报错，top1 会接近 chance 但 coverage 正常——这是静默失败。脚本已按正确顺序实现；改 model 加载逻辑时勿打乱。
+- **E0/E2 的 attacker summary 缺失**：E0/E2 无 `subject_id_head`，`audit_subject_attacker.py` 写一份 `skipped` summary（`skipped=True`）使聚合统一处理。若 E0/E2 行在 `subject_attacker_run_summary.csv` 里完全消失，说明 diagnose_run Stage 3c 没跑或 cp 镜像失败——用 `SKIP_TRAIN=1 bash scripts/stage_b/run_stage_b_matrix.sh e0 e2` 补。
+- **A3 缺 alignment/openface（`OPENFACE_ROOT` 未配）**：Stage B config 栈默认不含 `DATASET.OPENFACE_ROOT`，A3 chain 会优雅降级——alignment_geometry + openface_quality 跳过，black + temporal 仍跑，weaklabel join 产出部分 A3。要跑完整 A3 需在 `configs/local_paths.yaml` 加 `DATASET: OPENFACE_ROOT: <path>`（见 `configs/local_paths.example.yaml`），再用 `bash scripts/stage_b/run_a3_artifacts.sh` 补。`IMAGE_DIR` 缺失则整条 A3 跳过（diagnose 日志见 `[A3] IMAGE_DIR missing/invalid ... skipping A3 chain`）。
 
 ### 4.4 重跑指引（lambda sweep 修复后）
 

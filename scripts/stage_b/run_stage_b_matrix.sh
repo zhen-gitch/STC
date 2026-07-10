@@ -195,6 +195,33 @@ diagnose_run() {
   else
     echo "[WARN] val/test prediction CSV missing for $exp, skipping calibration audit"
   fi
+
+  # Stage 3c: subject attacker accuracy (E1/E3 produce metrics; E0/E2 write a
+  # skipped summary so the aggregator handles them uniformly).  Loads the best
+  # checkpoint, builds the train subject table, runs subject_id_head on test.
+  local attacker_dir="$run_dir/diagnostics/test/subject_attacker"
+  python scripts/audit_subject_attacker.py \
+    --run-dir "$run_dir" --ckpt best --split test \
+    --output-dir "$attacker_dir" \
+    || echo "[WARN] subject attacker audit failed/skipped for $exp"
+  # Mirror the summary into <run_dir>/tables/ for aggregate_stage_b.sh.
+  if [[ -f "$attacker_dir/tables/subject_attacker_summary.csv" ]]; then
+    mkdir -p "$run_dir/tables"
+    cp "$attacker_dir/tables/subject_attacker_summary.csv" "$run_dir/tables/subject_attacker_summary.csv"
+  fi
+
+  # Stage 3d: A3 artifact weak-label chain (graceful degradation).  Reads
+  # IMAGE_DIR + DATASET.OPENFACE_ROOT from the run's resolved_config.yaml.
+  # black_artifacts + temporal_sampling need only IMAGE_DIR; alignment_geometry
+  # + openface_quality need OPENFACE_ROOT.  When OPENFACE_ROOT is unset, those
+  # steps (and the weaklabel join) are skipped with a warning rather than
+  # failing the whole diagnose pass.  A3 is a B5 auxiliary signal, not a gate.
+  if [[ -n "${SKIP_A3:-}" ]]; then
+    echo "[STAGE-B] SKIP_A3 set, skipping A3 artifact chain for $exp"
+  else
+    bash "${PROJECT_ROOT}/scripts/stage_b/_run_a3_for_run.sh" "$run_dir" "$test_pred" \
+      || echo "[WARN] A3 artifact chain failed for $exp"
+  fi
 }
 
 # =============================================================================

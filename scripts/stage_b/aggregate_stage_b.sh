@@ -143,6 +143,17 @@ python scripts/summarize_training_overfit.py \
   "${RUNS[@]}" \
   --output-dir "$OUT_ROOT/training_overfit" || echo "[WARN] overfit aggregation failed"
 
+# ----- subject attacker accuracy (identity risk: head classification) -------
+# Reads <run_dir>/tables/subject_attacker_summary.csv (mirrored by diagnose_run
+# Stage 3c).  E0/E2 carry a skipped summary; E1/E3 carry top1/top3 + coverage.
+# A successful adversarial defense drives accuracy toward chance (1/num_classes)
+# while preserving BDI utility -- the B5 identity-risk signal complementing A1
+# retrieval.
+echo "[STAGE-B-AGG] subject attacker summary ..."
+python scripts/summarize_subject_attacker_runs.py \
+  "${RUNS[@]}" \
+  --output-dir "$OUT_ROOT/subject_attacker" || echo "[WARN] attacker aggregation failed"
+
 echo ""
 echo "[STAGE-B-AGG] done.  Tables under $OUT_ROOT/:"
 echo "  prediction/prediction_run_summary.csv   (MAE/RMSE/Pearson/CCC, E0-anchored)"
@@ -150,6 +161,11 @@ echo "  severity_imbalance/severity_imbalance_summary.csv"
 echo "  identity_retrieval/identity_retrieval_run_summary.csv"
 echo "  severity_calibration/severity_calibration_run_summary.csv"
 echo "  training_overfit/training_overfit_summary.csv  (best-val vs last, train/val gap)"
+echo "  subject_attacker/subject_attacker_run_summary.csv  (top1/top3 + coverage, E1/E3)"
+echo ""
+echo "Note: A3 artifact weaklabels are per-run (diagnose_run Stage 3d, under"
+echo "      <run_dir>/diagnostics/test/a3_weaklabels/); cross-run matched-only"
+echo "      summary is built by scripts/stage_b/run_a3_artifacts.sh."
 echo ""
 echo "Next: review the E0-anchored deltas against the B5 gate criteria in"
 echo "      docs/STAGE_B_RUNBOOK.md section 'B5 gate'."
