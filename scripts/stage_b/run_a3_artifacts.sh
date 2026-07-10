@@ -17,6 +17,11 @@
 #   bash scripts/stage_b/run_a3_artifacts.sh e1 e3           # only named experiments
 #   ALL_VERSIONS=1 bash scripts/stage_b/run_a3_artifacts.sh  # (default; every version)
 #   bash scripts/stage_b/run_a3_artifacts.sh --latest-only e1
+#   MATCHED_ONLY=1 bash scripts/stage_b/run_a3_artifacts.sh  # skip per-run chain, only
+#                                       rebuild cross-run matched summary from existing
+#                                       per-run summaries (fast; use when per-run A3 is
+#                                       already current and only the matched summary was
+#                                       missing/stale, e.g. after the path bug fix)
 # =============================================================================
 set -euo pipefail
 
@@ -45,22 +50,29 @@ if [[ ${#TARGETS[@]} -eq 0 ]]; then
   exit 0
 fi
 
-# Per-run chain (reuses the diagnose_run Stage 3d helper).
-for spec in "${TARGETS[@]}"; do
-  [[ -z "$spec" ]] && continue
-  label="${spec%%=*}"
-  run_dir="${spec#*=}"
-  test_pred="$run_dir/diagnostics/test/regression/test_predictions.csv"
-  echo "================================================================"
-  echo "[A3] $label -> $run_dir"
-  echo "================================================================"
-  if [[ ! -f "$test_pred" ]]; then
-    echo "[A3] test predictions missing ($test_pred) -- run diagnose first; skipping"
-    continue
-  fi
-  bash "$PROJECT_ROOT/scripts/stage_b/_run_a3_for_run.sh" "$run_dir" "$test_pred" \
-    || echo "[A3] chain failed for $label"
-done
+# Per-run chain (reuses the diagnose_run Stage 3d helper).  Skipped when
+# MATCHED_ONLY=1: the per-run summaries already exist and are current, so we
+# only need to rebuild the cross-run matched summary (the step the path bug
+# broke).  Full re-run (no flag) regenerates per-run summaries from scratch.
+if [[ -n "${MATCHED_ONLY:-}" ]]; then
+  echo "[A3] MATCHED_ONLY set -- skipping per-run chain, reusing existing summaries"
+else
+  for spec in "${TARGETS[@]}"; do
+    [[ -z "$spec" ]] && continue
+    label="${spec%%=*}"
+    run_dir="${spec#*=}"
+    test_pred="$run_dir/diagnostics/test/regression/test_predictions.csv"
+    echo "================================================================"
+    echo "[A3] $label -> $run_dir"
+    echo "================================================================"
+    if [[ ! -f "$test_pred" ]]; then
+      echo "[A3] test predictions missing ($test_pred) -- run diagnose first; skipping"
+      continue
+    fi
+    bash "$PROJECT_ROOT/scripts/stage_b/_run_a3_for_run.sh" "$run_dir" "$test_pred" \
+      || echo "[A3] chain failed for $label"
+  done
+fi
 
 # Cross-run matched-only summary.
 echo ""
