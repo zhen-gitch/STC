@@ -196,12 +196,15 @@ diagnose_run() {
     echo "[WARN] val/test prediction CSV missing for $exp, skipping calibration audit"
   fi
 
-  # Stage 3c: subject attacker accuracy (E1/E3 produce metrics; E0/E2 write a
-  # skipped summary so the aggregator handles them uniformly).  Loads the best
-  # checkpoint, builds the train subject table, runs subject_id_head on test.
+  # Stage 3c: subject attacker accuracy (fresh linear-probe on z_dep).  Reads
+  # the A1 layerwise NPZ (Stage 2 output) -- no checkpoint/GPU needed.  AVEC2014
+  # is subject-disjoint, so the jointly-trained identity head is unusable on
+  # test (coverage=0); the fresh LOVO Ridge attacker trains on test subjects
+  # themselves, giving coverage=100% and a real top1/top3 for every run
+  # (including E0/E2 baseline).  Requires Stage 2 (A1 probe) to have run.
   local attacker_dir="$run_dir/diagnostics/test/subject_attacker"
   python scripts/audit_subject_attacker.py \
-    --run-dir "$run_dir" --ckpt best --split test \
+    --run-dir "$run_dir" --split test \
     --output-dir "$attacker_dir" \
     || echo "[WARN] subject attacker audit failed/skipped for $exp"
   # Mirror the summary into <run_dir>/tables/ for aggregate_stage_b.sh.
