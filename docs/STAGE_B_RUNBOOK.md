@@ -108,7 +108,12 @@ bash scripts/stage_b/run_stage_b_matrix.sh        # 全矩阵重跑（version_0 
 bash scripts/stage_b/aggregate_stage_b.sh
 ```
 
-清空范围：Stage B group 目录（全部 4 个实验的所有 version，含 checkpoint/metrics/diagnostics/tables）、生成的 sweep override（`configs/stage_b/sweeps/`）、聚合输出（`logs/stage_b/aggregate/`）。默认移到带时间戳的备份目录（可逆），archive 目录不被聚合扫描。
+清空范围与策略：
+- **Stage B group 目录**（全部 4 个实验的所有 version，含 checkpoint/metrics/diagnostics/tables）——默认**备份**到 `<LOG_DIR>/stage_b_archive_<ts>`，`--delete` 才硬删。
+- **聚合输出**（`logs/stage_b/aggregate/`，含 `a3_matched/`）——默认**备份**到 `logs/stage_b/aggregate_archive_<ts>`（保留重跑前的对照表快照），`--delete` 才硬删。与 run 目录同策略，不会直接丢弃。
+- **生成的 sweep override**（`configs/stage_b/sweeps/`）——纯可再生（`run_stage_b_matrix.sh` 重新生成），直接删除，不归档。
+
+archive 目录均不被聚合扫描。
 
 ### 4.2 per-run 审计的自动产出
 
