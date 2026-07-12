@@ -94,7 +94,38 @@ python scripts/train_mtl_lite.py --override configs/mtl_lite_debug_smoke.yaml
 <LOG_DIR>/default/mtl_lite_debug_smoke/version_0/
 ```
 
-### 2.5 Behavior-only baseline
+### 2.5 Stage C reference
+
+Stage C 必须按 `common -> experiment -> seed -> optional debug` 顺序叠加 override。P0 完成后，只有 `C-REF` 可直接训练：
+
+```bash
+python scripts/train_mtl_lite.py \
+  --override configs/stage_c/common.yaml \
+  --override configs/stage_c/c_ref_e2.yaml \
+  --override configs/stage_c/seeds/seed_42.yaml
+```
+
+短 smoke 在最后叠加：
+
+```bash
+python scripts/train_mtl_lite.py \
+  --override configs/stage_c/common.yaml \
+  --override configs/stage_c/c_ref_e2.yaml \
+  --override configs/stage_c/seeds/seed_42.yaml \
+  --override configs/stage_c/debug_smoke.yaml
+```
+
+`C-BN/C-REC/C-FULL` 在 C1 完成前带有 spec-only 防误跑哨兵，不得用于正式训练。完整矩阵、seed、审计和停止条件见 `docs/STAGE_C_RUNBOOK.md`。
+
+`calibration_train_only.yaml` 同样在 C1 前拒绝运行；C1 完成后它只记录前 100 个 train batch 的原始辅助损失，辅助项权重保持为 0，不读取 validation/test。
+
+配置和 P0 策略验证：
+
+```bash
+python -m pytest tests/test_mtl_lite_training_policy.py tests/test_stage_c_config_contract.py
+```
+
+### 2.6 Behavior-only baseline
 
 需要额外提供 `DATASET.OPENFACE_ROOT`：
 
@@ -539,7 +570,7 @@ python scripts/audit_task_inconsistency.py \
 Stage A 是当前 task-nuisance 主线的前置证据，必须在实现 identity-adversarial baseline 或 `TaskNuisanceBlock` 前完成。四个诊断回答四个问题：
 
 ```text
-A1 身份信息在哪些层可分？           -> identity attacker 接入层 / 可选 z_id 出口
+A1 身份信息在哪些层可分？           -> identity attacker 接入层 / 后续扩展证据
 A2 预测错误是否与身份相似性耦合？   -> identity-adversarial 是强抑制还是仅监控
 A3 OpenFace artifact 是否与误差耦合？-> shortcut/artifact probes 与 group-wise evaluation
 A4 分数段不均是否驱动 minimal/severe bias？-> severity-balanced 是 Stage B 基线还是 Stage D 支线
@@ -764,7 +795,7 @@ A1-A4 运行完毕后，在 `CURRENT_STATUS.md` 和 `RGB_OVERFITTING_AUDIT_PLAN.
 4. severity 失衡（A4）：severity-balanced regression 是 Stage B 必跑还是 Stage D 支线
 ```
 
-只有 1+2 同时成立才进入 Stage B 的 identity-adversarial / z_id 强抑制路径；若只有 1，identity 仅作风险监控。关闭后不再扩展普通输入滤镜、黑边替换、灰度/模糊/mask 族。
+只有 1+2 同时成立才进入 Stage B 的 identity-adversarial 强抑制路径；若只有 1，identity 仅作风险监控。该证据不直接授权 Stage C 第一版加入 `z_id`。关闭后不再扩展普通输入滤镜、黑边替换、灰度/模糊/mask 族。
 
 ---
 

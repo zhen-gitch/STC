@@ -8,13 +8,13 @@
 
 ### 当前目标
 
-按 **Shortcut-aware Task-Nuisance Disentangled Representation Learning：捷径感知的任务-干扰粗粒度解耦表征学习** 组织后续工作。当前不再尝试显式枚举全部潜在干扰因子，也不直接实现细粒度 RPDF-Net；执行顺序是先证明可验证 shortcut 是否进入预测，再比较 identity-adversarial baseline，最后实现粗粒度 `z_dep / z_nuisance` 解耦。
+按 **Auditable and Falsifiable Coarse-Grained Task-Nuisance Information Separation：可审计、可证伪的粗粒度任务-干扰信息分流** 组织后续工作。当前不再尝试显式枚举全部潜在干扰因子，也不预设 `z_dep / z_nuisance` 已实现语义解耦；执行顺序是先证明可验证 shortcut 是否进入预测，再比较最小干预 baseline，最后把粗粒度信息分流作为可被实验否定的结构假设。
 
 ```text
 Stage A Shortcut 证据收口
 -> Stage B Identity-adversarial task representation
--> Stage C Coarse task-nuisance disentanglement
--> Stage D Robustness validation
+-> Stage C Coarse task-nuisance information separation
+-> Stage D Falsification and robustness validation
 ```
 
 ### 当前任务地图
@@ -23,8 +23,8 @@ Stage A Shortcut 证据收口
 |---|---|---|
 | A. Shortcut 证据收口 | 身份、artifact/quality、severity imbalance 是否确实影响预测或误差？ | 已完成：A1+A2 成立，A3 仅作评估，A4 支持 severity-balanced |
 | B. Identity-adversarial baseline | 只抑制可验证身份捷径是否足够？ | 已完成：E2 弱有效，E1/E3 无效，identity 泄漏全局未解，进入 Stage C（结论见 `CURRENT_STATUS.md` 2026-07-10 B5） |
-| C. Coarse task-nuisance 解耦 | `z_dep / z_nuisance` 是否优于共享表征和 GRL baseline？ | 下一步：C0 spec-before-code + `TaskNuisanceBlock` 设计与消融；进 C 前加 EarlyStopping |
-| D. Robustness validation | 解耦是否真的减少捷径依赖，而不是只改善 MAE？ | multi-attacker、nuisance leakage、group-wise 报告 |
+| C. Coarse task-nuisance 信息分流 | `z_dep / z_nuisance` 是否在等参数条件下优于共享表征和 GRL baseline？ | C0 与 P0 已完成；下一步实现 C1 最小 `TaskNuisanceBlock` 与 smoke |
+| D. Falsification / robustness | 信息分流是否真的减少捷径依赖，而不是只改善 MAE 或辅助损失？ | multi-attacker、leakage matrix、group-wise 报告、多 seed 失败率 |
 
 阅读规则：只执行新任务时读到“暂缓项”为止即可；后续章节主要是历史任务、已完成基础设施和旧阶段记录。
 
@@ -38,12 +38,12 @@ Stage A Shortcut 证据收口
 | B0 干预规格 | 只写 identity-adversarial baseline 的接口设计、配置键草案、loss 权重范围和评估表 | 同时实现 `z_nuisance`、`z_id`、reconstruction 或 decorrelation | A1+A2 结论决定 strong suppression / monitor-only 分支 |
 | B1 最小代码 | 实现 `H0 -> z_dep -> BDI` + 可开关 GRL/id head，保持默认关闭或独立 override | 改默认 baseline 行为、改 split/label、引入细粒度 latent | import、config load、one-batch smoke、相关单测通过 |
 | B2 对照运行 | 固定 RGB baseline、identity-adversarial、severity-balanced 三组对照 | 新增 RGB mask 族、late fusion、dynamic branch | 三组均输出 BDI、identity risk、severity bias、task consistency、train-val gap |
-| C0 解耦规格 | 设计 `TaskNuisanceBlock` 最小接口和消融矩阵 | 在 B1/B2 判读前实现完整解耦 | 证明 B baseline 不足，且 C 的评价指标和停止规则已写清 |
-| C1 最小解耦代码 | 实现 `H0 -> z_dep,z_nuisance`，预测只读 `z_dep`，recon/decorrelation 低权重可开关 | 显式划分 `z_art/z_ctx/z_pose/z_quality`，堆叠多级门控 | C 对照不弱于 B，且 nuisance leakage / multi-attacker 报告完整 |
+| C0 信息分流规格 | 设计 `TaskNuisanceBlock` 最小接口、等参数消融、审计矩阵和反证条件 | 将 recon/decorrelation 或单一 attacker 当作语义解耦证明 | 证明 B baseline 不足，且 C 的评价指标、multi-seed 规则和停止条件已写清 |
+| C1 最小信息分流代码 | 实现 `H0 -> z_dep,z_nuisance`，预测只读 `z_dep`，recon/decorrelation 低权重可开关 | 显式划分 `z_art/z_ctx/z_pose/z_quality`，堆叠多级门控 | config/forward/loss/backward、默认兼容、多表征导出、seed-42 smoke 与 train-only calibration 通过 |
 
 #### 立即可编程任务包
 
-> 状态（2026-07-10）：**Stage B（B0-B5，下方第 2-8 项）已全部完成**，12 run 矩阵跑完并 version-aware 聚合，B5 判定进入 Stage C。结论详见 `docs/CURRENT_STATUS.md` 的「2026-07-10 Stage B B5 证据收口结论」。**当前活动任务包为第 9 项 C0-spec-before-code**；下方 B 项保留为执行规格记录。
+> 状态（2026-07-10）：**Stage B（B0-B5，下方第 2-8 项）、C0 规格冻结和 P0 训练协议均已完成**。12 run Stage B 矩阵已 version-aware 聚合，B5 判定进入 Stage C。**当前活动任务包为 C1 最小信息分流实现**；下方 B 项保留为执行规格记录。
 
 1. **A0-result-gate**：已完成 A1-A4 服务器输出收口。
    - 输入：A1 layerwise summary、A2 coupling report、A3 matched-only weaklabel report、A4 severity imbalance report。
@@ -100,17 +100,21 @@ Stage A Shortcut 证据收口
    - E1 有效：identity risk 下降且 BDI/severity/task consistency 未明显恶化。
    - E2 有效：minimal/severe bias 和 compression 改善，CCC 与 identity risk 未明显恶化。
    - E3 有效：同时优于或互补于 E1/E2，作为 Stage C 强 baseline。
-   - 只有 E1/E2/E3 均不能在可接受代价内改善风险时，才进入 C0 粗粒度解耦规格。
+   - 只有 E1/E2/E3 均不能在可接受代价内改善风险时，才进入 C0 粗粒度信息分流规格。
 
-9. **C0-spec-before-code**（当前活动任务包）：B5 判定已确认 Stage B baseline 不足，进入 Stage C 粗粒度解耦规格。在写 `TaskNuisanceBlock` 代码前先冻结接口和失败条件。
-   - 先写接口和损失：`z_dep` 预测、`z_nuisance` 互补、低权重 recon、低权重 decorrelation。
-   - 先写失败条件：若不优于 E2（severity-balanced）baseline 或多 seed 不稳定，停止增加解耦复杂度。
-   - 禁止把 artifact/context/pose/quality 做成显式 latent；只对 pose_rz / AU / black_border 等已验证 shortcut 轴施加弱监督或解耦约束。
-   - 前置工程项：加 EarlyStopping（Stage B 12/12 普遍 `overfit_after_best_val=True`，val 退化 0.64-2.66），避免 Stage C 重蹈跑满 40 epoch 的过拟合浪费。
-10. **C1-minimal-disentangle**：在 C0 spec 冻结后实现最小闭环。
+9. **C0-spec-before-code + P0-training-policy**（已完成）：B5 已确认 Stage B baseline 不足，Stage C 的接口、实验矩阵、seed、审计和停止条件已冻结，完整规格见 `docs/STAGE_C_RUNBOOK.md`。
+   - 先写接口和损失：`z_dep` 预测、`z_nuisance` 候选互补出口、低权重 recon、低权重 cross-covariance/decorrelation；明确这些辅助损失不是语义解耦证明。
+   - 固定等参数/等 bottleneck 对照，避免把增益误判为参数增加或降维收益。
+   - 冻结第一版 leakage matrix：`H0/z_dep/z_nuisance x identity/task/pose/artifact/BDI`，并使用 fresh multi-attacker 报告最强风险。
+   - 先写失败条件：若不优于 paired `C-REF`、multi-seed 不稳定、`z_nuisance -> BDI` 泄漏接近 `z_dep`，或风险下降以 CCC/severity/task consistency 恶化为代价，停止增加复杂度。
+   - 禁止把 artifact/context/pose/quality 做成显式 latent；pose_rz / AU / black_border 第一版只作为审计轴，不进入训练监督。
+   - P0 已完成：配置化 seed；EarlyStopping 与 best checkpoint 共用 monitor/mode；共享 base 默认关闭，Stage C common 开启；新增训练策略测试和同协议 `C-REF` 配置。
+10. **C1-minimal-information-separation**：在 C0 spec 冻结后实现最小闭环。
     - 实现 `H0 -> z_dep, z_nuisance`，预测只读 `z_dep`，recon/decorrelation 低权重可开关。
-    - 固定对照组：`E0 RGB baseline`、`E1 identity-adversarial`、`E2 severity-balanced`（Stage C 强 baseline 候选）、`E3 z_dep+z_nuisance`，可选 `z_dep+z_id+z_nuisance`。
-    - 必备报告：BDI MAE/CCC、fresh attacker top1 + A1 retrieval（identity）、A3 artifact-risk group、severity bias、task consistency、train-val gap，全部以 E0 为基准横向对照。
+    - 固定对照组：`C-REF`、`C-BN`、`C-REC`、`C-FULL`；Stage B 的 E0-E3 只作历史背景，不复用为 Stage C run ID。
+    - C1 只做 seed 42 smoke、接口/梯度/兼容性测试和 train-only loss calibration，不读取 validation/test 选择辅助权重。
+11. **C2-validation-screening**：seed 42、validation-only 比较 `C-REF/C-BN/C-REC/C-FULL`，执行 utility、identity risk、BDI leakage 和 group robustness 闸门。
+12. **C3-multi-seed-gate**：seeds 42/43/44、validation-only 做 paired-seed 稳定性验证；至少 2/3 seed 风险方向一致且全部满足 utility non-inferiority，才进入 Stage D。
 
 #### 实施验收命令
 
@@ -124,6 +128,7 @@ git diff --check -- README.md configs/README.md docs
 
 ```bash
 python -m compileall src scripts tests
+python -m pytest tests/test_mtl_lite_training_policy.py tests/test_stage_c_config_contract.py
 python -m pytest tests/test_mtl_lite_forward.py tests/test_mtl_lite_loss_backward.py
 python scripts/train_mtl_lite.py --override configs/mtl_lite_debug_smoke.yaml
 ```
@@ -190,27 +195,31 @@ python -m pytest tests/test_error_identity_coupling.py tests/test_artifact_weakl
 - [x] B2 第一版只加权 regression MSE，不加权 CCC loss 或 ordinal auxiliary loss。
 - [x] B3 固定对照：`E0 RGB MTL-Lite baseline`、`E1 identity-adversarial MTL`、`E2 severity-balanced regression`、`E3 identity-adversarial + severity-balanced`。
 - [x] B4 统一报告 BDI metrics、identity retrieval/probe、severity bias、task consistency、train-val gap、artifact-risk group。
-- [x] B5 Stage B 判读：E1/E2/E3 不能在不损伤 CCC/task consistency 的情况下充分缓解 identity risk 与 severity bias → 满足进入 C0 粗粒度解耦条件。
+- [x] B5 Stage B 判读：E1/E2/E3 不能在不损伤 CCC/task consistency 的情况下充分缓解 identity risk 与 severity bias → 满足进入 C0 粗粒度信息分流条件。
 
-### C. Coarse Task-Nuisance Disentanglement
+### C. Coarse Task-Nuisance Information Separation
 
+- [x] C0 冻结项目主张：`z_dep/z_nuisance` 是可审计信息分流假设，不以辅助损失收敛直接宣称语义解耦。
+- [x] C0 冻结等参数/等 bottleneck 对照、leakage matrix、fresh multi-attacker、multi-seed 和失败条件（见 `STAGE_C_RUNBOOK.md`）。
+- [x] P0 实现配置化 seed、EarlyStopping、runner 测试和同协议 `C-REF` 配置骨架。
 - [ ] C1 设计 `TaskNuisanceBlock` 最小接口：`H0 -> z_dep, z_nuisance`。
 - [ ] C1 预测只使用 `z_dep`：`BDI_pred = Head(z_dep)`。
 - [ ] C1 使用低权重 reconstruction：`H0_recon = Recon([z_dep, z_nuisance])`，避免把非任务信息硬删导致 BDI 信息损失。
-- [ ] C1 使用低权重 independence/decorrelation loss，作为辅助而非解耦成功证明。
-- [ ] C2 可选 identity outlet：仅当 A1+A2 证明身份进入预测且 subject_id 监督可靠时，扩展为 `H0 -> z_dep, z_id, z_nuisance`。
-- [ ] C2 若启用 `z_id`，使用 `id_head(z_id)` 吸收身份信息，同时用 GRL 抑制 `z_dep -> subject_id`。
-- [ ] C3 不显式划分 `z_art`、`z_ctx`、`z_pose`、`z_quality`；这些变量只用于 post-hoc probe、case study 和 group-wise evaluation。
-- [ ] C4 固定对照：`E0 RGB MTL-Lite baseline`、`E1 identity-adversarial MTL`、`E2 severity-balanced MTL`、`E3 z_dep+z_nuisance`、`E4 z_dep+z_id+z_nuisance`、`E5 E4+severity-balanced`。
+- [ ] C1 使用低权重 independence/decorrelation loss，作为辅助而非信息分流成功证明。
+- [x] C0 固定 Stage C 对照：`C-REF/C-BN/C-REC/C-FULL`，第一版不加入 `z_id`。
+- [x] C0 不显式划分 `z_art`、`z_ctx`、`z_pose`、`z_quality`；这些变量只用于 post-hoc probe、case study 和 group-wise evaluation。
+- [ ] C2 seed 42 validation-only screening：相对 paired `C-REF` 执行 utility、risk、leakage 和 group-wise 闸门。
+- [ ] C3 seeds 42/43/44 validation-only gate：通过稳定性条件后才能冻结 Stage D 协议。
+- [ ] Stage D 后续扩展：只有基础两出口方案通过 C3 且证据仍支持时，才重新评估可选 `z_id`；不属于 C1-C3 第一版。
 
-### D. Robustness Validation
+### D. Falsification and Robustness Validation
 
 - [ ] D1 multi-attacker：使用 paired-task retrieval、kNN、linear/SVM 或 MLP attacker 报告最强 identity risk，避免单一 attacker 假安全。
-- [ ] D2 nuisance leakage：检查 `z_nuisance` 或 `z_id` 单独预测 BDI 的能力，避免非任务出口携带主要 BDI 信号。
+- [ ] D2 nuisance leakage：检查 `z_nuisance` 单独预测 BDI 的能力，避免非任务出口携带主要 BDI 信号；`z_id` 仅在后续获准扩展时加入矩阵。
 - [ ] D3 shortcut/artifact probes：用 artifact/quality/context 变量攻击 `z_dep`，只作为评估，不作为第一版训练监督。
-- [ ] D4 severity-balanced 支线：验证 weighted SmoothL1 / MAE 是否改善 minimal/severe bias，并检查是否与粗粒度解耦互补。
+- [ ] D4 severity-balanced 支线：验证 weighted SmoothL1 / MAE 是否改善 minimal/severe bias，并检查是否与粗粒度信息分流互补。
 - [ ] D5 group-wise robustness：报告 severity bin、task、identity-risk group、artifact-risk group 的 MAE/RMSE/CCC。
-- [ ] D6 dynamic feature 支线：暂缓，仅当粗粒度解耦降低风险后 BDI 表现仍受限时再启动。
+- [ ] D6 dynamic feature 支线：暂缓，仅当粗粒度信息分流降低风险后 BDI 表现仍受限时再启动。
 
 ### 路线细化后的执行闭环
 
@@ -219,9 +228,11 @@ python -m pytest tests/test_error_identity_coupling.py tests/test_artifact_weakl
 - [x] A4 完成后，决定 severity-balanced regression 是 Stage B 必跑基线。
 - [x] B0 固定 Stage B 对照：`RGB baseline`、`identity-adversarial MTL`、`severity-balanced regression`、`identity-adversarial + severity-balanced`。
 - [x] B5 Stage B 收口：12 run 跑完，E2 弱有效、E1/E3 无效、identity 泄漏全局未解，判定进入 Stage C（结论见 `CURRENT_STATUS.md` 2026-07-10）。
-- [ ] C0 固定 Stage C 对照：`z_dep+z_nuisance` 与可选 `z_dep+z_id+z_nuisance`，以 E2（severity-balanced）为强 baseline 候选。
-- [ ] D0 固定统一报告：BDI metrics、severity bias、identity risk、shortcut/artifact probe risk、task consistency、train-val gap。
-- [ ] 停止规则：若粗粒度解耦不优于 E2（severity-balanced）baseline，或多 seed 结果不稳定，停止增加解耦复杂度，转为诊断型贡献。
+- [x] C0 固定 Stage C 对照：`C-REF/C-BN/C-REC/C-FULL`；`C-REF` 按新训练协议复现 E2 结构，第一版不加入 `z_id`。
+- [x] P0 固定 seed 与 EarlyStopping，并建立 Stage C 配置骨架和防误跑哨兵。
+- [ ] C1 实现最小 block、多表征导出和辅助损失，再运行 seed 42 smoke/calibration。
+- [ ] D0 固定统一报告：BDI metrics、severity bias、identity risk、nuisance/BDI leakage、shortcut/artifact probe risk、task consistency、train-val gap。
+- [x] 停止规则已冻结：若粗粒度信息分流不优于 paired-seed `C-REF`、multi-seed 不稳定，或风险下降以 utility/group robustness 恶化为代价，停止增加复杂度，转为诊断型贡献。
 
 ### 暂缓项
 
@@ -712,7 +723,7 @@ split integrity audit
 
 ### 历史阶段：Shortcut-Regularized MTL 实验规划（已被粗粒度主线继承）
 
-本节保留为历史任务记录。当前正式路线已经调整为粗粒度 task-nuisance 解耦；本节中的 severity-balanced regression 与 identity-adversarial branch 应作为当前主线的对照基线和支线验证，而不是最终主线。
+本节保留为历史任务记录。当前正式路线已经调整为可审计、可证伪的粗粒度 task-nuisance 信息分流；本节中的 severity-balanced regression 与 identity-adversarial branch 应作为当前主线的对照基线和支线验证，而不是最终主线。
 
 #### Stage A：收口诊断
 

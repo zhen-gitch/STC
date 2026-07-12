@@ -1,0 +1,14 @@
+# Layer last. Do not override experiment name, mode, or seed here.
+
+EXPERIMENT_GROUP: "stage_c_debug"
+
+EXTRACT_FEATURE:
+  BATCH_SIZE: 2
+  CHUNK_SIZE: 32
+
+PROCESS_TEMPORAL:
+  MAX_SEQ_LEN: 1000
+  MAX_EPOCHS: 2
+
+EARLY_STOPPING:
+  PATIENCE: 1

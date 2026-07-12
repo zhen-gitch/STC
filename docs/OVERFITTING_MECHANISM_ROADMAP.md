@@ -13,7 +13,7 @@
 
 ## 当前路线总览
 
-本文档的当前权威路线正式更新为 **Shortcut-aware Task-Nuisance Disentangled Representation Learning**。机制审计已经说明：单个 artifact 不能解释全部过拟合，简单输入处理也无法同时改善 identity retrieval、severity bias、CCC 和 task consistency。因此下一步不再尝试把所有潜在机制逐项显式建模，而是将过拟合机制转化为可审计的粗粒度任务-干扰分流结构。
+本文档的当前权威目标正式更新为 **Auditable and Falsifiable Coarse-Grained Task-Nuisance Information Separation：可审计、可证伪的粗粒度任务-干扰信息分流**。机制审计已经说明：单个 artifact 不能解释全部过拟合，简单输入处理也无法同时改善 identity retrieval、severity bias、CCC 和 task consistency。因此下一步不再尝试把所有潜在机制逐项显式建模，也不预设语义解耦已经成立，而是把过拟合机制转化为能够被外部审计和反证的粗粒度信息分流结构。
 
 ```text
 已完成证据层：input artifact / temporal / identity / calibration / geometry audits
@@ -24,30 +24,30 @@ Stage A: Shortcut 证据收口
 Stage B: Identity-adversarial task representation
         H0 -> z_dep, with verifiable shortcut suppression
         ↓
-Stage C: Coarse task-nuisance disentanglement
+Stage C: Coarse task-nuisance information separation
         H0 -> z_dep, z_nuisance
-        optional: H0 -> z_dep, z_id, z_nuisance
+        z_id only after the base split passes C3 and is re-authorized
         ↓
-Stage D: Robustness validation
-        multi-attacker / nuisance leakage / severity-balanced loss / group-wise robustness
+Stage D: Falsification and robustness validation
+        multi-attacker / leakage matrix / severity-balanced loss / group-wise robustness
 ```
 
 当前机制分工：
 
 | 机制问题 | 证据来源 | 新路线中的处理 |
 |---|---|---|
-| subject/static appearance shortcut | identity retrieval、input variants、case frames | identity-adversarial baseline；可选 `z_id` 出口；`z_dep` identity risk evaluation |
+| subject/static appearance shortcut | identity retrieval、input variants、case frames | identity-adversarial baseline；`z_dep` identity risk evaluation；`z_id` 仅作 post-C3 待审扩展 |
 | 身份-抑郁交叠 | 表情基线、头动/眼动习惯、个体行为风格 | 不显式建 `z_m`；通过 `z_dep` utility、identity risk 和 `z_nuisance` leakage 联合评估 |
 | severity label imbalance / middle-score collapse | severity bias、calibration summary、pred_std compression | severity-balanced regression 作为对照或支线 |
 | input artifact / black boundary / OpenFace quality | black artifact、alignment geometry、confidence、bbox、valid ratio | 审计变量、post-hoc probes、case study 和 group-wise evaluation；不默认建 `z_art` |
 | temporal/task context | temporal sampling、task consistency | 混杂监控和 task consistency evaluation；不显式建 `z_ctx` |
-| dynamic facial behavior | literature / behavior baseline | Stage D 待考虑，先不进入粗粒度解耦第一版 |
+| dynamic facial behavior | literature / behavior baseline | Stage D 待考虑，先不进入粗粒度信息分流第一版 |
 
 读本文档时，应把前面 Layer 0-6 理解为证据地图，把“当前推进路线”理解为当前模型路线。若旧段落中的“下一步”与本总览冲突，以本总览和 `RGB_OVERFITTING_AUDIT_PLAN.md` 的最新 task-nuisance Stage A-D 为准。
 
 ## 1. 研究目标
 
-当前目标不再是寻找“某一个 artifact 导致过拟合”，而是建立一套可解释、可验证、可复用的机制审计协议：
+当前目标不再是寻找“某一个 artifact 导致过拟合”，而是建立一套可解释、可审计、可证伪、可复用的机制审计与信息分流协议：
 
 ```text
 OpenFace aligned face RGB model failure
@@ -503,11 +503,11 @@ center_mask_soft_boundary_v2
 
 ## 11. 当前推进路线：粗粒度 Task-Nuisance 主线
 
-当前推进路线已经从细粒度 RPDF-Net 收敛为粗粒度 task-nuisance 解耦。该转移不是否定前一阶段，而是把 identity-adversarial MTL、severity-balanced regression、input artifact audit、identity retrieval 和 calibration summary 全部纳入证据层、对照基线和稳健性验证，同时避免给每个难以验证的潜在因素分配独立 latent。
+当前推进路线已经从细粒度 RPDF-Net 收敛为可审计、可证伪的粗粒度 task-nuisance 信息分流。该转移不是否定前一阶段，而是把 identity-adversarial MTL、severity-balanced regression、input artifact audit、identity retrieval 和 calibration summary 全部纳入证据层、对照基线和稳健性验证，同时避免给每个难以验证的潜在因素分配独立 latent，或把辅助损失收敛误写成语义解耦结论。
 
 ### Step 1: Shortcut 证据收口
 
-目标：在实现解耦模块前，证明可验证 shortcut 是否真的进入预测。
+目标：在实现信息分流模块前，证明可验证 shortcut 是否真的进入预测。
 
 ```text
 A1 layer-wise identity probe
@@ -518,7 +518,7 @@ A4 severity imbalance / prediction compression summary
 
 对应决策：
 
-- A1/A2 支撑 identity-adversarial baseline 和可选 `z_id` 出口；
+- A1/A2 支撑 identity-adversarial baseline 和身份风险审计；是否需要 `z_id` 必须等基础信息分流通过 C3 后重审；
 - A3 支撑 artifact/quality/context probes、case study 和 group-wise evaluation；
 - A4 支撑 severity-balanced baseline 或支线；
 - existing identity retrieval / calibration / alignment / black artifact summaries 作为证据底座。
@@ -540,7 +540,7 @@ subject_attacker = GRL(z_dep) -> subject_id
 - severity bias、task consistency 和 train-val gap 是否不恶化；
 - 若 A1 成立但 A2 不成立，identity adversarial 只作为对照而非强 suppression 主线。
 
-### Step 3: Coarse Task-Nuisance Disentanglement
+### Step 3: Coarse Task-Nuisance Information Separation
 
 第二阶段只验证粗粒度单级分流：
 
@@ -550,7 +550,7 @@ prediction = Head(z_dep)
 reconstruction = Recon([z_dep, z_nuisance]) -> H0
 ```
 
-若 A1+A2 同时证明身份进入预测，且 subject_id 监督可靠，可选扩展为：
+`z_id` 不进入第一版。只有 `C-REF/C-BN/C-REC/C-FULL` 通过 C3，且身份风险证据仍支持独立出口时，才允许重新评估：
 
 ```text
 H0 -> z_dep, z_id, z_nuisance
@@ -561,7 +561,7 @@ subject_attacker = GRL(z_dep) -> subject_id
 
 不显式建 `z_m`、`z_art`、`z_ctx`、`z_quality`。这些因素用 probes 和分组评估验证，不作为第一版 latent。
 
-### Step 4: 稳健性验证
+### Step 4: 反证与稳健性验证
 
 最终模型不是一次性打开所有模块，而是逐项验证风险：
 
@@ -608,10 +608,11 @@ task consistency 不恶化
 中长期边界：
 
 ```text
-短期：完成 Stage A，证明身份/shortcut/severity 风险如何进入预测
-中期：实现 identity-adversarial baseline 与 `z_dep/z_nuisance` 粗粒度解耦
-中长期：仅当粗粒度解耦稳定优于对抗基线后，再考虑更复杂结构
+已完成：Stage A/Stage B、C0 规格冻结和 P0 seed/EarlyStopping
+短期：实现 C1 最小 `z_dep/z_nuisance` block、多表征导出和 train-only loss calibration
+中期：完成 C2 seed-42 screening 与 C3 三 seed validation gate
+中长期：仅当信息分流在外部审计和多 seed 下稳定优于 paired `C-REF` 后，再考虑更复杂结构
 长期：根据支线证据选择 severity-balanced、multi-attacker 或 dynamic feature
 ```
 
-论文叙事的关键不是“提出更多模块”，而是“每个模块都有前置证据、进入条件、成功标准和停止规则”。若某个支线只改善 MAE，却恶化 identity risk、severe bias、CCC 或 task consistency，则它应被作为机制反例记录，而不是进入最终主模型。
+论文叙事的关键不是“提出更多模块”，而是“每个模块都有前置证据、进入条件、独立审计、反证条件和停止规则”。若某个支线只改善 MAE，却恶化 identity risk、severe bias、CCC 或 task consistency，则它应被作为机制反例记录，而不是进入最终主模型；若 Stage C 不优于 paired-seed `C-REF` 或多 seed 不稳定，则应明确报告当前信息分流假设未获支持。

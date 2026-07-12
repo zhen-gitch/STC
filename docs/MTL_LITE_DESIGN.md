@@ -704,7 +704,7 @@ E3  identity-adversarial MTL + severity-balanced regression
 - **E1 有效**：identity risk 下降且 BDI/severity/task consistency 未明显恶化 → 保留 identity-adversarial 作为 Stage C 必要对照，后续在 `z_dep` 上继续报告 identity leakage。
 - **E2 有效**：minimal/severe bias 与 compression 改善，CCC 与 identity risk 未明显恶化 → 保留 severity-balanced regression 作为 Stage C/D 支线，但仍需检查它是否提高 identity risk。
 - **E3 明显优于 E1/E2**：说明 identity shortcut 与 severity compression 存在互补干预价值 → Stage C 必须以 E3 作为强 baseline。
-- **均不能在可接受代价内改善风险**：才进入 Stage C 的粗粒度 `z_dep / z_nuisance` 解耦（C0-spec-before-code）。
+- **均不能在可接受代价内改善风险**：才进入 Stage C 的粗粒度 `z_dep / z_nuisance` 信息分流（C0-spec-before-code）。
 
 ### 13.9 测试计划（B1/B2 落地时必备，B0 仅记录）
 
@@ -733,4 +733,24 @@ E3  identity-adversarial MTL + severity-balanced regression
 - [x] B1 代码：`src/models/outputs.py`（`identity_logits` / `identity`）、`src/models/gradient_reversal.py`（GRL）、`src/models/mtl_lite.py`（`set_subject_index` / `_map_subjects_to_index` / forward 分支 / `compute_losses(..., stage=)` gating / `_shared_step` 透传 stage）、`src/trainers/mtl_lite_runner.py`（`build_train_subject_index` + 注入）；
 - [x] B2 代码：`src/models/mtl_lite.py`（`set_severity_bin_counts` / `_severity_bin_index` / `_severity_weighted_mse` / `compute_losses` regression 项替换）、`src/trainers/mtl_lite_runner.py`（`build_train_severity_bin_counts` + 注入，edges 取自模型）。两个开关默认关闭时与 E0 逐位等价（27 项测试覆盖）。
 
-B0 完成后按 `docs/TODO.md` 的 **B1-code-minimal** → **B2-severity-balanced-minimal** → **B3-fixed-experiments** → **B4-stage-b-report** → **B5-stage-b-gate** 顺序推进。**B1-code-minimal 与 B2-severity-balanced-minimal 均已完成**，下一步进入 **B3-fixed-experiments**（在服务器上按统一 split/seed/backbone 跑完 E0–E3，含 `lambda_id` 与 `POWER` 的 sweep）。B3/B4 的执行脚本与完整命令清单见 `docs/STAGE_B_RUNBOOK.md`（`scripts/stage_b/run_stage_b_matrix.sh` + `scripts/stage_b/aggregate_stage_b.sh`）。
+Stage B 的 B0-B5 已全部完成并关闭，E2 是唯一弱有效结构，但 identity/artifact 风险未解。当前进入 Stage C：C0 规格和 P0 训练协议已完成，下一步实现 C1 最小 `TaskNuisanceBlock`。完整接口、配置矩阵、seed 和停止条件见 `docs/STAGE_C_RUNBOOK.md`。
+
+## 14. Stage C 最小扩展边界
+
+Stage B 已完成并判定进入 Stage C。当前 `shared_features` 是 `H0`，维度为 `PROCESS_TEMPORAL.HIDDEN_DIM=192`。Stage C 第一版在池化之后、task head 之前加入单级 `TaskNuisanceBlock`：
+
+```text
+H0[192] -> z_dep[96], z_nuisance[96]
+BDI/ordinal -> z_dep only
+Recon([z_dep,z_nuisance]) -> H0
+```
+
+实现必须满足：
+
+- 默认关闭时 forward、loss、state dict 与现有 MTL-Lite 完全兼容；
+- `shared_features` 继续表示 prediction-facing representation，Stage C 开启时指向 `z_dep`；
+- 额外导出 `H0/z_dep/z_nuisance`，供 leakage matrix 使用；
+- reconstruction target 使用 stop-gradient；decorrelation 仅定义二阶结构偏置；
+- 第一版不实现 `z_id`、pose/AU 训练监督、task adversary、门控或多级 latent；
+- `C-REC` 与 `C-FULL` 参数和 bottleneck 完全一致，`C-BN` 单独控制 prediction bottleneck；
+- 全部 Stage C 实施和运行规格以 `docs/STAGE_C_RUNBOOK.md` 为准。

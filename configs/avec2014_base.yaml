@@ -3,10 +3,21 @@
 
 MODE: "mtl_lite"
 
+SEED: 42
+
 ACCELERATOR: "gpu"
 DEVICES: [1]
 STRATEGY: "auto"
 PRECISION: "bf16-mixed"
+
+EARLY_STOPPING:
+  ENABLE: False
+  MONITOR: "val_RMSE_epoch"
+  MODE: "min"
+  PATIENCE: 8
+  MIN_DELTA: 0.0
+  STRICT: True
+  CHECK_FINITE: True
 
 EXPERIMENT_GROUP: "default"
 EXPERIMENT_NAME: "mtl_lite"

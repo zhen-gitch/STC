@@ -1,0 +1,16 @@
+# SPEC ONLY until C1 is implemented and train-only calibration freezes weight.
+MODE: "stage_c_spec_only"
+EXPERIMENT_NAME: "c_rec_split_recon"
+
+MODEL:
+  TASK_NUISANCE:
+    ENABLE: True
+    VARIANT: "split"
+    DEP_DIM: 96
+    NUISANCE_DIM: 96
+    RECONSTRUCTION_ENABLE: True
+    CROSS_CORRELATION_ENABLE: False
+
+LOSSES:
+  RECONSTRUCTION_WEIGHT: null
+  CROSS_CORRELATION_WEIGHT: 0.0

@@ -15,18 +15,20 @@
 |---|---|---|
 | 1. 证据闭环 | 判断 shortcut 是否真的进入预测 | 决定是否需要强 identity suppression |
 | 2. 对抗基线闭环 | 验证最小 GRL/attacker 是否足够 | 建立 `H0 -> z_dep` 对照 |
-| 3. 粗粒度解耦闭环 | 验证 task-nuisance 分流是否有增益 | `H0 -> z_dep, z_nuisance`，可选 `z_id` |
-| 4. 稳健性验证闭环 | 防止只改善 MAE 或单一指标 | multi-attacker、nuisance leakage、group-wise evaluation |
+| 3. 粗粒度信息分流闭环 | 验证 task-nuisance 分流是否有增益 | 第一版 `H0 -> z_dep, z_nuisance`；`z_id` 需 C3 后重审 |
+| 4. 反证与稳健性验证闭环 | 防止只改善 MAE、辅助损失或单一指标 | multi-attacker、leakage matrix、group-wise evaluation、multi-seed |
 
 当前不做：不把 artifact、context、pose、quality 逐项建成 latent；它们只作为审计变量、probe、case study 和分组评估维度。
 
-## 路线进一步细化：从证据闭环到粗粒度 Task-Nuisance 解耦
+## 路线进一步细化：从证据闭环到可证伪的粗粒度信息分流
 
-当前路线应按四个闭环推进，避免把模型实现成一次性打开所有模块的复杂因子分解网络。新的原则是：不显式枚举全部潜在 nuisance factors，只对 subject identity 等可验证 shortcut 变量进行弱监督或对抗约束；artifact、context、pose、quality 等难以完整验证的因素先作为审计变量和分组评估维度。
+项目目标正式设定为 **可审计、可证伪的粗粒度任务-干扰信息分流**。当前路线应按四个闭环推进，避免把模型实现成一次性打开所有模块的复杂因子分解网络。新的原则是：不显式枚举全部潜在 nuisance factors，只对 subject identity 等可验证 shortcut 变量进行弱监督或对抗约束；artifact、context、pose、quality 等难以完整验证的因素先作为审计变量和分组评估维度。
+
+主张边界固定如下：`H0 -> z_dep,z_nuisance` 是结构假设；reconstruction、decorrelation、训练内 adversary 或单一 probe 只能说明某个优化目标被满足，不能证明 latent 获得了预期语义。信息分流是否成立，必须由等参数 baseline、fresh multi-attacker、nuisance/BDI leakage、group-wise robustness、task consistency、severity bias 和多 seed 稳定性共同检验。
 
 ### 闭环 1：证据闭环，回答“风险是否真的进入预测”
 
-Stage A 不只是普通诊断，而是决定后续是否需要强 identity suppression 和粗粒度解耦的前置证据。四个问题必须分别回答：
+Stage A 不只是普通诊断，而是决定后续是否需要强 identity suppression 和粗粒度信息分流的前置证据。四个问题必须分别回答：
 
 | 任务 | 关键问题 | 决定后续结构 |
 |---|---|---|
@@ -87,7 +89,7 @@ Stage B 成功标准不是单一 MAE 下降，而是：
 - E3 若优于 E1/E2，应体现两类机制互补，而不是仅通过抬高预测均值改善某一分段；
 - 所有实验必须同时报告 task consistency、train-val gap、A3 artifact-risk group 表现和 case-study 变化。
 
-只有当 E1/E2/E3 不能充分缓解 identity risk 与 severity bias，或改善代价表现为 CCC/task consistency 明显恶化时，才进入 Stage C 的 `z_dep/z_nuisance` 粗粒度解耦设计。
+只有当 E1/E2/E3 不能充分缓解 identity risk 与 severity bias，或改善代价表现为 CCC/task consistency 明显恶化时，才进入 Stage C 的 `z_dep/z_nuisance` 粗粒度信息分流设计。
 
 #### Stage B 实施路线（2026-07-08）
 
@@ -183,7 +185,7 @@ Stage B 的表格应以 E0 为基准，逐列比较 E1/E2/E3 的增益和代价�
 - 若 E1 有效：保留 identity-adversarial 作为 Stage C 的必要对照，并在后续 `z_dep` 上继续报告 identity leakage。
 - 若 E2 有效：保留 severity-balanced regression 作为 Stage C/D 支线，但仍需检查它是否提高 identity risk。
 - 若 E3 明显优于 E1/E2：说明 identity shortcut 与 severity compression 存在互补干预价值，Stage C 必须以 E3 作为强 baseline。
-- 若 E1/E2/E3 均不能在不损伤 CCC/task consistency 的情况下改善风险，才进入 Stage C 的粗粒度 `z_dep/z_nuisance` 解耦。
+- 若 E1/E2/E3 均不能在不损伤 CCC/task consistency 的情况下改善风险，才进入 Stage C 的粗粒度 `z_dep/z_nuisance` 信息分流。
 
 #### 2026-07-10 Stage B B5 收口结果
 
@@ -210,13 +212,15 @@ Stage B 固定实验矩阵已全部跑完并通过 version-aware 聚合：E0（b
 2. **E1/E3（identity-adversarial）= 无效**：atk_top1 与 A1 都没下降（e1 atk=0.56 反 > e0=0.54），E3 utility 全面劣化（CCC 0.28-0.34 低于 e0，MAE 9.1-9.4），lambda sweep 单调代价清晰。GRL 强度太弱，当前 lambda 范围未能把 subject identity 从 `z_dep` 抹除。
 3. **identity 泄漏全局未解（双信号收敛）**：fresh attacker 0.54-0.57 + A1 NN 0.63-0.68，参数化线性 probe 与非参数 NN 两套口径一致确认 `z_dep` 强泄漏 subject identity；E1/E3 未改善任一信号。
 4. **A3 artifact-risk group 未被任何 defense 改善**：最强 shortcut 轴是 OpenFace 头部姿态 `pose_rz_mean`（\|corr\|=0.319）。按 pose_rz 中位数切 high/low 组，e0 high-group MAE=10.38 vs low=7.45（gap 2.93），所有 12 run 在 high-risk 组 MAE 都不低于 e0——E1/E3 普遍恶化 +0.4~0.7，E2 整体耦合最低但 high-risk 组未改善，说明其整体收益是「假分散」而非真解耦。
-5. **普遍过拟合（12/12）**：所有 run `overfit_after_best_val=True`，best-val→last 的 val 退化 0.64-2.66（E3 系最重）。进 Stage C 前加 EarlyStopping。
+5. **普遍过拟合（12/12）**：所有 run `overfit_after_best_val=True`，best-val→last 的 val 退化 0.64-2.66（E3 系最重）。该工程风险已由 P0 配置化 EarlyStopping 处理。
 
-**B5 判定**：Stage B 轻量级可开关 defense 不足以解除 shortcut。满足进入 Stage C 条件——实现显式粗粒度 `z_dep / z_nuisance` 解耦，针对 pose_rz / AU / black_border 等已验证 shortcut 轴施加弱监督或解耦约束，以 E2 为强 baseline 候选，并加 EarlyStopping。详细执行命令见 `docs/STAGE_B_RUNBOOK.md`。
+**B5 判定**：Stage B 轻量级可开关 defense 不足以解除 shortcut，满足进入 Stage C 的条件。第一版只验证显式粗粒度 `z_dep / z_nuisance` 信息分流；pose_rz / AU / black_border 保持为 audit-only 轴，不默认视为 nuisance，也不进入训练监督。Stage C 用 `C-REF` 按新 EarlyStopping 协议复现 E2 结构，完整执行规格见 `docs/STAGE_C_RUNBOOK.md`。
 
-### 闭环 3：粗粒度解耦闭环，回答“任务-干扰分流是否比共享表征更合理”
+### 闭环 3：粗粒度信息分流闭环，回答“任务-干扰分流是否比共享表征更合理”
 
-Stage C 只验证粗粒度单级解耦：
+Stage C 的代码接口、`C-REF/C-BN/C-REC/C-FULL` 对照、seed 协议、leakage matrix 和 quantitative stop conditions 已冻结在 `docs/STAGE_C_RUNBOOK.md`。本节只保留机制理由，不重复低层运行规格。
+
+Stage C 只验证粗粒度单级信息分流假设：
 
 ```text
 H0 -> TaskNuisanceBlock -> z_dep, z_nuisance
@@ -224,29 +228,11 @@ prediction = Head(z_dep)
 reconstruction = Recon([z_dep, z_nuisance]) -> H0
 ```
 
-如果 A1+A2 同时证明身份进入预测，且 subject_id 监督可靠，可选扩展为：
+第一版不加入 `z_id`，也不显式划分 `z_art`、`z_ctx`、`z_pose`、`z_quality`。这些变量无法被全面覆盖和充分论证，保留为 post-hoc probes、case study 和 group-wise robustness 维度更稳。低权重 reconstruction 和 cross-correlation 只作为防塌缩/结构偏置，不作为信息分流成功证明。
 
-```text
-H0 -> z_dep, z_id, z_nuisance
-prediction = Head(z_dep)
-id_head(z_id) -> subject_id
-subject_attacker = GRL(z_dep) -> subject_id
-```
+固定对照只使用 `C-REF/C-BN/C-REC/C-FULL`。其中 `C-REF` 是按 Stage C 训练协议重跑的 E2 结构，`C-BN` 排除单纯 prediction bottleneck 收益，`C-REC` 与 `C-FULL` 保持等参数/等 bottleneck。`z_id` 只有在基础两出口方案通过 C3 后才允许重新讨论。
 
-不在第一版显式划分 `z_art`、`z_ctx`、`z_pose`、`z_quality`。这些变量永远无法被全面覆盖和充分论证，保留为 post-hoc probes、case study 和 group-wise robustness 维度更稳。
-
-建议固定对照组：
-
-```text
-E0 RGB MTL-Lite baseline
-E1 identity-adversarial MTL
-E2 severity-balanced MTL
-E3 z_dep + z_nuisance
-E4 z_dep + z_id + z_nuisance
-E5 E4 + severity-balanced loss
-```
-
-### 闭环 4：稳健性验证闭环，回答“解耦是否真的减少捷径依赖”
+### 闭环 4：反证与稳健性验证闭环，回答“信息分流是否真的减少捷径依赖”
 
 所有支线都必须作为可验证机制存在，而不是默认并入主模型：
 
@@ -254,17 +240,17 @@ E5 E4 + severity-balanced loss
 |---|---|---|
 | multi-attacker | 任意去身份结论出现 | 最强 attacker 下 identity risk 仍下降或可控 |
 | shortcut/artifact probe | A3 发现误差耦合变量 | `z_dep` 对这些变量的 probe risk 不高于 baseline，且只作为评估 |
-| nuisance leakage | 启用 `z_nuisance` 或 `z_id` 后 | `z_nuisance` / `z_id` 单独预测 BDI 不接近 `z_dep` |
+| nuisance leakage | 启用 `z_nuisance` 后 | `z_nuisance` 单独预测 BDI 不接近 `z_dep`；未来若批准 `z_id` 再扩展矩阵 |
 | severity-balanced | A4 证明 severity-bin bias 明显 | minimal/severe bias 改善，CCC 和 identity risk 不恶化 |
-| dynamic feature | 粗粒度解耦降低风险后 BDI 表现仍受限 | BDI/CCC 改善且不重新引入身份/static shortcut |
+| dynamic feature | 粗粒度信息分流降低风险后 BDI 表现仍受限 | BDI/CCC 改善且不重新引入身份/static shortcut |
 
 因此，最终模型应由证据逐步筛选，而不是一次性堆叠所有支线。
 
-当前 RGB 过拟合研究已经从“输入 artifact 逐项排查”和 “Shortcut-Regularized MTL” 进一步转向 **捷径感知的任务-干扰粗粒度解耦表征学习**。旧的黑边、center mask、boundary smoothing、temporal sampling、identity retrieval 和 severity calibration 实验仍然重要，但它们现在的角色是 **支撑问题定义、对照基线、审计变量和稳健性验证**，而不是为每个潜在因素分配一个模型 latent。
+当前 RGB 过拟合研究已经从“输入 artifact 逐项排查”和 “Shortcut-Regularized MTL” 进一步转向 **可审计、可证伪的粗粒度任务-干扰信息分流**。旧的黑边、center mask、boundary smoothing、temporal sampling、identity retrieval 和 severity calibration 实验仍然重要，但它们现在的角色是 **支撑问题定义、对照基线、审计变量和稳健性验证**，而不是为每个潜在因素分配一个模型 latent。
 
 当前论文问题应表述为：
 
-> 静态 RGB depression regression 在 subject-independent 小样本设置下，可能利用 subject/static appearance、OpenFace artifact proxy、task/context proxy 和 severity label imbalance 等捷径。本文不尝试穷举所有干扰因素，而是学习抑郁预测主表征与互补干扰表征，并仅对可验证 shortcut 变量施加弱监督或对抗约束，通过多攻击器和分组评估验证表征是否降低捷径依赖。
+> 静态 RGB depression regression 在 subject-independent 小样本设置下，可能利用 subject/static appearance、OpenFace artifact proxy、task/context proxy 和 severity label imbalance 等捷径。本文不尝试穷举所有干扰因素，而是提出可审计、可证伪的粗粒度任务-干扰信息分流假设，并仅对可验证 shortcut 变量施加有边界的弱监督或对抗约束；通过多攻击器、leakage matrix、分组评估和多 seed 对照决定该假设被支持还是被否定。
 
 当前主线：
 
@@ -272,8 +258,8 @@ E5 E4 + severity-balanced loss
 |---|---|---|---|
 | Stage A | Shortcut 证据收口 | 已完成并关闭 | A1+A2 成立；A3 仅作 probe/evaluation；A4 支持 severity-balanced baseline |
 | Stage B | Identity-adversarial baseline | 已完成并关闭（2026-07-10 B5） | E2 弱有效作 Stage C baseline，E1/E3 无效，identity 泄漏全局未解；进 Stage C |
-| Stage C | Coarse task-nuisance disentanglement | 下一步执行 | `z_dep/z_nuisance`，可选 `z_id`；以 E2 为强 baseline 候选，加 EarlyStopping |
-| Stage D | 稳健性验证 | 逐步执行 | multi-attacker、nuisance leakage、severity-balanced loss、group-wise robustness |
+| Stage C | Coarse task-nuisance information separation | P0 已完成，进入 C1 | `C-REF/C-BN/C-REC/C-FULL`；第一版仅 `z_dep/z_nuisance` |
+| Stage D | 反证与稳健性验证 | 逐步执行 | multi-attacker、leakage matrix、severity-balanced loss、group-wise robustness |
 
 当前最重要的下一步：
 
@@ -283,17 +269,18 @@ E5 E4 + severity-balanced loss
 [已完成] B2 severity-balanced regression baseline
 [已完成] B3 identity-adversarial + severity-balanced combined baseline
 [已完成] B5 Stage B 判定 -> 进入 Stage C（E2 弱有效，E1/E3 无效）
-[进行中] C0 spec-before-code：TaskNuisanceBlock 接口 + 失败条件 + EarlyStopping
-[下一步] C1 coarse task-nuisance disentanglement
+[已完成] C0 spec-before-code：TaskNuisanceBlock 接口 + 审计矩阵 + 失败条件
+[已完成] P0 training policy：配置化 seed + EarlyStopping + C-REF 配置骨架
+[下一步] C1 minimal TaskNuisanceBlock + representation export + loss calibration
 ```
 
 旧实验的定位：
 
 - `center_mask`、`center_mask_black_to_gray`、`border_black_feather`、`middle_crop` 和 2x2 input variants 用于证明输入侧处理会重新分配 bias，但不能单独解决身份记忆和 severe underestimation。
-- `identity_retrieval_summary` 用于证明 RGB embedding 保留 subject/static appearance，是 identity risk evaluation、identity-adversarial baseline 和可选 `z_id` 出口的前置证据。
+- `identity_retrieval_summary` 用于证明 RGB embedding 保留 subject/static appearance，是 identity risk evaluation 和 identity-adversarial baseline 的前置证据；它本身不授权第一版增加 `z_id`。
 - `severity_calibration_summary` 用于证明 post-hoc calibration 不能替代训练目标修正，是 severity-balanced branch 的前置证据。
 - `alignment_geometry`、`black_artifact` 和 temporal/task audits 是 shortcut/artifact probe、case study 和 group-wise evaluation 的前置证据。
-- `identity-adversarial MTL` 和 `severity-balanced regression` 不再是最终主线本身，而是粗粒度解耦的重要对照基线与支线验证。
+- `identity-adversarial MTL` 和 `severity-balanced regression` 不再是最终主线本身，而是粗粒度信息分流的重要对照基线与支线验证。
 
 ## 核心判断
 
@@ -916,9 +903,9 @@ balanced sampler
 
 判读指标：overall MAE/RMSE/CCC、各 severity group MAE/bias、prediction mean/std、calibration 后 CCC 是否继续下降、identity retrieval 是否恶化。
 
-### Stage C：后续待考虑项，不列入当前实验计划
+### 历史计划：动态特征支线，当前不执行
 
-动态面部变化特征暂时不进入当前 Stage B 正式实验计划。它作为 Stage C 候选，触发条件是：Stage B 后 identity shortcut 或 static appearance shortcut 仍明显存在，或者 severity-balanced 与 identity-adversarial 只能改善偏置但不能带来更稳定的 severity representation。
+本节保留 2026-07-08 之前的动态特征规划，不代表当前 Stage C 定义。动态面部变化特征不进入 C1-C3；只有基础信息分流路线完成反证评估后，才可作为 Stage D 后续支线重新立项。
 
 候选方向仅保留为规划：
 
@@ -966,12 +953,12 @@ task_consistency_summary
 | 方法族 | 本项目角色 | 当前结论 |
 |---|---|---|
 | 输入级身份/边界弱化 | 机制证据与对照 | 已证明 artifact mitigation 有价值，但不能单独解决身份记忆、severe bias 和 task context confound |
-| subject-adversarial GRL | Stage B 对照基线 | 可验证“上层抑制身份可用性”是否有效，是进入粗粒度解耦前的必要对照 |
+| subject-adversarial GRL | Stage B 对照基线 | 可验证“上层抑制身份可用性”是否有效，是进入粗粒度信息分流前的必要对照 |
 | severity-balanced regression | Stage B/D 支线 | 用于缓解 BDI score-bin / severity-bin 不均衡，目标是降低少数分段偏置，而不是人为提高预测方差 |
-| coarse task-nuisance disentanglement | 当前主线 | 将共享表示分解为 `z_dep/z_nuisance`，可选 `z_id`；不显式枚举全部 nuisance factors |
-| dynamic facial behavior | Stage D 待考虑项 | 只有当粗粒度解耦仍无法保留足够抑郁行为线索时，再作为行为支线启动 |
+| coarse task-nuisance information separation | 当前主线 | 第一版只以 `z_dep/z_nuisance` 作为可审计、可证伪的结构假设；不预设语义解耦成立 |
+| dynamic facial behavior | Stage D 待考虑项 | 只有当粗粒度信息分流仍无法保留足够抑郁行为线索时，再作为行为支线启动 |
 
-粗粒度解耦第一版应保持克制：
+粗粒度信息分流第一版应保持克制：
 
 ```text
 H0 -> z_dep, z_nuisance
@@ -979,7 +966,7 @@ prediction = Head(z_dep)
 reconstruction = Recon([z_dep, z_nuisance]) -> H0
 ```
 
-如果 A1/A2 证明身份风险确实进入预测，可选版本为：
+`z_id` 不属于第一版。只有 `C-REF/C-BN/C-REC/C-FULL` 通过 C3，且外部审计仍显示需要独立 identity outlet 时，才允许重新评估：
 
 ```text
 H0 -> z_dep, z_id, z_nuisance
@@ -989,6 +976,8 @@ subject_attacker = GRL(z_dep) -> subject_id
 ```
 
 `z_m`、`z_art`、`z_ctx`、`z_quality` 和两级递进 RPDF 暂缓。artifact/context/quality 变量只作为 probes、case study 和 group-wise evaluation，不作为第一版 latent。
+
+`L_reconstruction` 和 `L_decorrelation` 只用于提供互补性与二阶低相关的结构偏置；即使二者收敛，也仍需用 fresh linear/nonlinear attacker 和 leakage matrix 排除身份复制、非线性泄漏以及主要 BDI 信号进入 `z_nuisance`。
 
 判定模型是否“回到正轨”不能只看 BDI MAE/RMSE，也不能只看 identity retrieval 是否下降。每个关键实验都需要同时报告：
 
@@ -1001,4 +990,4 @@ task consistency: Freeform vs Northwind prediction agreement and task_diff
 training behavior: train-val gap, best epoch, overfit speed
 ```
 
-停止规则：若某个方法降低 identity retrieval 但明显损伤 CCC、severity agreement 或 task consistency，不能称为有效去身份；若某个方法改善 MAE 但 severe bias 或 prediction compression 更严重，也不能作为主线推进。当前研究价值在于把这些风险放入同一个可检验框架，而不是继续零散堆叠输入处理、GRL、重加权和动态特征。
+停止规则：若某个方法降低 identity retrieval 但明显损伤 CCC、severity agreement 或 task consistency，不能称为有效去身份；若某个方法改善 MAE 但 severe bias 或 prediction compression 更严重，也不能作为主线推进；若不优于 paired-seed `C-REF` 或 multi-seed 不稳定，则信息分流假设在当前实现下被否定，停止增加结构复杂度。当前研究价值在于把这些风险放入同一个可检验框架，而不是继续零散堆叠输入处理、GRL、重加权和动态特征。

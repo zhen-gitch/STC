@@ -12,10 +12,18 @@ The current research route is documented in:
 3. `docs/CURRENT_STATUS.md` - current status snapshot.
 4. `docs/RGB_OVERFITTING_AUDIT_PLAN.md` - main shortcut/overfitting research plan.
 5. `docs/OVERFITTING_MECHANISM_ROADMAP.md` - mechanism map and decision logic.
+6. `docs/STAGE_C_RUNBOOK.md` - frozen Stage C implementation and evaluation protocol.
 
-As of 2026-07-06, the model direction is **Shortcut-aware
-Task-Nuisance Disentangled Representation Learning**. Historical RPDF-Net
-notes are retained as background and should not override the current route.
+As of 2026-07-10, the project objective is **Auditable and Falsifiable
+Coarse-Grained Task-Nuisance Information Separation**. The `z_dep` / `z_nuisance`
+split is treated as a testable structural hypothesis, not as proof of semantic
+disentanglement. Historical RPDF-Net notes are retained as background and
+should not override the current route.
+
+Stage A/Stage B, C0 specification, and the P0 seed/EarlyStopping policy are
+complete. The current implementation task is C1: the minimal task-nuisance
+block and representation export, with `C-REF/C-BN/C-REC/C-FULL` as the fixed
+comparison matrix.
 
 ## Main Entry Points
 

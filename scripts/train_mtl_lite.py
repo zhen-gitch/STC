@@ -1,6 +1,7 @@
 import argparse
 import sys
 import traceback
+from numbers import Integral
 from pathlib import Path
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
@@ -15,6 +16,9 @@ from src.config import (
     DEFAULT_LOCAL_PATHS_CONFIG,
     load_experiment_config,
 )
+
+
+DEFAULT_SEED = 42
 
 
 def parse_args():
@@ -52,10 +56,23 @@ def load_config_from_args(args):
     )
 
 
+def resolve_seed(cfgs):
+    """Return a validated experiment seed, preserving legacy config support."""
+    seed = getattr(cfgs, "SEED", DEFAULT_SEED)
+    if isinstance(seed, bool) or not isinstance(seed, Integral):
+        raise ValueError(f"SEED must be an integer, got: {seed!r}")
+    seed = int(seed)
+    if not 0 <= seed <= 2**32 - 1:
+        raise ValueError(f"SEED must be between 0 and {2**32 - 1}, got: {seed}")
+    return seed
+
+
 def run_from_config(cfgs):
     mode = str(cfgs.MODE)
     if mode != "mtl_lite":
         raise ValueError(f"MODE must be 'mtl_lite' for MTL-Lite training, got: {mode}")
+
+    pl.seed_everything(resolve_seed(cfgs), workers=True)
 
     from src.trainers.mtl_lite_runner import run_mtl_lite
 
@@ -65,7 +82,6 @@ def run_from_config(cfgs):
 
 if __name__ == "__main__":
     torch.set_float32_matmul_precision("high")
-    pl.seed_everything(42, workers=True)
     args = parse_args()
     try:
         print(f"[INFO] LOADING BASE CONFIG FILE: {args.base_config}")

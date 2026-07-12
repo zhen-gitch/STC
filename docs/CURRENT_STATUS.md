@@ -10,20 +10,26 @@
 
 本文档是状态快照，不是执行清单。当前路线只看本节到“推荐验证命令”；2026-06-13 之后的日期章节是历史记录和证据归档，若与当前快照冲突，以本文开头和 `TODO.md` 的权威入口为准。
 
-## 当前权威快照：粗粒度 Task-Nuisance 解耦主线
+## 当前权威快照：可审计、可证伪的粗粒度信息分流主线
 
-当前工作从细粒度 **RPDF-Net：风险感知递进式去身份因子分解网络** 调整为 **Shortcut-aware Task-Nuisance Disentangled Representation Learning：捷径感知的任务-干扰粗粒度解耦表征学习**。这一调整不是否定已有 RGB input ablation、identity retrieval、severity calibration、temporal sampling、alignment geometry 和 black artifact 审计结果，而是降低模型主张的不可验证风险：不再显式枚举所有潜在因子，而是学习抑郁预测主表征 `z_dep` 与互补干扰表征 `z_nuisance`，只对 subject identity 等可验证捷径变量进行弱监督或对抗约束。
+当前项目目标正式设定为 **Auditable and Falsifiable Coarse-Grained Task-Nuisance Information Separation：可审计、可证伪的粗粒度任务-干扰信息分流**。这一调整继承已有 RGB input ablation、identity retrieval、severity calibration、temporal sampling、alignment geometry 和 black artifact 审计结果，但进一步收紧论文主张：`z_dep / z_nuisance` 是待检验的信息分流假设，不是预先成立的语义解耦结论；只对 subject identity 等可验证捷径变量进行弱监督或对抗约束。
 
 ### 当前摘要
 
 | 维度 | 当前结论 |
 |---|---|
-| 主线 | 捷径感知的粗粒度 task-nuisance 解耦 |
+| 项目目标 | 可审计、可证伪的粗粒度 task-nuisance 信息分流 |
 | 第一版 latent | `z_dep`、`z_nuisance` |
-| 可选 latent | `z_id`，仅在身份进入预测的证据充分时启用 |
+| 可选 latent | `z_id` 不进入第一版；基础方案通过 C3 后才重新论证 |
 | 不做 | 不显式建 `z_art/z_ctx/z_pose/z_quality`，不做多级 RPDF |
-| 下一步 | Stage B 已完成（见 2026-07-10 B5 收口）：E2 弱有效作 baseline，E1/E3 无效，进入 Stage C 粗粒度 `z_dep/z_nuisance` 解耦 |
-| 判据 | BDI metrics、identity risk（A1 NN + fresh attacker）、shortcut probe risk、severity bias、task consistency、train-val gap |
+| 下一步 | C0 与 P0 已完成；当前实现 C1 最小 `TaskNuisanceBlock`、多表征导出和辅助损失 |
+| 审计判据 | BDI metrics、identity risk、nuisance/BDI leakage、shortcut probe risk、severity bias、task consistency、train-val gap |
+| 主张边界 | reconstruction/decorrelation 收敛或单一 attacker 下降不等于语义解耦成功 |
+| 反证条件 | 不优于 paired-seed `C-REF`、multi-seed 不稳定或风险改善伴随 utility/group robustness 恶化时停止增加复杂度 |
+
+“可审计”要求每个表示出口和训练约束都对应可独立复现的外部测量；“可证伪”要求在编码和运行前冻结强 baseline、统一指标、multi-seed 规则和停止条件。负结果应作为机制结论保留，而不是通过继续堆叠 latent、门控或损失规避。
+
+Stage C 的完整实施规格已写入 `docs/STAGE_C_RUNBOOK.md`。当前冻结 `C-REF / C-BN / C-REC / C-FULL` 四组对照，`H0=192`、`z_dep=96`、`z_nuisance=96`，并固定 validation-only 筛选、3-seed gate、5-seed final test 和 quantitative stop conditions。P0 seed/EarlyStopping 与配置骨架已完成；C1 开始实现最小 block，不加入 `z_id`、pose/AU 训练监督或新的 GRL。
 
 ### 2026-07-08 Stage A 证据收口结论
 
@@ -59,7 +65,7 @@ E3 identity-adversarial MTL + severity-balanced regression
 
 Stage B 只允许上层、可开关、可复现实验干预：GRL/subject attacker、severity-bin weighting 或 regression loss reweighting、二者组合。禁止同时引入 `TaskNuisanceBlock`、`z_nuisance`、`z_art/z_ctx/z_pose/z_quality`、新 RGB 输入滤镜、dynamic branch 或 late fusion。
 
-Stage B 成功不以 MAE 单点下降为准，最低判读指标固定为：MAE/RMSE/Pearson/CCC、pred_std/true_std、minimal/mild/moderate/severe bias 与 MAE、layer/shared identity retrieval 或 attacker risk、task_diff_mean、train-val gap、artifact-risk group 表现。若 E1/E2/E3 不能同时改善 identity risk 或 severity bias 且保持 CCC/task consistency 稳定，才进入 Stage C 的粗粒度 `z_dep/z_nuisance` 解耦设计。
+Stage B 成功不以 MAE 单点下降为准，最低判读指标固定为：MAE/RMSE/Pearson/CCC、pred_std/true_std、minimal/mild/moderate/severe bias 与 MAE、layer/shared identity retrieval 或 attacker risk、task_diff_mean、train-val gap、artifact-risk group 表现。若 E1/E2/E3 不能同时改善 identity risk 或 severity bias 且保持 CCC/task consistency 稳定，才进入 Stage C 的粗粒度 `z_dep/z_nuisance` 信息分流设计。
 
 Stage B 实施路线已细化到 `docs/RGB_OVERFITTING_AUDIT_PLAN.md` 的“Stage B 实施路线（2026-07-08）”和 `docs/TODO.md` 的“立即可编程任务包”。后续编程按 B0 规格冻结 -> B1 identity-adversarial -> B2 severity-balanced -> B3/E0-E3 固定实验 -> B4 诊断汇总 -> B5 阶段判定推进。
 
@@ -94,11 +100,11 @@ Stage B 固定实验矩阵已全部跑完并通过 version-aware 聚合：E0（b
 
 4. **A3 artifact-risk group 未被任何 defense 改善**：matched-only A3（12 run × 100 视频）显示最强 shortcut 轴是 OpenFace 头部姿态 `pose_rz_mean`（\|corr\|=0.319）+ 多个 AU。按 pose_rz 中位数切 high/low 组，e0 high-group MAE=10.38 vs low=7.45（gap 2.93），**所有 12 run 在 high-risk 组的 MAE 都不低于 e0**——E1/E3 普遍恶化 +0.4~0.7，E2_power1.0 仅在 AU26/face_offset_y 两轴改善，pose_rz/black_border 仍恶化。整体平均耦合（122 变量）E2 系最低（0.081-0.085 vs e0 0.095），但 high-risk 组未改善说明 E2 的整体收益是「假分散」而非真解耦。
 
-5. **普遍过拟合（12/12）**：所有 run `overfit_after_best_val=True`，best-val→last 的 val 退化 0.64-2.66（E3 系最重 1.9-2.66）。best ckpt 被正确选用，但跑满 40 epoch 浪费算力且末态严重过拟合——进 Stage C 前建议加 EarlyStopping。
+5. **普遍过拟合（12/12）**：所有 run `overfit_after_best_val=True`，best-val→last 的 val 退化 0.64-2.66（E3 系最重 1.9-2.66）。best ckpt 被正确选用，但跑满 40 epoch 浪费算力且末态严重过拟合；该问题已由 P0 配置化 EarlyStopping 处理。
 
 **subject attacker 说明**：AVEC2014 是 subject-disjoint split，联合训练的 `subject_id_head` 没见过任何 test subject（旧复用 train head 的 attacker 给 coverage=0、空指标，B5 该门槛原为死的）。已改为 fresh linear-probe attacker（LOVO Ridge on `z_dep`，在 test subject 自身上训，coverage=100%），让所有 run 含 E0/E2 baseline 都出真数字。该信号与 A1 NN **收敛不分化**（都测 z_dep 身份可分性），价值是让 B5 门槛 live 并提供参数化（线性）视角作为 A1 的收敛证据，不提供新的差异化结构。
 
-**B5 阶段判定**：Stage B 的轻量级可开关 defense（identity 对抗 + severity 平衡）不足以解除 shortcut。E2 可作弱 baseline（整体 CCC 改善但 artifact/identity 组未改善），E1/E3 明确无效。**满足进入 Stage C 的条件**——下一步实现显式粗粒度 `z_dep / z_nuisance` 解耦（`docs/TODO.md` C0-spec-before-code），针对 pose_rz / AU / black_border 等已验证 shortcut 轴施加弱监督或解耦约束。进 Stage C 前加 EarlyStopping 缓解过拟合。详细执行命令见 `docs/STAGE_B_RUNBOOK.md`。
+**B5 阶段判定**：Stage B 的轻量级可开关 defense（identity 对抗 + severity 平衡）不足以解除 shortcut。E2 可作弱 baseline（整体 CCC 改善但 artifact/identity 组未改善），E1/E3 明确无效。**满足进入 Stage C 的条件**：验证显式粗粒度 `z_dep / z_nuisance` 信息分流假设；pose_rz / AU / black_border 第一版只作为审计轴。C0 与 P0 已完成，当前进入 C1；详细规格见 `docs/STAGE_C_RUNBOOK.md`。
 
 ### 2026-07-03 输入遮挡语义修正
 
@@ -106,7 +112,7 @@ Stage B 固定实验矩阵已全部跑完并通过 version-aware 聚合：E0（b
 
 为验证原有 input artifact / shortcut 结论是否仍成立，已新增 `central_face_mask` 作为新的对照消融。该变体覆盖眼、鼻、嘴和主要脸颊区域，保留约 45%-50% 总像素，用于区分“完整中心脸区域有效”与“旧 `center_mask` 的鼻口小块强遮挡偶然有效”。该修正是对历史输入消融语义的校准，不改变当前“先审计、再建模”的优先级。
 
-当前路线的核心目标是：避免过细、不可穷尽的因子划分，只建立可验证的粗粒度信息分流机制：
+当前路线的核心目标是：避免过细、不可穷尽的因子划分，建立可审计、可证伪的粗粒度信息分流机制：
 
 ```text
 H0 -> z_dep, z_nuisance
@@ -114,9 +120,9 @@ H0 -> z_dep, z_nuisance
 
 其中：
 
-- `z_dep`：抑郁预测主表征，最终 BDI 回归和 ordinal 辅助任务主要依赖它；
-- `z_nuisance`：互补干扰表征，吸收不希望主表征依赖、且无法全面枚举的非任务信息；
-- `z_id`：仅作为可选分支，在 identity audit 证明身份风险进入预测且 subject_id 监督可靠时启用；
+- `z_dep`：候选抑郁预测主表征，最终 BDI 回归和 ordinal 辅助任务只依赖它；
+- `z_nuisance`：候选互补出口；是否承载干扰信息、是否泄漏主要 BDI 信号，必须由独立 probe 验证；
+- `z_id`：不进入 Stage C 第一版；只有基础两出口方案通过 C3 稳定性闸门且证据仍支持时，才重新评估；
 - artifact、context、pose、quality 等因素不再作为第一版显式 latent，只作为离线审计变量、post-hoc probes、case study 和 group-wise evaluation 维度。
 
 当前主线分为四层：
@@ -124,8 +130,8 @@ H0 -> z_dep, z_nuisance
 ```text
 Stage A 证据收口：证明 identity / shortcut / severity imbalance 是否确实参与错误模式
 Stage B 对抗基线：验证 identity-adversarial task representation 是否降低身份捷径
-Stage C 粗粒度解耦：验证 z_dep / z_nuisance 或 z_dep / z_id / z_nuisance 是否优于共享表征
-Stage D 稳健性验证：multi-attacker、severity-balanced loss、group-wise robustness、task consistency
+Stage C 粗粒度信息分流：验证 z_dep / z_nuisance 是否在等参数条件下优于共享表征
+Stage D 反证与稳健性验证：multi-attacker、leakage matrix、severity-balanced loss、group-wise robustness、task consistency
 ```
 
 ### 现在已经完成什么
@@ -139,27 +145,30 @@ Stage D 稳健性验证：multi-attacker、severity-balanced loss、group-wise r
 
 ### 当前正在推进什么
 
-Stage A、Stage B 均已完成收口（见上方 2026-07-08 Stage A 结论与 2026-07-10 Stage B B5 结论）。Stage B 证明轻量级可开关 defense（identity 对抗 + severity 平衡）不足以解除 shortcut，下一步进入 Stage C 粗粒度解耦：
+Stage A、Stage B 均已完成收口（见上方 2026-07-08 Stage A 结论与 2026-07-10 Stage B B5 结论）。Stage B 证明轻量级可开关 defense（identity 对抗 + severity 平衡）不足以解除 shortcut，下一步进入 Stage C 粗粒度信息分流验证：
 
 1. ~~**B0 干预规格**~~：已完成（identity-adversarial MTL + severity-balanced regression 配置/损失/评估/默认关闭）。
 2. ~~**B1 identity-adversarial baseline**~~：已完成（E1）——无效，identity risk 未降。
 3. ~~**B2 severity-balanced regression**~~：已完成（E2）——弱有效，CCC +0.12、calibration 收益最大，但 identity/artifact 未解。
 4. ~~**B3 组合对照**~~：已完成（E3）——无效，两约束叠加互相干扰，utility 劣化。
-5. **C1 coarse task-nuisance disentanglement**：Stage B 基线不足已证明，实现 `H0 -> z_dep,z_nuisance`，针对 pose_rz/AU/black_border 等已验证 shortcut 轴施加弱监督或解耦约束；进 Stage C 前加 EarlyStopping 缓解过拟合。
+5. ~~**C0 spec-before-code**~~：已冻结信息分流接口、辅助损失的非证明性边界、等参数/等 bottleneck 对照、leakage matrix、multi-seed 和停止条件，详见 `STAGE_C_RUNBOOK.md`。
+6. ~~**P0 training protocol**~~：已完成配置化 seed、与 best checkpoint 共用 monitor/mode 的 EarlyStopping、训练策略测试，以及 Stage C 配置骨架和同协议 `C-REF`。
+7. **C1 coarse task-nuisance information separation（当前下一步）**：实现 `H0 -> z_dep,z_nuisance`、prediction bottleneck、stop-gradient reconstruction、float32 cross-correlation 和多表征导出；pose_rz/AU/black_border 第一版仅作审计轴。
 
-编程实施控制已细化到 `TODO.md` 的“编程实施控制（下一步）”。后续写代码时先按 B0 -> B1 -> B2 -> C0 -> C1 gate 推进：先完成 identity-adversarial / severity-balanced baseline 规格和最小实现；B 阶段未证明 baseline 不足前不写粗粒度解耦代码。
+编程实施控制已细化到 `TODO.md` 的“编程实施控制（下一步）”。后续按 `P0（已完成） -> C1 -> C2 -> C3 -> Stage D` 推进；不在基础两出口方案通过闸门前扩展 `z_id`、细粒度 latent 或多级门控。
 
 ### 当前路线细化补充
 
-最新研究路线进一步明确为四个闭环：证据闭环、对抗基线闭环、粗粒度解耦闭环和稳健性验证闭环。短期不实现完整 RPDF-Net，也不显式划分 `ctx/art/pose/quality` 等难以完全验证的潜在因子；Stage A 已证明 identity 不仅存在于 embedding 中，而且与 prediction residual / severity agreement 存在耦合。Stage B 固定比较 RGB baseline、identity-adversarial MTL 和 severity-balanced regression；Stage C 再比较 `z_dep + z_nuisance` 与可选 `z_dep + z_id + z_nuisance`。所有实验同时报告 BDI、identity risk、shortcut/artifact audit risk、severity bias、task consistency 和 train-val gap。
+最新研究路线进一步明确为四个闭环：证据闭环、对抗基线闭环、粗粒度信息分流闭环和反证/稳健性验证闭环。短期不实现完整 RPDF-Net，也不显式划分 `ctx/art/pose/quality` 等难以完全验证的潜在因子；Stage C 第一版只比较 `C-REF/C-BN/C-REC/C-FULL`，只有外部 multi-attacker、leakage matrix、group-wise evaluation 和多 seed 结果共同支持时，才允许声称风险得到降低。辅助损失仅定义结构偏置，不定义 latent 语义。
 
 ### 当前不做什么
 
 - 不直接实现完整多级、多损失、多门控 RPDF-Net。
 - 不把 `z_m`、`z_art`、`z_ctx`、`z_quality` 等细粒度因子作为当前主线。
 - 不继续扩展普通 RGB mask、灰度、模糊、黑边替换或新的输入滤镜族。
-- 不把动态特征、feature delta、AU delta、landmark/pose/gaze delta 列入第一版粗粒度解耦模型。
+- 不把动态特征、feature delta、AU delta、landmark/pose/gaze delta 列入第一版粗粒度信息分流模型。
 - 不仅凭 MAE 选择模型，必须同时检查 CCC、severity bias、identity risk、artifact risk、task consistency 和 train-val gap。
+- 不以 reconstruction、decorrelation、训练内 adversary 或单一 probe 的结果宣称语义解耦成功。
 
 ## 基础设施状态
 
@@ -1243,7 +1252,7 @@ train-val generalization gap
 
 ## 历史阶段记录说明
 
-以下 2026-06-19 相关段落保留为历史证据，说明 input-level identity suppression / boundary smoothing 2x2 的实现与当时路线。它们不再覆盖当前权威路线。当前下一步以本文开头的 `当前权威快照：粗粒度 Task-Nuisance 解耦主线` 和 `TODO.md` 的 `当前立即执行任务（权威入口）` 为准。
+以下 2026-06-19 相关段落保留为历史证据，说明 input-level identity suppression / boundary smoothing 2x2 的实现与当时路线。它们不再覆盖当前权威路线。当前下一步以本文开头的 `当前权威快照` 和 `TODO.md` 的 `当前立即执行任务（权威入口）` 为准。
 
 ## 2026-06-19 Identity x Boundary 2x2 变体实现
 
@@ -1265,7 +1274,7 @@ train-val generalization gap
 
 ## 2026-06-19 Identity Suppression 方法调研与路线确认
 
-已将现有 identity suppression / disentanglement / adversarial learning / behavior representation 研究映射到当前项目。历史当时结论是：输入级身份纹理弱化与边界平滑的 2x2 机制消融更适合作为第一步；该结论已经被 2026-07-06 的粗粒度 task-nuisance 主线更新，当前执行顺序转为 shortcut 证据收口、identity-adversarial baseline 和 coarse task-nuisance disentanglement。
+已将现有 identity suppression / disentanglement / adversarial learning / behavior representation 研究映射到当前项目。历史当时结论是：输入级身份纹理弱化与边界平滑的 2x2 机制消融更适合作为第一步；该结论随后被 2026-07-06 的 task-nuisance 路线更新，并最终由 2026-07-10 的可审计、可证伪粗粒度信息分流目标取代。
 
 原因：AVEC2014 样本小，RGB severity signal 与 subject/static appearance 可能纠缠。过早使用 adversarial identity removal 可能同时抹除有效行为线索。更稳妥的方式是先用 `edge_soften_only`、`border_blur_fill`、`identity_texture_suppressed`、`identity_texture_suppressed_edge_soften` 检验 identity shortcut 与 boundary artifact 是独立还是耦合。
 

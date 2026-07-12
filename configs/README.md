@@ -30,6 +30,12 @@ MTL-Lite base run overrides:
 - `mtl_lite_baseline.yaml`: BDI regression plus ordinal severity classification.
 - `mtl_lite_debug_smoke.yaml`: short MTL-Lite smoke run.
 
+Stage C configs live under `configs/stage_c/`. Their fixed merge order is
+`common -> experiment -> seed -> optional debug`; read
+`configs/stage_c/README.md` and `docs/STAGE_C_RUNBOOK.md` before running them.
+Before C1 is implemented, only `c_ref_e2.yaml` is runnable; the other candidate
+configs contain an intentional spec-only fail-fast sentinel.
+
 Run the MTL-Lite base smoke with:
 
 ```bash

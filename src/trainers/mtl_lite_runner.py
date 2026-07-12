@@ -1,9 +1,17 @@
+import math
 import os
+from dataclasses import dataclass
+from numbers import Integral, Real
 from pathlib import Path
 
 import pytorch_lightning as pl
 from omegaconf import OmegaConf
-from pytorch_lightning.callbacks import LearningRateMonitor, ModelCheckpoint, RichProgressBar
+from pytorch_lightning.callbacks import (
+    EarlyStopping,
+    LearningRateMonitor,
+    ModelCheckpoint,
+    RichProgressBar,
+)
 from pytorch_lightning.loggers import CSVLogger, TensorBoardLogger
 
 from src.config import resolve_experiment_save_dir, resolve_next_experiment_version
@@ -13,6 +21,129 @@ from src.models.mtl_lite import MTLLiteDepressionModel
 
 def _get_config_value(configs, key, default):
     return getattr(configs, key, default)
+
+
+@dataclass(frozen=True)
+class EarlyStoppingConfig:
+    enable: bool = False
+    monitor: str = "val_RMSE_epoch"
+    mode: str = "min"
+    patience: int = 8
+    min_delta: float = 0.0
+    strict: bool = True
+    check_finite: bool = True
+
+
+def _get_early_stopping_value(section, key, default):
+    if section is None:
+        return default
+    return getattr(section, key, default)
+
+
+def resolve_early_stopping_config(cfgs):
+    """Resolve and validate the shared checkpoint/early-stopping policy."""
+    section = getattr(cfgs, "EARLY_STOPPING", None)
+    allowed_keys = {
+        "ENABLE",
+        "MONITOR",
+        "MODE",
+        "PATIENCE",
+        "MIN_DELTA",
+        "STRICT",
+        "CHECK_FINITE",
+    }
+    if section is not None:
+        if not hasattr(section, "keys"):
+            raise ValueError("EARLY_STOPPING must be a mapping of policy fields")
+        unknown_keys = set(section.keys()) - allowed_keys
+        if unknown_keys:
+            unknown = ", ".join(sorted(unknown_keys))
+            raise ValueError(f"Unknown EARLY_STOPPING config field(s): {unknown}")
+
+    defaults = EarlyStoppingConfig()
+    values = {
+        "enable": _get_early_stopping_value(section, "ENABLE", defaults.enable),
+        "monitor": _get_early_stopping_value(section, "MONITOR", defaults.monitor),
+        "mode": _get_early_stopping_value(section, "MODE", defaults.mode),
+        "patience": _get_early_stopping_value(section, "PATIENCE", defaults.patience),
+        "min_delta": _get_early_stopping_value(section, "MIN_DELTA", defaults.min_delta),
+        "strict": _get_early_stopping_value(section, "STRICT", defaults.strict),
+        "check_finite": _get_early_stopping_value(
+            section, "CHECK_FINITE", defaults.check_finite
+        ),
+    }
+
+    for key in ("enable", "strict", "check_finite"):
+        if not isinstance(values[key], bool):
+            raise ValueError(
+                f"EARLY_STOPPING.{key.upper()} must be a boolean, "
+                f"got: {values[key]!r}"
+            )
+
+    if not isinstance(values["monitor"], str) or not values["monitor"].strip():
+        raise ValueError("EARLY_STOPPING.MONITOR must be a non-empty string")
+    values["monitor"] = values["monitor"].strip()
+
+    if not isinstance(values["mode"], str) or values["mode"] not in {"min", "max"}:
+        raise ValueError(
+            "EARLY_STOPPING.MODE must be either 'min' or 'max', "
+            f"got: {values['mode']!r}"
+        )
+
+    patience = values["patience"]
+    if isinstance(patience, bool) or not isinstance(patience, Integral) or patience < 0:
+        raise ValueError(
+            "EARLY_STOPPING.PATIENCE must be a non-negative integer, "
+            f"got: {patience!r}"
+        )
+    values["patience"] = int(patience)
+
+    min_delta = values["min_delta"]
+    if (
+        isinstance(min_delta, bool)
+        or not isinstance(min_delta, Real)
+        or not math.isfinite(float(min_delta))
+        or min_delta < 0
+    ):
+        raise ValueError(
+            "EARLY_STOPPING.MIN_DELTA must be a finite non-negative number, "
+            f"got: {min_delta!r}"
+        )
+    values["min_delta"] = float(min_delta)
+
+    return EarlyStoppingConfig(**values)
+
+
+def build_mtl_lite_callbacks(cfgs):
+    """Build callbacks with one validated monitor policy for model selection."""
+    early_stopping = resolve_early_stopping_config(cfgs)
+    checkpoint_filename = (
+        f"mtl_lite-{{epoch:03d}}-{{{early_stopping.monitor}:.4f}}"
+    )
+    checkpoint_callback = ModelCheckpoint(
+        monitor=early_stopping.monitor,
+        mode=early_stopping.mode,
+        save_top_k=1,
+        save_last=True,
+        filename=checkpoint_filename,
+    )
+    callbacks = [
+        RichProgressBar(),
+        checkpoint_callback,
+        LearningRateMonitor(logging_interval="step"),
+    ]
+    if early_stopping.enable:
+        callbacks.append(
+            EarlyStopping(
+                monitor=early_stopping.monitor,
+                mode=early_stopping.mode,
+                patience=early_stopping.patience,
+                min_delta=early_stopping.min_delta,
+                strict=early_stopping.strict,
+                check_finite=early_stopping.check_finite,
+            )
+        )
+    return callbacks
 
 
 def build_train_subject_index(cfgs):
@@ -76,15 +207,6 @@ def build_train_severity_bin_counts(cfgs, edges=(13, 19, 28)):
 
 def build_mtl_lite_trainer(cfgs):
     """Build the Lightning trainer for the MTL-Lite mainline."""
-    checkpoint_callback = ModelCheckpoint(
-        monitor="val_RMSE_epoch",
-        mode="min",
-        save_top_k=1,
-        save_last=True,
-        filename="mtl_lite-{epoch:03d}-{val_RMSE_epoch:.4f}",
-    )
-    lr_monitor = LearningRateMonitor(logging_interval="step")
-
     save_dir = resolve_experiment_save_dir(cfgs)
     version = resolve_next_experiment_version(save_dir)
     return pl.Trainer(
@@ -93,7 +215,7 @@ def build_mtl_lite_trainer(cfgs):
         strategy=_get_config_value(cfgs, "STRATEGY", "auto"),
         precision=cfgs.PRECISION,
         max_epochs=cfgs.PROCESS_TEMPORAL.MAX_EPOCHS,
-        callbacks=[RichProgressBar(), checkpoint_callback, lr_monitor],
+        callbacks=build_mtl_lite_callbacks(cfgs),
         check_val_every_n_epoch=1,
         log_every_n_steps=1,
         logger=[

@@ -4,9 +4,9 @@
 
 ## 当前权威路线
 
-截至 2026-07-06，当前研究路线从细粒度 **RPDF-Net：Risk-aware Progressive De-identification Factorization Network** 调整为 **Shortcut-aware Task-Nuisance Disentangled Representation Learning**，中文暂定为 **捷径感知的任务-干扰粗粒度解耦表征学习**。
+截至 2026-07-10，项目目标正式设定为 **Auditable and Falsifiable Coarse-Grained Task-Nuisance Information Separation**，中文为 **可审计、可证伪的粗粒度任务-干扰信息分流**。该目标继承此前 Shortcut-aware Task-Nuisance 路线，但把“语义解耦”从预设结论降为待检验假设。
 
-当前主线不再尝试显式枚举并分解所有潜在因子，例如 `ctx`、`art`、`pose`、`quality` 等。新的原则是：只对可验证捷径变量进行弱监督或对抗约束，其他难以完整覆盖的因素统一视为非任务干扰，通过粗粒度 task-nuisance 解耦和离线审计验证。
+当前主线不再尝试显式枚举并分解所有潜在因子，例如 `ctx`、`art`、`pose`、`quality` 等。新的原则是：以 `H0 -> z_dep, z_nuisance` 作为粗粒度信息分流假设，只对可验证捷径变量进行弱监督或对抗约束，并通过外部 probe、multi-attacker、leakage matrix、group-wise evaluation 和多 seed 对照审计其效果。reconstruction、decorrelation、训练内 adversary 变弱或单一指标改善，都不能单独证明语义解耦成功。
 
 ```text
 已完成证据层：input artifact / temporal / identity / calibration / geometry audits
@@ -17,12 +17,12 @@ Stage A: Shortcut evidence closure
 Stage B: Identity-adversarial task representation
         H0 -> z_dep, with verifiable shortcut suppression
         ↓
-Stage C: Coarse task-nuisance disentanglement
+Stage C: Coarse task-nuisance information separation
         H0 -> z_dep, z_nuisance
-        optional: H0 -> z_dep, z_id, z_nuisance
+        post-C3 only if re-authorized: H0 -> z_dep, z_id, z_nuisance
         ↓
-Stage D: Robustness validation
-        multi-attacker / severity-balanced loss / group-wise robustness / task consistency
+Stage D: Falsification and robustness validation
+        multi-attacker / leakage matrix / severity-balanced loss / group-wise robustness / task consistency
 ```
 
 旧的 RPDF-Net、`z_art`、`z_m`、递进分解和多级门控方案保留为历史设计背景或可选远期支线，不再作为当前主线。input artifact、boundary smoothing、temporal sampling、identity retrieval 和 Shortcut-Regularized MTL 方案现在主要作为问题证据、对照基线和审计工具。需要决定“接下来做什么”时，优先看 `TODO.md` 的“当前立即执行任务（权威入口）”。
@@ -31,11 +31,14 @@ Stage D: Robustness validation
 
 | 问题 | 当前决定 |
 |---|---|
-| 当前模型主张 | 粗粒度 task-nuisance 解耦，而不是细粒度全因子分解 |
-| 显式 latent | `z_dep`、`z_nuisance`，必要时加 `z_id` |
+| 项目目标 | 可审计、可证伪的粗粒度 task-nuisance 信息分流 |
+| 结构假设 | `H0 -> z_dep, z_nuisance`，而不是细粒度全因子分解 |
+| 显式 latent | 第一版仅 `z_dep`、`z_nuisance`；`z_id` 需基础方案通过 C3 后重新论证 |
 | 不显式划分 | `z_art`、`z_ctx`、`z_pose`、`z_quality` 等难以穷尽的因素 |
 | 训练监督 | 只对 subject identity 等可验证 shortcut 使用弱监督或对抗约束 |
 | artifact / context / quality | 用于 audit、probe、case study 和 group-wise evaluation |
+| 主张边界 | 辅助损失收敛不等于语义解耦；结论必须由外部审计支持 |
+| 反证条件 | 不优于 paired-seed `C-REF`、multi-seed 不稳定或风险下降以 utility 恶化为代价时停止扩展 |
 | 下一步入口 | `TODO.md` 的“当前立即执行任务（权威入口）” |
 
 ## 快速读取策略
@@ -61,8 +64,9 @@ Stage D: Robustness validation
 读取：
 
 1. `docs/TODO.md` 的对应任务
-2. `docs/EXPERIMENT_SCRIPT_MANUAL.md` 的命令模板
-3. 对应设计文档：`MTL_LITE_DESIGN.md`、`SHORTCUT_AUDIT_DESIGN.md` 或 `RGB_OVERFITTING_AUDIT_PLAN.md`
+2. Stage C 任务先读 `docs/STAGE_C_RUNBOOK.md`
+3. `docs/EXPERIMENT_SCRIPT_MANUAL.md` 的命令模板
+4. 其他对应设计文档：`MTL_LITE_DESIGN.md`、`SHORTCUT_AUDIT_DESIGN.md` 或 `RGB_OVERFITTING_AUDIT_PLAN.md`
 
 ### 需要写论文/解释结果
 
@@ -85,6 +89,7 @@ Stage D: Robustness validation
 | `RGB_OVERFITTING_AUDIT_PLAN.md` | 当前机制主控 | RGB 过拟合研究主控文档，解释实验优先级和论文叙事 | 低层代码接口细节、所有历史命令 |
 | `OVERFITTING_MECHANISM_ROADMAP.md` | 当前机制地图 | 上层机制地图、层级模型、决策树、停止规则 | 每次实验的完整数值表、脚本参数 |
 | `SHORTCUT_AUDIT_DESIGN.md` | 当前诊断规格 | 诊断脚本、输出字段、audit 设计规格 | 当前状态总结、论文长篇叙事 |
+| `STAGE_C_RUNBOOK.md` | 当前 Stage C 实施权威 | 信息分流接口、配置矩阵、seed、审计协议、停止条件和实施命令 | Stage B 历史结果、长篇文献论证 |
 | `EXPERIMENT_SCRIPT_MANUAL.md` | 当前命令手册 | 常用运行命令和脚本调用模板 | 实验结果解释、机制判断 |
 | `CODEX_CONTEXT.md` | 当前长期上下文 | Codex 长期上下文与工作约束，尽量保持紧凑 | 重复粘贴所有实验结果和长表格 |
 | `MTL_LITE_DESIGN.md` | 架构背景 | MTL-Lite 架构、模块边界、训练入口设计 | RGB 过拟合最新审计结论 |

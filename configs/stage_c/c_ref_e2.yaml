@@ -1,0 +1,11 @@
+# C-REF: Stage B E2 structure rerun under the Stage C training policy.
+
+EXPERIMENT_NAME: "c_ref_e2"
+
+MODEL:
+  TASK_NUISANCE:
+    ENABLE: False
+
+LOSSES:
+  RECONSTRUCTION_WEIGHT: 0.0
+  CROSS_CORRELATION_WEIGHT: 0.0

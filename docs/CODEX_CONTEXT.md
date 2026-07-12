@@ -21,7 +21,7 @@ MTL-Lite 基座：独立放在 src/models/mtl_lite.py，不继承旧模型
 
 ## 当前研究路线与模型基座
 
-当前论文路线是 **Shortcut-aware Task-Nuisance Disentangled Representation Learning**，面向 AVEC2014 风格的人脸视频抑郁程度预测。MTL-Lite 仍是当前训练和诊断的轻量模型基座，但不再单独构成完整论文主张。
+当前项目目标是 **Auditable and Falsifiable Coarse-Grained Task-Nuisance Information Separation：可审计、可证伪的粗粒度任务-干扰信息分流**，面向 AVEC2014 风格的人脸视频抑郁程度预测。MTL-Lite 仍是当前训练和诊断的轻量模型基座，但不再单独构成完整论文主张。
 
 当前基础流程：
 
@@ -34,11 +34,13 @@ MTL-Lite 基座：独立放在 src/models/mtl_lite.py，不继承旧模型
 ```text
 Stage A: shortcut 证据收口
 Stage B: identity-adversarial task representation
-Stage C: coarse task-nuisance disentanglement
-Stage D: robustness validation
+Stage C: coarse task-nuisance information separation
+Stage D: falsification and robustness validation
 ```
 
-核心主张：不显式枚举所有潜在 nuisance factors，而是学习 `z_dep` 与 `z_nuisance` 的粗粒度分流；仅对 subject identity 等可验证 shortcut 使用弱监督或对抗约束。artifact、context、pose、quality 等因素作为 audit/probe/case-study/group-wise evaluation 变量。
+核心主张：不显式枚举所有潜在 nuisance factors，而是把 `z_dep` 与 `z_nuisance` 作为粗粒度信息分流假设；仅对 subject identity 等可验证 shortcut 使用弱监督或对抗约束。artifact、context、pose、quality 等因素作为 audit/probe/case-study/group-wise evaluation 变量。reconstruction、decorrelation、训练内 adversary 或单一 probe 不能单独证明语义解耦；结论必须由 external multi-attacker、leakage matrix、group-wise evaluation 和 multi-seed 对照支持。
+
+截至 2026-07-10，Stage A/Stage B、C0 规格冻结和 P0 seed/EarlyStopping 已完成；当前任务是 C1 最小 `TaskNuisanceBlock`。第一版矩阵固定为 `C-REF/C-BN/C-REC/C-FULL`，不加入 `z_id` 或 pose/AU 训练监督。完整协议见 `docs/STAGE_C_RUNBOOK.md`。
 
 ### 机制证据背景：RGB 过拟合多因素审计
 
@@ -600,6 +602,6 @@ behavior prediction export
 
 三表联合最新结论：`rgb_input_ablation_summary`、`identity_retrieval_summary`、`severity_calibration_summary` 已覆盖 `rgb`、`center_mask`、`border_black_feather`、`middle_crop`、`center_mask_black_to_gray`。`center_mask` 是当前最健康 input artifact mitigation 证据，CCC 最高且 task consistency 接近 baseline；`center_mask_black_to_gray` MAE 最低但 severe bias 最差；`border_black_feather` severe bias 最轻但 identity retrieval 最强；`middle_crop` 降低身份检索但恶化 task consistency。所有 linear calibration 都降低 CCC，不作为最终模型方案。后续不再继续扩展普通 RGB 输入滤镜或把动态特征直接列入正式计划。
 
-2026-07-06 当前路线：细粒度 RPDF-Net 已降级为历史设计背景。当前路线是 **Shortcut-aware Task-Nuisance Disentangled Representation Learning**，中文暂定为“捷径感知的任务-干扰粗粒度解耦表征学习”。路线是 Stage A shortcut 证据收口（layer-wise identity probe、error-identity coupling、shortcut/artifact audit as evaluation、severity imbalance summary）-> Stage B identity-adversarial task representation -> Stage C coarse task-nuisance disentanglement（`H0 -> z_dep, z_nuisance`，必要时加 `z_id`）-> Stage D robustness validation。`z_art`、`z_m`、`z_ctx`、`z_quality` 和两级递进 RPDF 暂缓，不作为当前模型路线。artifact/context/quality 变量只作为 probes、case study 和 group-wise evaluation。
+2026-07-06 历史路线记录：细粒度 RPDF-Net 当时降级为 **Shortcut-aware Task-Nuisance Disentangled Representation Learning**。该口径已被 2026-07-10 的 **Auditable and Falsifiable Coarse-Grained Task-Nuisance Information Separation** 目标取代；`z_dep/z_nuisance` 现在是待审计、可被否定的结构假设，不是预设的语义解耦结论。
 
 文档整理状态：当前路线已前置到 `DOCS_GUIDE.md`、`CURRENT_STATUS.md`、`TODO.md`、`RGB_OVERFITTING_AUDIT_PLAN.md` 和 `OVERFITTING_MECHANISM_ROADMAP.md`。后续判断下一步时，优先读取 `TODO.md` 的“当前立即执行任务（权威入口）”。旧 input artifact / boundary 2x2 / temporal sampling / Shortcut-Regularized MTL / RPDF-Net 段落是历史证据，不再覆盖 task-nuisance 主线。
