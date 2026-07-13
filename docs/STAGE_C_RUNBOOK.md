@@ -31,7 +31,7 @@ P0 训练协议冻结
 -> Stage D 五 seed test 反证验证
 ```
 
-C1 实现期间不创建可误运行的 Stage C 正式训练矩阵；未实现或尚未完成 calibration 的候选必须由 spec-only 哨兵或严格配置校验明确拒绝。当前仅开放 `C-REF`、`C-BN` 和 train-only calibration support run，`C-REC/C-FULL` 仍保持关闭。
+C1 实现与 calibration 已完成，四组候选均可运行。2026-07-13 的 seed-42 utility screening 已触发停止条件，因此当前流程在 C2 结束，不进入 C3。
 
 ## 3. P0 训练协议
 
@@ -60,12 +60,20 @@ EARLY_STOPPING:
   CHECK_FINITE: true
 ```
 
+Stage C validation-only 额外固定：
+
+```yaml
+RUN_TEST_AFTER_FIT: false
+```
+
+基础配置缺省为 `true` 以兼容旧实验；C2/C3 必须为 `false`，只有冻结后的 final-test 协议才允许显式改为 `true`。
+
 约束：
 
 - `ModelCheckpoint` 和 `EarlyStopping` 必须读取同一份 `MONITOR/MODE`。
 - `check_val_every_n_epoch=1`、`save_top_k=1`、`save_last=true` 保持不变。
 - `PROCESS_TEMPORAL.MAX_EPOCHS=40` 是硬上限，不是预期训练长度。
-- test 始终使用 `ckpt_path="best"`。
+- validation-only run 在 `fit` 后直接结束；允许 test 的最终协议必须使用 `ckpt_path="best"`。
 - Stage C 的 `C-REF` 必须用同一 EarlyStopping 协议重跑 Stage B E2 结构；历史 Stage B 数值只作背景，不直接作为公平对照。
 
 Stage B 的 12 个 run 最佳 validation epoch 全部位于 6-8，且之后均未恢复；`PATIENCE=8` 预计在约 14-16 epoch 停止，保留回弹窗口同时避免继续跑满 40 epoch。
@@ -137,7 +145,7 @@ LOSSES:
 | `C-REC` | true | `split` | on | off |
 | `C-FULL` | true | `split` | on | on |
 
-截至 2026-07-12，`C-REF`、`C-BN` 和 calibration support run 已可运行。`C-REC/C-FULL` 继续使用 spec-only 哨兵，直到服务器 calibration 冻结正权重。
+截至 2026-07-13，四组均已实现并完成 seed-42 运行。calibration 冻结 `lambda_rec=0.001`、`lambda_xcorr=0.01`。
 
 `calibration_train_only.yaml` 是非对照 support run：记录 seed 42 前 `CALIBRATION_STEPS=100` 个 train batch 的原始主损失、reconstruction 和 cross-correlation，不创建 validation/test 结果；冻结权重后才把正数写入 `C-REC/C-FULL`。
 
@@ -304,6 +312,17 @@ delta_task_diff_mean <= +0.50 BDI
 ```
 
 任一 seed 出现 `delta_CCC < -0.05` 或 `delta_MAE > +0.50`，视为该 seed 发生 utility failure。
+
+### 11.1.1 2026-07-13 Seed-42 判定
+
+| Run | best val MAE | best val CCC | delta MAE | delta CCC | 判定 |
+|---|---:|---:|---:|---:|---|
+| `C-REF` | 8.2539 | 0.4570 | 0.0000 | 0.0000 | reference |
+| `C-BN` | 8.4809 | 0.3580 | +0.2270 | -0.0990 | severe utility failure |
+| `C-REC` | 8.7878 | 0.3395 | +0.5339 | -0.1175 | severe utility failure |
+| `C-FULL` | 8.7793 | 0.3423 | +0.5254 | -0.1147 | severe utility failure |
+
+三组候选全部失败，因此不进入 C3。后续 representation leakage/group robustness 只用于解释负结果，不能用于推翻已冻结的 utility stop condition。旧 runner 在这些运行后自动打开了 test；C2 判定未使用 test，相关 test 数值标记为 exploratory。
 
 ### 11.2 Risk reduction
 

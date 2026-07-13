@@ -11,19 +11,22 @@ common.yaml -> experiment yaml -> seed yaml -> optional debug_smoke.yaml
 and EarlyStopping policy. `c_bn_bottleneck.yaml` is the runnable prediction-
 bottleneck control.
 
-`c_rec_split_recon.yaml` and `c_full_split_full.yaml` intentionally retain
-`MODE: stage_c_spec_only` while their calibrated weights are `null`. The
-sentinel prevents either candidate from being run before the train-only
-calibration freezes its weight values.
+`c_rec_split_recon.yaml` uses the frozen reconstruction weight `0.001`.
+`c_full_split_full.yaml` uses reconstruction `0.001` and cross-correlation
+`0.01`. Both are runnable, but the seed-42 utility screen failed relative to
+`C-REF`; do not start C3 seeds without a newly preregistered route.
 
 `calibration_train_only.yaml` computes and logs both raw auxiliary losses while
 keeping their contribution to the optimization objective at zero. The runner
 stops at `CALIBRATION_STEPS=100`, disables sanity/validation, and skips test.
 Those train batches determine the single frozen weight pair.
 
-The reconstruction and cross-correlation weights in the split candidates are
-`null` until the seed-42 train-only calibration freezes one value from
-`0.001 / 0.01`. Validation and test metrics must not be used for this choice.
+The weights were selected only from the seed-42 train-only calibration loss
+scale. Validation/test utility was not used to choose them.
+
+`common.yaml` sets `RUN_TEST_AFTER_FIT: False`. C2/C3 therefore finish after
+validation and keep test closed. Only a frozen final-test protocol may
+explicitly override this field to `True`.
 
 Reference run:
 

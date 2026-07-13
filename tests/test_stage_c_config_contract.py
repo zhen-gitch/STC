@@ -22,6 +22,7 @@ def test_stage_c_reference_resolves_to_runnable_e2_policy():
     assert cfg.EXPERIMENT_GROUP == "stage_c"
     assert cfg.EXPERIMENT_NAME == "c_ref_e2"
     assert cfg.SEED == 42
+    assert cfg.RUN_TEST_AFTER_FIT is False
     assert cfg.PROCESS_TEMPORAL.MAX_EPOCHS == 40
     assert cfg.EARLY_STOPPING.ENABLE is True
     assert cfg.EARLY_STOPPING.MONITOR == "val_RMSE_epoch"

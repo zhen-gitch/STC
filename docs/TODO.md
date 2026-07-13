@@ -23,8 +23,8 @@ Stage A Shortcut 证据收口
 |---|---|---|
 | A. Shortcut 证据收口 | 身份、artifact/quality、severity imbalance 是否确实影响预测或误差？ | 已完成：A1+A2 成立，A3 仅作评估，A4 支持 severity-balanced |
 | B. Identity-adversarial baseline | 只抑制可验证身份捷径是否足够？ | 已完成：E2 弱有效，E1/E3 无效，identity 泄漏全局未解，进入 Stage C（结论见 `CURRENT_STATUS.md` 2026-07-10 B5） |
-| C. Coarse task-nuisance 信息分流 | `z_dep / z_nuisance` 是否在等参数条件下优于共享表征和 GRL baseline？ | C1 代码已本地实现；下一步服务器 smoke + train-only calibration |
-| D. Falsification / robustness | 信息分流是否真的减少捷径依赖，而不是只改善 MAE 或辅助损失？ | multi-attacker、leakage matrix、group-wise 报告、多 seed 失败率 |
+| C. Coarse task-nuisance 信息分流 | `z_dep / z_nuisance` 是否在等参数条件下优于共享表征和 GRL baseline？ | seed-42 utility gate 已否证当前 96 维 bottleneck/split 家族，停止进入 C3 |
+| D. Falsification / robustness | 信息分流失败来自 bottleneck、泄漏未降还是优化不稳定？ | 对冻结 seed-42 checkpoint 做 leakage/group 失败机制诊断，不扩模型 |
 
 阅读规则：只执行新任务时读到“暂缓项”为止即可；后续章节主要是历史任务、已完成基础设施和旧阶段记录。
 
@@ -43,7 +43,7 @@ Stage A Shortcut 证据收口
 
 #### 立即可编程任务包
 
-> 状态（2026-07-12）：**Stage B、C0 和 P0 已完成，C1 最小代码已本地实现并通过测试**。当前活动任务是服务器 `C-REF/C-BN` debug smoke 与 100-step train-only calibration；完成并冻结辅助权重前不进入 C2。
+> 状态（2026-07-13）：**C1 已完成，C2 seed-42 utility gate 已否证当前候选**。C-BN/C-REC/C-FULL 相对 C-REF 均发生 severe utility failure；当前活动任务是 validation-only 协议修复和失败机制诊断，禁止进入 C3 或继续调同族结构。
 
 1. **A0-result-gate**：已完成 A1-A4 服务器输出收口。
    - 输入：A1 layerwise summary、A2 coupling report、A3 matched-only weaklabel report、A4 severity imbalance report。
@@ -109,13 +109,13 @@ Stage A Shortcut 证据收口
    - 先写失败条件：若不优于 paired `C-REF`、multi-seed 不稳定、`z_nuisance -> BDI` 泄漏接近 `z_dep`，或风险下降以 CCC/severity/task consistency 恶化为代价，停止增加复杂度。
    - 禁止把 artifact/context/pose/quality 做成显式 latent；pose_rz / AU / black_border 第一版只作为审计轴，不进入训练监督。
    - P0 已完成：配置化 seed；EarlyStopping 与 best checkpoint 共用 monitor/mode；共享 base 默认关闭，Stage C common 开启；新增训练策略测试和同协议 `C-REF` 配置。
-10. **C1-minimal-information-separation**（代码已实现，服务器验证中）：在 C0 spec 冻结后实现最小闭环。
+10. **C1-minimal-information-separation**（已完成）：在 C0 spec 冻结后实现最小闭环。
     - 已实现 `H0 -> z_dep, z_nuisance`，预测只读 `z_dep`，recon/decorrelation 低权重可开关。
     - 固定对照组：`C-REF`、`C-BN`、`C-REC`、`C-FULL`；Stage B 的 E0-E3 只作历史背景，不复用为 Stage C run ID。
     - 本地 config/forward/loss/backward、默认 state-dict 兼容和多表征导出测试已通过。
-    - 待服务器 seed 42 `C-REF/C-BN` smoke 与 100-step train-only calibration；calibration 禁用 validation/test，不读取其 utility 选择权重。
-11. **C2-validation-screening**：seed 42、validation-only 比较 `C-REF/C-BN/C-REC/C-FULL`，执行 utility、identity risk、BDI leakage 和 group robustness 闸门。
-12. **C3-multi-seed-gate**：seeds 42/43/44、validation-only 做 paired-seed 稳定性验证；至少 2/3 seed 风险方向一致且全部满足 utility non-inferiority，才进入 Stage D。
+    - seed 42 smoke 与 100-step train-only calibration 已完成；冻结 `lambda_rec=0.001`、`lambda_xcorr=0.01`。
+11. **C2-validation-screening**（utility gate 已完成并失败）：C-BN/C-REC/C-FULL 的 validation CCC 相对 C-REF 分别下降 `0.0990/0.1175/0.1147`；C-REC/C-FULL MAE 恶化超过 `0.50`。后续 leakage/group 只用于解释失败，不再决定是否进入 C3。
+12. **C3-multi-seed-gate**（停止）：按预注册 severe utility failure 规则，不运行 seeds 43/44，不进入 Stage D final-test 路径。
 
 #### 实施验收命令
 
@@ -208,12 +208,12 @@ python -m pytest tests/test_error_identity_coupling.py tests/test_artifact_weakl
 - [x] C1 实现 stop-gradient reconstruction：`H0_recon = Recon([z_dep, z_nuisance])`。
 - [x] C1 实现 float32 normalized cross-correlation；batch size 小于 2 返回可反传零值。
 - [x] C1 同 checkpoint 导出 `H0/z_dep/z_nuisance`，旧 `features` 继续指向 prediction representation。
-- [ ] C1 服务器运行 seed 42 `C-REF/C-BN` debug smoke。
-- [ ] C1 服务器运行 100-step train-only calibration，按贡献上限冻结 `C-REC/C-FULL` 权重并解除哨兵。
+- [x] C1 服务器运行 seed 42 `C-REF/C-BN` debug smoke。
+- [x] C1 服务器运行 100-step train-only calibration，冻结 `lambda_rec=0.001`、`lambda_xcorr=0.01` 并解除哨兵。
 - [x] C0 固定 Stage C 对照：`C-REF/C-BN/C-REC/C-FULL`，第一版不加入 `z_id`。
 - [x] C0 不显式划分 `z_art`、`z_ctx`、`z_pose`、`z_quality`；这些变量只用于 post-hoc probe、case study 和 group-wise evaluation。
-- [ ] C2 seed 42 validation-only screening：相对 paired `C-REF` 执行 utility、risk、leakage 和 group-wise 闸门。
-- [ ] C3 seeds 42/43/44 validation-only gate：通过稳定性条件后才能冻结 Stage D 协议。
+- [x] C2 seed 42 utility screening：三组候选均触发 severe utility failure，当前结构假设在 utility gate 被否证。
+- [x] C3 seeds 42/43/44 gate：按停止规则取消，不运行 seed 43/44。
 - [ ] Stage D 后续扩展：只有基础两出口方案通过 C3 且证据仍支持时，才重新评估可选 `z_id`；不属于 C1-C3 第一版。
 
 ### D. Falsification and Robustness Validation
@@ -234,7 +234,7 @@ python -m pytest tests/test_error_identity_coupling.py tests/test_artifact_weakl
 - [x] B5 Stage B 收口：12 run 跑完，E2 弱有效、E1/E3 无效、identity 泄漏全局未解，判定进入 Stage C（结论见 `CURRENT_STATUS.md` 2026-07-10）。
 - [x] C0 固定 Stage C 对照：`C-REF/C-BN/C-REC/C-FULL`；`C-REF` 按新训练协议复现 E2 结构，第一版不加入 `z_id`。
 - [x] P0 固定 seed 与 EarlyStopping，并建立 Stage C 配置骨架和防误跑哨兵。
-- [ ] C1 本地代码已完成；待服务器 seed 42 smoke/calibration 和权重冻结后关闭阶段。
+- [x] C1 代码、服务器 smoke/calibration 和权重冻结均完成。
 - [ ] D0 固定统一报告：BDI metrics、severity bias、identity risk、nuisance/BDI leakage、shortcut/artifact probe risk、task consistency、train-val gap。
 - [x] 停止规则已冻结：若粗粒度信息分流不优于 paired-seed `C-REF`、multi-seed 不稳定，或风险下降以 utility/group robustness 恶化为代价，停止增加复杂度，转为诊断型贡献。
 

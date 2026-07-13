@@ -33,9 +33,9 @@ MTL-Lite base run overrides:
 Stage C configs live under `configs/stage_c/`. Their fixed merge order is
 `common -> experiment -> seed -> optional debug`; read
 `configs/stage_c/README.md` and `docs/STAGE_C_RUNBOOK.md` before running them.
-`c_ref_e2.yaml`, `c_bn_bottleneck.yaml`, and `calibration_train_only.yaml` are
-runnable. `C-REC/C-FULL` retain a spec-only fail-fast sentinel until train-only
-calibration freezes their auxiliary weights.
+All four Stage C candidates are runnable. The seed-42 calibration froze
+`lambda_rec=0.001` and `lambda_xcorr=0.01`; Stage C common config keeps test
+closed with `RUN_TEST_AFTER_FIT: False` during validation-only work.
 
 Run the MTL-Lite base smoke with:
 

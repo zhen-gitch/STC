@@ -23,6 +23,17 @@ def _get_config_value(configs, key, default):
     return getattr(configs, key, default)
 
 
+def resolve_run_test_after_fit(cfgs):
+    """Resolve whether a completed fit may open the test split."""
+    value = _get_config_value(cfgs, "RUN_TEST_AFTER_FIT", True)
+    if not isinstance(value, bool):
+        raise ValueError(
+            "RUN_TEST_AFTER_FIT must be a boolean, "
+            f"got: {value!r}"
+        )
+    return value
+
+
 @dataclass(frozen=True)
 class EarlyStoppingConfig:
     enable: bool = False
@@ -260,7 +271,8 @@ def save_resolved_config(cfgs, trainer):
 
 
 def run_mtl_lite(cfgs):
-    """Train and test the lightweight multi-task BDI model."""
+    """Train the lightweight model and optionally test the best checkpoint."""
+    run_test_after_fit = resolve_run_test_after_fit(cfgs)
     model = MTLLiteDepressionModel(cfgs)
     data_module = AVECDataModule(cfgs)
 
@@ -307,6 +319,12 @@ def run_mtl_lite(cfgs):
             "\n[RUNNER] Train-only auxiliary calibration finished at "
             f"{model.task_nuisance_config.calibration_steps} steps; "
             "validation and test were not opened."
+        )
+        return
+
+    if not run_test_after_fit:
+        print(
+            "\n[RUNNER] Validation-only run finished; test split remains closed."
         )
         return
 

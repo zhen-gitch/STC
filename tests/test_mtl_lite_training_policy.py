@@ -11,6 +11,7 @@ from src.trainers.mtl_lite_runner import (
     build_mtl_lite_callbacks,
     build_mtl_lite_trainer,
     resolve_early_stopping_config,
+    resolve_run_test_after_fit,
 )
 
 
@@ -56,6 +57,7 @@ def test_base_config_freezes_p0_defaults_and_seed_can_be_overridden():
         "STRICT": True,
         "CHECK_FINITE": True,
     }
+    assert resolve_run_test_after_fit(base) is True
 
     overridden = OmegaConf.merge(base, {"SEED": 1234})
     assert train_mtl_lite.resolve_seed(overridden) == 1234
@@ -162,6 +164,56 @@ def test_calibration_run_skips_validation_selected_test(monkeypatch):
     mtl_lite_runner.run_mtl_lite(OmegaConf.create({}))
 
     assert [call[0] for call in calls] == ["fit"]
+
+
+@pytest.mark.parametrize(
+    ("configured_value", "expected_calls"),
+    [
+        (None, ["fit", "test"]),
+        (False, ["fit"]),
+    ],
+)
+def test_run_test_after_fit_policy(monkeypatch, configured_value, expected_calls):
+    calls = []
+
+    class FakeModel:
+        identity_adversarial = False
+        severity_balanced_regression = False
+        task_nuisance_config = SimpleNamespace(
+            calibration_only=False,
+            calibration_steps=100,
+        )
+
+    class FakeTrainer:
+        def fit(self, model, data_module):
+            calls.append(("fit", model, data_module))
+
+        def test(self, *args, **kwargs):
+            calls.append(("test", args, kwargs))
+
+    data_module = object()
+    trainer = FakeTrainer()
+    monkeypatch.setattr(mtl_lite_runner, "MTLLiteDepressionModel", lambda cfg: FakeModel())
+    monkeypatch.setattr(mtl_lite_runner, "AVECDataModule", lambda cfg: data_module)
+    monkeypatch.setattr(
+        mtl_lite_runner,
+        "build_mtl_lite_trainer",
+        lambda cfg, calibration_only, calibration_steps: trainer,
+    )
+    monkeypatch.setattr(mtl_lite_runner, "save_resolved_config", lambda *args: None)
+
+    cfg = {}
+    if configured_value is not None:
+        cfg["RUN_TEST_AFTER_FIT"] = configured_value
+    mtl_lite_runner.run_mtl_lite(OmegaConf.create(cfg))
+
+    assert [call[0] for call in calls] == expected_calls
+
+
+@pytest.mark.parametrize("value", [1, "false", None])
+def test_invalid_run_test_after_fit_is_rejected(value):
+    with pytest.raises(ValueError, match="RUN_TEST_AFTER_FIT must be a boolean"):
+        resolve_run_test_after_fit(OmegaConf.create({"RUN_TEST_AFTER_FIT": value}))
 
 
 @pytest.mark.parametrize(

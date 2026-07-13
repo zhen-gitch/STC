@@ -20,10 +20,11 @@ split is treated as a testable structural hypothesis, not as proof of semantic
 disentanglement. Historical RPDF-Net notes are retained as background and
 should not override the current route.
 
-Stage A/Stage B, C0 specification, and the P0 seed/EarlyStopping policy are
-complete. The C1 minimal task-nuisance block, auxiliary losses, and multi-
-representation export are implemented locally. Server debug smoke and the
-train-only weight calibration remain before C1 can close and C2 can start.
+Stage A/Stage B, C0/P0, and the C1 minimal task-nuisance implementation are
+complete. Seed-42 C2 utility screening falsified the current 96-dimensional
+prediction-bottleneck family: C-BN/C-REC/C-FULL all failed the frozen utility
+gate relative to C-REF. The active route is now protocol repair and diagnostic
+analysis of that negative result, not progression to C3.
 
 ## Main Entry Points
 
