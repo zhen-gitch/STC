@@ -40,7 +40,7 @@ Stage D: falsification and robustness validation
 
 核心主张：不显式枚举所有潜在 nuisance factors，而是把 `z_dep` 与 `z_nuisance` 作为粗粒度信息分流假设；仅对 subject identity 等可验证 shortcut 使用弱监督或对抗约束。artifact、context、pose、quality 等因素作为 audit/probe/case-study/group-wise evaluation 变量。reconstruction、decorrelation、训练内 adversary 或单一 probe 不能单独证明语义解耦；结论必须由 external multi-attacker、leakage matrix、group-wise evaluation 和 multi-seed 对照支持。
 
-截至 2026-07-10，Stage A/Stage B、C0 规格冻结和 P0 seed/EarlyStopping 已完成；当前任务是 C1 最小 `TaskNuisanceBlock`。第一版矩阵固定为 `C-REF/C-BN/C-REC/C-FULL`，不加入 `z_id` 或 pose/AU 训练监督。完整协议见 `docs/STAGE_C_RUNBOOK.md`。
+截至 2026-07-12，Stage A/Stage B、C0 和 P0 已完成；C1 最小 `TaskNuisanceBlock`、stop-gradient reconstruction、float32 cross-correlation、严格配置校验和多表征导出已在本地实现并通过测试。当前剩余项是服务器 `C-REF/C-BN` debug smoke 和 100-step train-only calibration；完成前不进入 C2，也不解除 `C-REC/C-FULL` 的 spec-only 哨兵。完整协议见 `docs/STAGE_C_RUNBOOK.md`。
 
 ### 机制证据背景：RGB 过拟合多因素审计
 

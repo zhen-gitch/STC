@@ -33,8 +33,9 @@ MTL-Lite base run overrides:
 Stage C configs live under `configs/stage_c/`. Their fixed merge order is
 `common -> experiment -> seed -> optional debug`; read
 `configs/stage_c/README.md` and `docs/STAGE_C_RUNBOOK.md` before running them.
-Before C1 is implemented, only `c_ref_e2.yaml` is runnable; the other candidate
-configs contain an intentional spec-only fail-fast sentinel.
+`c_ref_e2.yaml`, `c_bn_bottleneck.yaml`, and `calibration_train_only.yaml` are
+runnable. `C-REC/C-FULL` retain a spec-only fail-fast sentinel until train-only
+calibration freezes their auxiliary weights.
 
 Run the MTL-Lite base smoke with:
 

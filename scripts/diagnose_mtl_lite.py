@@ -231,6 +231,12 @@ def collect_predictions_and_features(model, data_loader, device):
     all_targets = []
     all_preds = []
     all_features = []
+    representation_batches = {
+        "features_h0": [],
+        "features_z_dep": [],
+        "features_z_nuisance": [],
+    }
+    representation_available = {key: True for key in representation_batches}
 
     with torch.no_grad():
         for video_tensor, mask, labels in data_loader:
@@ -240,6 +246,15 @@ def collect_predictions_and_features(model, data_loader, device):
             preds = model.prediction_for_metrics(outputs.bdi_pred).detach().cpu().numpy()
             targets = labels["bdi_score"].detach().cpu().numpy()
             features = outputs.shared_features.detach().cpu().numpy()
+            representation_tensors = {
+                "features_h0": outputs.h0_features
+                if outputs.h0_features is not None
+                else outputs.shared_features,
+                "features_z_dep": outputs.z_dep_features
+                if outputs.z_dep_features is not None
+                else outputs.shared_features,
+                "features_z_nuisance": outputs.z_nuisance_features,
+            }
 
             all_video_ids.extend(_video_ids_from_labels(labels))
             all_subject_ids.extend(_subject_ids_from_labels(labels))
@@ -247,8 +262,22 @@ def collect_predictions_and_features(model, data_loader, device):
             all_targets.extend(targets.tolist())
             all_preds.extend(preds.tolist())
             all_features.append(features)
+            for key, value in representation_tensors.items():
+                if value is None:
+                    representation_available[key] = False
+                else:
+                    representation_batches[key].append(
+                        value.detach().cpu().numpy()
+                    )
 
     import numpy as np
+
+    representation_features = {}
+    for key, batches in representation_batches.items():
+        if representation_available[key] and len(batches) == len(all_features):
+            representation_features[key] = np.concatenate(batches, axis=0)
+        else:
+            representation_features[key] = None
 
     return (
         all_video_ids,
@@ -257,6 +286,7 @@ def collect_predictions_and_features(model, data_loader, device):
         np.asarray(all_targets),
         np.asarray(all_preds),
         np.concatenate(all_features, axis=0),
+        representation_features,
     )
 
 
@@ -376,9 +406,15 @@ def run_split_diagnostics(
 
     data_loader = get_split_loader(data_module, split)
 
-    video_ids, subject_ids, task_names, targets, preds, features = collect_predictions_and_features(
-        model, data_loader, device
-    )
+    (
+        video_ids,
+        subject_ids,
+        task_names,
+        targets,
+        preds,
+        features,
+        representation_features,
+    ) = collect_predictions_and_features(model, data_loader, device)
 
     prediction_csv = split_root / "regression" / f"{split}_predictions.csv"
     records = write_prediction_table(
@@ -388,7 +424,14 @@ def run_split_diagnostics(
 
     features_npz = split_root / "embeddings" / f"{split}_features.npz"
     save_features_npz(
-        features_npz, features, subject_ids, targets, preds, video_ids=video_ids
+        features_npz,
+        features,
+        subject_ids,
+        targets,
+        preds,
+        video_ids=video_ids,
+        task_names=task_names,
+        representation_features=representation_features,
     )
     generated_files.append(features_npz)
 

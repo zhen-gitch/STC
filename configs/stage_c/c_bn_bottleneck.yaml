@@ -1,5 +1,4 @@
-# SPEC ONLY until C1 is implemented and tested.
-MODE: "stage_c_spec_only"
+# C-BN: implemented Stage C prediction-bottleneck control.
 EXPERIMENT_NAME: "c_bn_bottleneck"
 
 MODEL:

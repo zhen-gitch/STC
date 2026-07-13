@@ -21,9 +21,9 @@ disentanglement. Historical RPDF-Net notes are retained as background and
 should not override the current route.
 
 Stage A/Stage B, C0 specification, and the P0 seed/EarlyStopping policy are
-complete. The current implementation task is C1: the minimal task-nuisance
-block and representation export, with `C-REF/C-BN/C-REC/C-FULL` as the fixed
-comparison matrix.
+complete. The C1 minimal task-nuisance block, auxiliary losses, and multi-
+representation export are implemented locally. Server debug smoke and the
+train-only weight calibration remain before C1 can close and C2 can start.
 
 ## Main Entry Points
 

@@ -96,7 +96,7 @@ python scripts/train_mtl_lite.py --override configs/mtl_lite_debug_smoke.yaml
 
 ### 2.5 Stage C reference
 
-Stage C 必须按 `common -> experiment -> seed -> optional debug` 顺序叠加 override。P0 完成后，只有 `C-REF` 可直接训练：
+Stage C 必须按 `common -> experiment -> seed -> optional debug` 顺序叠加 override。`C-REF` reference：
 
 ```bash
 python scripts/train_mtl_lite.py \
@@ -115,14 +115,32 @@ python scripts/train_mtl_lite.py \
   --override configs/stage_c/debug_smoke.yaml
 ```
 
-`C-BN/C-REC/C-FULL` 在 C1 完成前带有 spec-only 防误跑哨兵，不得用于正式训练。完整矩阵、seed、审计和停止条件见 `docs/STAGE_C_RUNBOOK.md`。
+`C-BN` debug smoke：
 
-`calibration_train_only.yaml` 同样在 C1 前拒绝运行；C1 完成后它只记录前 100 个 train batch 的原始辅助损失，辅助项权重保持为 0，不读取 validation/test。
+```bash
+python scripts/train_mtl_lite.py \
+  --override configs/stage_c/common.yaml \
+  --override configs/stage_c/c_bn_bottleneck.yaml \
+  --override configs/stage_c/seeds/seed_42.yaml \
+  --override configs/stage_c/debug_smoke.yaml
+```
+
+Train-only calibration 不叠加 debug override；runner 固定执行 100 train steps，并关闭 validation/test：
+
+```bash
+python scripts/train_mtl_lite.py \
+  --override configs/stage_c/common.yaml \
+  --override configs/stage_c/calibration_train_only.yaml \
+  --override configs/stage_c/seeds/seed_42.yaml
+```
+
+`C-REC/C-FULL` 仍带 spec-only 哨兵，必须等 calibration 冻结正权重后才能运行。完整矩阵、seed、审计和停止条件见 `docs/STAGE_C_RUNBOOK.md`。
 
 配置和 P0 策略验证：
 
 ```bash
 python -m pytest tests/test_mtl_lite_training_policy.py tests/test_stage_c_config_contract.py
+python -m pytest tests/test_task_nuisance.py tests/test_mtl_lite_forward.py tests/test_mtl_lite_loss_backward.py
 ```
 
 ### 2.6 Behavior-only baseline

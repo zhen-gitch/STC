@@ -20,6 +20,14 @@ class MTLLiteOutput:
     # enabled AND a train-only subject index has been injected; otherwise
     # ``None`` so the default baseline path is unchanged.
     identity_logits: Optional[torch.Tensor] = None
+    # Stage C: H0 and the candidate information outlets. These remain None
+    # when MODEL.TASK_NUISANCE is absent or disabled, preserving the Stage B
+    # output contract. They retain gradients during Stage C training because
+    # auxiliary losses are computed from this output object.
+    h0_features: Optional[torch.Tensor] = None
+    z_dep_features: Optional[torch.Tensor] = None
+    z_nuisance_features: Optional[torch.Tensor] = None
+    reconstructed_h0: Optional[torch.Tensor] = None
 
 
 @dataclass
@@ -35,3 +43,7 @@ class MTLLiteLosses:
     # train-only subject index.  Default ``None`` keeps existing callers and
     # the default baseline total loss bit-identical.
     identity: Optional[torch.Tensor] = None
+    # Stage C auxiliary losses. In calibration-only mode these contain raw
+    # train-batch values but are deliberately excluded from ``total``.
+    reconstruction: Optional[torch.Tensor] = None
+    cross_correlation: Optional[torch.Tensor] = None

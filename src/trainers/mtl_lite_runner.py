@@ -114,8 +114,20 @@ def resolve_early_stopping_config(cfgs):
     return EarlyStoppingConfig(**values)
 
 
-def build_mtl_lite_callbacks(cfgs):
+def build_mtl_lite_callbacks(cfgs, calibration_only=False):
     """Build callbacks with one validated monitor policy for model selection."""
+    if calibration_only:
+        return [
+            RichProgressBar(),
+            ModelCheckpoint(
+                monitor=None,
+                save_top_k=0,
+                save_last=True,
+                filename="mtl_lite-calibration-{step:04d}",
+            ),
+            LearningRateMonitor(logging_interval="step"),
+        ]
+
     early_stopping = resolve_early_stopping_config(cfgs)
     checkpoint_filename = (
         f"mtl_lite-{{epoch:03d}}-{{{early_stopping.monitor}:.4f}}"
@@ -205,23 +217,35 @@ def build_train_severity_bin_counts(cfgs, edges=(13, 19, 28)):
     return counts
 
 
-def build_mtl_lite_trainer(cfgs):
+def build_mtl_lite_trainer(
+    cfgs, calibration_only=False, calibration_steps=100
+):
     """Build the Lightning trainer for the MTL-Lite mainline."""
     save_dir = resolve_experiment_save_dir(cfgs)
     version = resolve_next_experiment_version(save_dir)
+    calibration_kwargs = {}
+    if calibration_only:
+        calibration_kwargs = {
+            "max_steps": int(calibration_steps),
+            "limit_val_batches": 0,
+            "num_sanity_val_steps": 0,
+        }
     return pl.Trainer(
         accelerator=cfgs.ACCELERATOR,
         devices=cfgs.DEVICES,
         strategy=_get_config_value(cfgs, "STRATEGY", "auto"),
         precision=cfgs.PRECISION,
         max_epochs=cfgs.PROCESS_TEMPORAL.MAX_EPOCHS,
-        callbacks=build_mtl_lite_callbacks(cfgs),
+        callbacks=build_mtl_lite_callbacks(
+            cfgs, calibration_only=calibration_only
+        ),
         check_val_every_n_epoch=1,
         log_every_n_steps=1,
         logger=[
             CSVLogger(save_dir=save_dir, name="", version=version),
             TensorBoardLogger(save_dir=save_dir, name="", version=version),
         ],
+        **calibration_kwargs,
     )
 
 
@@ -237,8 +261,8 @@ def save_resolved_config(cfgs, trainer):
 
 def run_mtl_lite(cfgs):
     """Train and test the lightweight multi-task BDI model."""
-    data_module = AVECDataModule(cfgs)
     model = MTLLiteDepressionModel(cfgs)
+    data_module = AVECDataModule(cfgs)
 
     # Stage B1: inject a train-only subject index when identity-adversarial is
     # enabled.  The model is the single source of truth for its own switch
@@ -267,11 +291,24 @@ def run_mtl_lite(cfgs):
             f"{bin_counts}, power={model.severity_power}"
         )
 
-    trainer = build_mtl_lite_trainer(cfgs)
+    calibration_only = model.task_nuisance_config.calibration_only
+    trainer = build_mtl_lite_trainer(
+        cfgs,
+        calibration_only=calibration_only,
+        calibration_steps=model.task_nuisance_config.calibration_steps,
+    )
     save_resolved_config(cfgs, trainer)
 
     print("\n[RUNNER] 正在启动 MTL-Lite 训练引擎...")
     trainer.fit(model, data_module)
+
+    if calibration_only:
+        print(
+            "\n[RUNNER] Train-only auxiliary calibration finished at "
+            f"{model.task_nuisance_config.calibration_steps} steps; "
+            "validation and test were not opened."
+        )
+        return
 
     print("\n[RUNNER] 训练结束，正在使用验证集最优 checkpoint 进行 Test 集评估...")
     trainer.test(model, datamodule=data_module, ckpt_path="best")

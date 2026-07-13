@@ -258,7 +258,7 @@ reconstruction = Recon([z_dep, z_nuisance]) -> H0
 |---|---|---|---|
 | Stage A | Shortcut 证据收口 | 已完成并关闭 | A1+A2 成立；A3 仅作 probe/evaluation；A4 支持 severity-balanced baseline |
 | Stage B | Identity-adversarial baseline | 已完成并关闭（2026-07-10 B5） | E2 弱有效作 Stage C baseline，E1/E3 无效，identity 泄漏全局未解；进 Stage C |
-| Stage C | Coarse task-nuisance information separation | P0 已完成，进入 C1 | `C-REF/C-BN/C-REC/C-FULL`；第一版仅 `z_dep/z_nuisance` |
+| Stage C | Coarse task-nuisance information separation | C1 代码已本地实现，服务器验证中 | `C-REF/C-BN` smoke + train-only calibration；第一版仅 `z_dep/z_nuisance` |
 | Stage D | 反证与稳健性验证 | 逐步执行 | multi-attacker、leakage matrix、severity-balanced loss、group-wise robustness |
 
 当前最重要的下一步：
@@ -271,7 +271,8 @@ reconstruction = Recon([z_dep, z_nuisance]) -> H0
 [已完成] B5 Stage B 判定 -> 进入 Stage C（E2 弱有效，E1/E3 无效）
 [已完成] C0 spec-before-code：TaskNuisanceBlock 接口 + 审计矩阵 + 失败条件
 [已完成] P0 training policy：配置化 seed + EarlyStopping + C-REF 配置骨架
-[下一步] C1 minimal TaskNuisanceBlock + representation export + loss calibration
+[已完成] C1 local code：TaskNuisanceBlock + representation export + auxiliary losses
+[下一步] C1 server gate：C-REF/C-BN smoke + 100-step train-only calibration
 ```
 
 旧实验的定位：

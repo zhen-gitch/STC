@@ -9,7 +9,11 @@ environment.
 import sys
 from pathlib import Path
 
+import numpy as np
 import pytest
+import torch
+
+from src.models.outputs import MTLLiteOutput
 
 # The diagnostic script lives in ``scripts/`` rather than ``src/``; make it
 # importable as a module for testing.
@@ -84,3 +88,64 @@ def test_build_parser_default_split_is_test():
     parser = mtl_lite_diagnose.build_parser()
     args = parser.parse_args(["--run-dir", "."])
     assert args.split == ["test"]
+
+
+class _DiagnosticModel:
+    def __init__(self, split=False):
+        self.split = split
+
+    def __call__(self, video_tensor, mask, return_features=False):
+        batch_size = video_tensor.size(0)
+        shared = torch.arange(batch_size * 4, dtype=torch.float32).reshape(
+            batch_size, 4
+        )
+        return MTLLiteOutput(
+            bdi_pred=torch.full((batch_size,), 0.5),
+            shared_features=shared,
+            h0_features=torch.ones(batch_size, 8) if self.split else None,
+            z_dep_features=shared if self.split else None,
+            z_nuisance_features=torch.full((batch_size, 4), 2.0)
+            if self.split
+            else None,
+        )
+
+    @staticmethod
+    def prediction_for_metrics(predictions):
+        return predictions * 63.0
+
+
+def _diagnostic_loader():
+    return [
+        (
+            torch.randn(2, 3, 3, 8, 8),
+            torch.ones(2, 3, dtype=torch.bool),
+            {
+                "video_id": ["001_Freeform", "002_Northwind"],
+                "subject_id": ["001", "002"],
+                "task_name": ["Freeform", "Northwind"],
+                "bdi_score": torch.tensor([10.0, 20.0]),
+            },
+        )
+    ]
+
+
+def test_reference_diagnostic_bundle_aliases_h0_and_z_dep_to_prediction_features():
+    collected = mtl_lite_diagnose.collect_predictions_and_features(
+        _DiagnosticModel(split=False), _diagnostic_loader(), torch.device("cpu")
+    )
+    representations = collected[-1]
+
+    np.testing.assert_allclose(representations["features_h0"], collected[-2])
+    np.testing.assert_allclose(representations["features_z_dep"], collected[-2])
+    assert representations["features_z_nuisance"] is None
+
+
+def test_split_diagnostic_bundle_exports_all_representations_from_one_forward():
+    collected = mtl_lite_diagnose.collect_predictions_and_features(
+        _DiagnosticModel(split=True), _diagnostic_loader(), torch.device("cpu")
+    )
+    representations = collected[-1]
+
+    assert representations["features_h0"].shape == (2, 8)
+    assert representations["features_z_dep"].shape == (2, 4)
+    assert representations["features_z_nuisance"].shape == (2, 4)

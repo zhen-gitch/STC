@@ -733,7 +733,7 @@ E3  identity-adversarial MTL + severity-balanced regression
 - [x] B1 代码：`src/models/outputs.py`（`identity_logits` / `identity`）、`src/models/gradient_reversal.py`（GRL）、`src/models/mtl_lite.py`（`set_subject_index` / `_map_subjects_to_index` / forward 分支 / `compute_losses(..., stage=)` gating / `_shared_step` 透传 stage）、`src/trainers/mtl_lite_runner.py`（`build_train_subject_index` + 注入）；
 - [x] B2 代码：`src/models/mtl_lite.py`（`set_severity_bin_counts` / `_severity_bin_index` / `_severity_weighted_mse` / `compute_losses` regression 项替换）、`src/trainers/mtl_lite_runner.py`（`build_train_severity_bin_counts` + 注入，edges 取自模型）。两个开关默认关闭时与 E0 逐位等价（27 项测试覆盖）。
 
-Stage B 的 B0-B5 已全部完成并关闭，E2 是唯一弱有效结构，但 identity/artifact 风险未解。当前进入 Stage C：C0 规格和 P0 训练协议已完成，下一步实现 C1 最小 `TaskNuisanceBlock`。完整接口、配置矩阵、seed 和停止条件见 `docs/STAGE_C_RUNBOOK.md`。
+Stage B 的 B0-B5 已全部完成并关闭，E2 是唯一弱有效结构，但 identity/artifact 风险未解。Stage C 的 C0/P0 已完成；C1 最小代码已在本地实现，当前等待服务器 smoke 与 train-only calibration。完整接口、配置矩阵、seed 和停止条件见 `docs/STAGE_C_RUNBOOK.md`。
 
 ## 14. Stage C 最小扩展边界
 
@@ -754,3 +754,11 @@ Recon([z_dep,z_nuisance]) -> H0
 - 第一版不实现 `z_id`、pose/AU 训练监督、task adversary、门控或多级 latent；
 - `C-REC` 与 `C-FULL` 参数和 bottleneck 完全一致，`C-BN` 单独控制 prediction bottleneck；
 - 全部 Stage C 实施和运行规格以 `docs/STAGE_C_RUNBOOK.md` 为准。
+
+2026-07-12 本地实现状态：
+
+- 新增 `src/models/task_nuisance.py`：严格配置解析、`bottleneck/split` block、stop-gradient reconstruction 和 float32 normalized cross-correlation；
+- `src/models/mtl_lite.py`：prediction/ordinal/未来 identity head 统一读取 `z_dep`，默认关闭时无新增参数或 state-dict key；
+- `scripts/diagnose_mtl_lite.py` / `src/diagnostics/io.py`：旧 `features` 保持 prediction-facing，并在同一 NPZ 增加 `features_h0/features_z_dep/features_z_nuisance` 与 task metadata；
+- calibration runner 固定 `CALIBRATION_STEPS=100`，关闭 validation/sanity/test，辅助损失以零权重接入 autograd，避免 DDP unused parameters；
+- `C-BN` 与 calibration support config 已解除哨兵；`C-REC/C-FULL` 仍等待服务器校准后写入正权重。

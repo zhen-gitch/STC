@@ -1,15 +1,48 @@
 import csv
 
+import numpy as np
 import pytest
 
 from src.diagnostics.correlation import plot_predictions_correlation_heatmap
-from src.diagnostics.io import read_prediction_table, write_prediction_table
+from src.diagnostics.io import (
+    read_prediction_table,
+    save_features_npz,
+    write_prediction_table,
+)
 from src.diagnostics.regression import plot_regression_diagnostics, regression_summary
 from src.diagnostics.reports import write_diagnostic_report
 from src.diagnostics.training_curves import plot_training_curves
 
 
 pytest.importorskip("matplotlib")
+
+
+def test_stage_c_feature_archive_preserves_legacy_key_and_marks_missing_outlet(
+    tmp_path,
+):
+    save_path = tmp_path / "features.npz"
+    features = np.arange(8, dtype=float).reshape(2, 4)
+    save_features_npz(
+        save_path,
+        features=features,
+        subject_ids=["001", "002"],
+        targets=[10, 20],
+        preds=[11, 19],
+        video_ids=["001_Freeform", "002_Northwind"],
+        task_names=["Freeform", "Northwind"],
+        representation_features={
+            "features_h0": np.ones((2, 8)),
+            "features_z_dep": features,
+            "features_z_nuisance": None,
+        },
+    )
+
+    archive = np.load(save_path)
+    np.testing.assert_allclose(archive["features"], features)
+    np.testing.assert_allclose(archive["features_z_dep"], features)
+    assert archive["features_h0"].shape == (2, 8)
+    assert archive["task_names"].tolist() == ["Freeform", "Northwind"]
+    assert archive["features_z_nuisance_status"].item() == "not_applicable"
 
 
 def test_prediction_table_and_regression_plots(tmp_path):

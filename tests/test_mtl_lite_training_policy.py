@@ -1,11 +1,15 @@
+from types import SimpleNamespace
+
 import pytest
 from omegaconf import OmegaConf
 from pytorch_lightning.callbacks import EarlyStopping, ModelCheckpoint
 
 from scripts import train_mtl_lite
 from src.config import DEFAULT_BASE_CONFIG
+from src.trainers import mtl_lite_runner
 from src.trainers.mtl_lite_runner import (
     build_mtl_lite_callbacks,
+    build_mtl_lite_trainer,
     resolve_early_stopping_config,
 )
 
@@ -81,6 +85,83 @@ def test_enabled_early_stopping_and_checkpoint_share_configured_policy():
     assert early_stopping.min_delta == 0.01
     assert early_stopping.strict is False
     assert early_stopping.check_finite is False
+
+
+def test_calibration_callbacks_do_not_monitor_validation_or_early_stop():
+    callbacks = build_mtl_lite_callbacks(_config(), calibration_only=True)
+    checkpoint = _callback(callbacks, ModelCheckpoint)
+
+    assert checkpoint.monitor is None
+    assert checkpoint.save_top_k == 0
+    assert checkpoint.save_last is True
+    assert not any(isinstance(item, EarlyStopping) for item in callbacks)
+
+
+def test_calibration_trainer_uses_train_only_step_limit(monkeypatch, tmp_path):
+    cfg = OmegaConf.create(
+        {
+            "ACCELERATOR": "cpu",
+            "DEVICES": 1,
+            "STRATEGY": "auto",
+            "PRECISION": "32-true",
+            "LOG_DIR": str(tmp_path),
+            "EXPERIMENT_GROUP": "stage_c_debug",
+            "EXPERIMENT_NAME": "calibration",
+            "PROCESS_TEMPORAL": {"MAX_EPOCHS": 40},
+        }
+    )
+    monkeypatch.setattr(
+        mtl_lite_runner, "CSVLogger", lambda **kwargs: ("csv", kwargs)
+    )
+    monkeypatch.setattr(
+        mtl_lite_runner, "TensorBoardLogger", lambda **kwargs: ("tb", kwargs)
+    )
+    monkeypatch.setattr(
+        mtl_lite_runner.pl, "Trainer", lambda **kwargs: kwargs
+    )
+
+    trainer_kwargs = build_mtl_lite_trainer(
+        cfg, calibration_only=True, calibration_steps=17
+    )
+
+    assert trainer_kwargs["max_steps"] == 17
+    assert trainer_kwargs["limit_val_batches"] == 0
+    assert trainer_kwargs["num_sanity_val_steps"] == 0
+    assert trainer_kwargs["max_epochs"] == 40
+
+
+def test_calibration_run_skips_validation_selected_test(monkeypatch):
+    calls = []
+
+    class FakeModel:
+        identity_adversarial = False
+        severity_balanced_regression = False
+        task_nuisance_config = SimpleNamespace(
+            calibration_only=True,
+            calibration_steps=11,
+        )
+
+    class FakeTrainer:
+        def fit(self, model, data_module):
+            calls.append(("fit", model, data_module))
+
+        def test(self, *args, **kwargs):
+            calls.append(("test", args, kwargs))
+
+    data_module = object()
+    trainer = FakeTrainer()
+    monkeypatch.setattr(mtl_lite_runner, "MTLLiteDepressionModel", lambda cfg: FakeModel())
+    monkeypatch.setattr(mtl_lite_runner, "AVECDataModule", lambda cfg: data_module)
+    monkeypatch.setattr(
+        mtl_lite_runner,
+        "build_mtl_lite_trainer",
+        lambda cfg, calibration_only, calibration_steps: trainer,
+    )
+    monkeypatch.setattr(mtl_lite_runner, "save_resolved_config", lambda *args: None)
+
+    mtl_lite_runner.run_mtl_lite(OmegaConf.create({}))
+
+    assert [call[0] for call in calls] == ["fit"]
 
 
 @pytest.mark.parametrize(

@@ -31,7 +31,7 @@ P0 训练协议冻结
 -> Stage D 五 seed test 反证验证
 ```
 
-在 C1 代码完成前，不创建可误运行的 Stage C 正式训练矩阵。配置骨架可以先建立，但未实现字段必须由配置校验明确拒绝。
+C1 实现期间不创建可误运行的 Stage C 正式训练矩阵；未实现或尚未完成 calibration 的候选必须由 spec-only 哨兵或严格配置校验明确拒绝。当前仅开放 `C-REF`、`C-BN` 和 train-only calibration support run，`C-REC/C-FULL` 仍保持关闭。
 
 ## 3. P0 训练协议
 
@@ -111,6 +111,7 @@ MODEL:
     RECONSTRUCTION_ENABLE: false
     CROSS_CORRELATION_ENABLE: false
     AUXILIARY_CALIBRATION_ONLY: false
+    CALIBRATION_STEPS: 100
 
 LOSSES:
   RECONSTRUCTION_WEIGHT: 0.0
@@ -121,10 +122,10 @@ LOSSES:
 
 - 配置节缺失或 `ENABLE=false` 时，Stage B/旧 MTL-Lite 行为与 state dict 不变。
 - `VARIANT=bottleneck` 只实例化与 `dep_encoder` 同构的 `Linear -> LayerNorm -> GELU`，用于 `C-BN`。
-- `VARIANT=split` 同时实例化两个 encoder 和 reconstructor；`DEP_DIM + NUISANCE_DIM` 必须等于 `H0_DIM`。
+- `VARIANT=split` 同时实例化两个 encoder 和 reconstructor，必须启用 reconstruction；`DEP_DIM + NUISANCE_DIM` 必须等于 `H0_DIM`。
 - 正式训练中，`RECONSTRUCTION_ENABLE=false` 时 `RECONSTRUCTION_WEIGHT` 必须为 `0.0`；开启时权重必须为正数。
 - 正式训练中，`CROSS_CORRELATION_ENABLE=false` 时 `CROSS_CORRELATION_WEIGHT` 必须为 `0.0`；开启时权重必须为正数。
-- `AUXILIARY_CALIBRATION_ONLY=true` 只允许 train split：两个原始辅助损失均计算并记录，但权重固定为 `0.0`，不进入优化目标；validation/test 不得参与权重选择。
+- `AUXILIARY_CALIBRATION_ONLY=true` 只允许 train split：runner 按 `CALIBRATION_STEPS` 停止，关闭 sanity/validation/test；两个原始辅助损失均计算并记录，但以零权重接入 autograd，不改变优化目标。
 - 未知 `TASK_NUISANCE` 字段、非法 variant、维度不匹配和开关/权重冲突必须 fail-fast，不能静默回退为 E2。
 
 四组映射固定为：
@@ -136,9 +137,9 @@ LOSSES:
 | `C-REC` | true | `split` | on | off |
 | `C-FULL` | true | `split` | on | on |
 
-`configs/stage_c/` 在 C1 完成前使用明确的 spec-only 哨兵阻止 `C-BN/C-REC/C-FULL` 和 calibration support run 被误运行；只有 `C-REF` 可在 P0 后按新训练协议运行。
+截至 2026-07-12，`C-REF`、`C-BN` 和 calibration support run 已可运行。`C-REC/C-FULL` 继续使用 spec-only 哨兵，直到服务器 calibration 冻结正权重。
 
-`calibration_train_only.yaml` 是非对照 support run：C1 完成后移除其哨兵，记录 seed 42 前 100 个 train batch 的原始主损失、reconstruction 和 cross-correlation；冻结权重后才把正数写入 `C-REC/C-FULL`。
+`calibration_train_only.yaml` 是非对照 support run：记录 seed 42 前 `CALIBRATION_STEPS=100` 个 train batch 的原始主损失、reconstruction 和 cross-correlation，不创建 validation/test 结果；冻结权重后才把正数写入 `C-REC/C-FULL`。
 
 ### 4.4 输出契约
 
@@ -347,12 +348,15 @@ C1：
 src/models/task_nuisance.py
 src/models/mtl_lite.py
 src/models/outputs.py
+src/trainers/mtl_lite_runner.py
 scripts/diagnose_mtl_lite.py
 src/diagnostics/io.py
 configs/stage_c/
 tests/test_task_nuisance.py
 tests/test_mtl_lite_forward.py
 tests/test_mtl_lite_loss_backward.py
+tests/test_diagnose_mtl_lite.py
+tests/test_mtl_lite_diagnostics.py
 ```
 
 C2 前置审计：
@@ -377,7 +381,31 @@ P0/C1 修改后优先运行：
 python -m compileall src scripts tests
 python -m pytest tests/test_mtl_lite_training_policy.py tests/test_stage_c_config_contract.py
 python -m pytest tests/test_task_nuisance.py tests/test_mtl_lite_forward.py tests/test_mtl_lite_loss_backward.py
-python scripts/train_mtl_lite.py --override configs/mtl_lite_debug_smoke.yaml
+python -m pytest tests/test_diagnose_mtl_lite.py tests/test_mtl_lite_diagnostics.py
+```
+
+服务器 C1 gate 按顺序运行：
+
+```bash
+# C-REF debug smoke
+python scripts/train_mtl_lite.py \
+  --override configs/stage_c/common.yaml \
+  --override configs/stage_c/c_ref_e2.yaml \
+  --override configs/stage_c/seeds/seed_42.yaml \
+  --override configs/stage_c/debug_smoke.yaml
+
+# C-BN debug smoke
+python scripts/train_mtl_lite.py \
+  --override configs/stage_c/common.yaml \
+  --override configs/stage_c/c_bn_bottleneck.yaml \
+  --override configs/stage_c/seeds/seed_42.yaml \
+  --override configs/stage_c/debug_smoke.yaml
+
+# 100-step train-only calibration; do not add debug_smoke.yaml
+python scripts/train_mtl_lite.py \
+  --override configs/stage_c/common.yaml \
+  --override configs/stage_c/calibration_train_only.yaml \
+  --override configs/stage_c/seeds/seed_42.yaml
 ```
 
 文档和配置还需运行：

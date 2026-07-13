@@ -4,7 +4,7 @@
 
 ## 状态日期
 
-2026-07-10
+2026-07-12
 
 ## 阅读提示
 
@@ -22,14 +22,14 @@
 | 第一版 latent | `z_dep`、`z_nuisance` |
 | 可选 latent | `z_id` 不进入第一版；基础方案通过 C3 后才重新论证 |
 | 不做 | 不显式建 `z_art/z_ctx/z_pose/z_quality`，不做多级 RPDF |
-| 下一步 | C0 与 P0 已完成；当前实现 C1 最小 `TaskNuisanceBlock`、多表征导出和辅助损失 |
+| 下一步 | C1 代码已本地实现；当前运行服务器 `C-REF/C-BN` smoke 与 100-step train-only calibration |
 | 审计判据 | BDI metrics、identity risk、nuisance/BDI leakage、shortcut probe risk、severity bias、task consistency、train-val gap |
 | 主张边界 | reconstruction/decorrelation 收敛或单一 attacker 下降不等于语义解耦成功 |
 | 反证条件 | 不优于 paired-seed `C-REF`、multi-seed 不稳定或风险改善伴随 utility/group robustness 恶化时停止增加复杂度 |
 
 “可审计”要求每个表示出口和训练约束都对应可独立复现的外部测量；“可证伪”要求在编码和运行前冻结强 baseline、统一指标、multi-seed 规则和停止条件。负结果应作为机制结论保留，而不是通过继续堆叠 latent、门控或损失规避。
 
-Stage C 的完整实施规格已写入 `docs/STAGE_C_RUNBOOK.md`。当前冻结 `C-REF / C-BN / C-REC / C-FULL` 四组对照，`H0=192`、`z_dep=96`、`z_nuisance=96`，并固定 validation-only 筛选、3-seed gate、5-seed final test 和 quantitative stop conditions。P0 seed/EarlyStopping 与配置骨架已完成；C1 开始实现最小 block，不加入 `z_id`、pose/AU 训练监督或新的 GRL。
+Stage C 的完整实施规格已写入 `docs/STAGE_C_RUNBOOK.md`。当前冻结 `C-REF / C-BN / C-REC / C-FULL` 四组对照，`H0=192`、`z_dep=96`、`z_nuisance=96`，并固定 validation-only 筛选、3-seed gate、5-seed final test 和 quantitative stop conditions。C1 最小 block、辅助损失和多表征导出已本地实现；服务器 smoke/calibration 完成前不进入 C2，不加入 `z_id`、pose/AU 训练监督或新的 GRL。
 
 ### 2026-07-08 Stage A 证据收口结论
 
@@ -153,7 +153,7 @@ Stage A、Stage B 均已完成收口（见上方 2026-07-08 Stage A 结论与 20
 4. ~~**B3 组合对照**~~：已完成（E3）——无效，两约束叠加互相干扰，utility 劣化。
 5. ~~**C0 spec-before-code**~~：已冻结信息分流接口、辅助损失的非证明性边界、等参数/等 bottleneck 对照、leakage matrix、multi-seed 和停止条件，详见 `STAGE_C_RUNBOOK.md`。
 6. ~~**P0 training protocol**~~：已完成配置化 seed、与 best checkpoint 共用 monitor/mode 的 EarlyStopping、训练策略测试，以及 Stage C 配置骨架和同协议 `C-REF`。
-7. **C1 coarse task-nuisance information separation（当前下一步）**：实现 `H0 -> z_dep,z_nuisance`、prediction bottleneck、stop-gradient reconstruction、float32 cross-correlation 和多表征导出；pose_rz/AU/black_border 第一版仅作审计轴。
+7. **C1 coarse task-nuisance information separation（服务器验证中）**：最小 block、prediction routing、stop-gradient reconstruction、float32 cross-correlation、严格配置校验和多表征导出已本地实现；当前待运行 `C-REF/C-BN` debug smoke 与 100-step train-only calibration。calibration runner 不运行 validation/test。
 
 编程实施控制已细化到 `TODO.md` 的“编程实施控制（下一步）”。后续按 `P0（已完成） -> C1 -> C2 -> C3 -> Stage D` 推进；不在基础两出口方案通过闸门前扩展 `z_id`、细粒度 latent 或多级门控。
 

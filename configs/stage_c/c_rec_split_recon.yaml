@@ -1,4 +1,4 @@
-# SPEC ONLY until C1 is implemented and train-only calibration freezes weight.
+# SPEC ONLY until train-only calibration freezes the reconstruction weight.
 MODE: "stage_c_spec_only"
 EXPERIMENT_NAME: "c_rec_split_recon"
 

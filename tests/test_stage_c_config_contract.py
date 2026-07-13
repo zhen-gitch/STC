@@ -3,6 +3,7 @@ from omegaconf import OmegaConf
 
 from scripts import train_mtl_lite
 from src.config import CONFIG_DIR, load_experiment_config
+from src.models.task_nuisance import resolve_task_nuisance_config
 
 
 CONFIG_ROOT = CONFIG_DIR / "stage_c"
@@ -34,13 +35,11 @@ def test_stage_c_reference_resolves_to_runnable_e2_policy():
 @pytest.mark.parametrize(
     "experiment",
     [
-        "c_bn_bottleneck.yaml",
         "c_rec_split_recon.yaml",
         "c_full_split_full.yaml",
-        "calibration_train_only.yaml",
     ],
 )
-def test_unimplemented_stage_c_candidates_are_spec_only(experiment):
+def test_unfrozen_stage_c_candidates_are_spec_only(experiment):
     cfg = _load("common.yaml", experiment, "seeds/seed_42.yaml")
 
     assert cfg.MODE == "stage_c_spec_only"
@@ -48,10 +47,36 @@ def test_unimplemented_stage_c_candidates_are_spec_only(experiment):
 
 
 def test_spec_only_candidate_is_rejected_by_training_entry():
-    cfg = _load("common.yaml", "c_bn_bottleneck.yaml", "seeds/seed_42.yaml")
+    cfg = _load("common.yaml", "c_rec_split_recon.yaml", "seeds/seed_42.yaml")
 
     with pytest.raises(ValueError, match="stage_c_spec_only"):
         train_mtl_lite.run_from_config(cfg)
+
+
+@pytest.mark.parametrize(
+    "experiment",
+    ["c_bn_bottleneck.yaml", "calibration_train_only.yaml"],
+)
+def test_implemented_stage_c_support_configs_are_runnable(experiment):
+    cfg = _load("common.yaml", experiment, "seeds/seed_42.yaml")
+
+    assert cfg.MODE == "mtl_lite"
+    policy = resolve_task_nuisance_config(cfg, cfg.PROCESS_TEMPORAL.HIDDEN_DIM)
+    assert policy.enabled is True
+
+
+def test_calibration_config_excludes_auxiliary_losses_from_objective():
+    cfg = _load("common.yaml", "calibration_train_only.yaml")
+    policy = resolve_task_nuisance_config(cfg, cfg.PROCESS_TEMPORAL.HIDDEN_DIM)
+
+    assert policy.variant == "split"
+    assert policy.calibration_only is True
+    assert policy.reconstruction_enabled is True
+    assert policy.cross_correlation_enabled is True
+    assert policy.reconstruction_weight == 0.0
+    assert policy.cross_correlation_weight == 0.0
+    assert policy.calibration_steps == 100
+    assert cfg.EARLY_STOPPING.ENABLE is False
 
 
 def test_split_candidate_weights_remain_unfrozen_before_calibration():

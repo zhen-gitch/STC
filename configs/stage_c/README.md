@@ -7,21 +7,19 @@ override order is fixed:
 common.yaml -> experiment yaml -> seed yaml -> optional debug_smoke.yaml
 ```
 
-`c_ref_e2.yaml` is the only runnable Stage C experiment before C1 is
-implemented. It reproduces the Stage B E2 structure under the new configured
-seed and EarlyStopping policy.
+`c_ref_e2.yaml` reproduces the Stage B E2 structure under the configured seed
+and EarlyStopping policy. `c_bn_bottleneck.yaml` is the runnable prediction-
+bottleneck control.
 
-`c_bn_bottleneck.yaml`, `c_rec_split_recon.yaml`, and
-`c_full_split_full.yaml` intentionally set `MODE: stage_c_spec_only`. The
-current model does not implement `MODEL.TASK_NUISANCE`; the sentinel makes the
-training entry fail before an unimplemented candidate can be silently run as
-E2. Remove the sentinel only after C1 config validation, forward, loss, and
-backward tests pass.
+`c_rec_split_recon.yaml` and `c_full_split_full.yaml` intentionally retain
+`MODE: stage_c_spec_only` while their calibrated weights are `null`. The
+sentinel prevents either candidate from being run before the train-only
+calibration freezes its weight values.
 
-`calibration_train_only.yaml` is also spec-only until C1. Once enabled, it
-computes and logs both raw auxiliary losses while keeping their contribution to
-the optimization objective at zero. The first 100 train batches determine the
-single frozen weight pair; validation and test remain closed.
+`calibration_train_only.yaml` computes and logs both raw auxiliary losses while
+keeping their contribution to the optimization objective at zero. The runner
+stops at `CALIBRATION_STEPS=100`, disables sanity/validation, and skips test.
+Those train batches determine the single frozen weight pair.
 
 The reconstruction and cross-correlation weights in the split candidates are
 `null` until the seed-42 train-only calibration freezes one value from
@@ -44,4 +42,23 @@ python scripts/train_mtl_lite.py \
   --override configs/stage_c/c_ref_e2.yaml \
   --override configs/stage_c/seeds/seed_42.yaml \
   --override configs/stage_c/debug_smoke.yaml
+```
+
+Prediction-bottleneck smoke:
+
+```bash
+python scripts/train_mtl_lite.py \
+  --override configs/stage_c/common.yaml \
+  --override configs/stage_c/c_bn_bottleneck.yaml \
+  --override configs/stage_c/seeds/seed_42.yaml \
+  --override configs/stage_c/debug_smoke.yaml
+```
+
+Train-only calibration:
+
+```bash
+python scripts/train_mtl_lite.py \
+  --override configs/stage_c/common.yaml \
+  --override configs/stage_c/calibration_train_only.yaml \
+  --override configs/stage_c/seeds/seed_42.yaml
 ```

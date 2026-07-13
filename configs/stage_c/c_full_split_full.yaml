@@ -1,4 +1,4 @@
-# SPEC ONLY until C1 is implemented and train-only calibration freezes weights.
+# SPEC ONLY until train-only calibration freezes both auxiliary weights.
 MODE: "stage_c_spec_only"
 EXPERIMENT_NAME: "c_full_split_full"
 

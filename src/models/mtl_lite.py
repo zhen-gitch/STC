@@ -11,6 +11,12 @@ from src.metrics.metrics import ConcordanceCorrCoefMetric, concordance_ccc_loss
 from src.models.backbone_factory import build_feature_backbone
 from src.models.gradient_reversal import GradientReversalLayer
 from src.models.outputs import MTLLiteLosses, MTLLiteOutput
+from src.models.task_nuisance import (
+    TaskNuisanceBlock,
+    cross_correlation_penalty,
+    reconstruction_mse,
+    resolve_task_nuisance_config,
+)
 from src.models.task_heads import (
     build_classification_task_head,
     build_regression_task_head,
@@ -145,6 +151,15 @@ class MTLLiteDepressionModel(pl.LightningModule):
                 self.ordinal_weight > 0.0,
             )
         )
+        self.task_nuisance_config = resolve_task_nuisance_config(
+            configs, self.hidden_dim
+        )
+        self.task_nuisance_enabled = self.task_nuisance_config.enabled
+        self.prediction_dim = (
+            self.task_nuisance_config.dep_dim
+            if self.task_nuisance_enabled
+            else self.hidden_dim
+        )
 
         self.input_dim = int(configs.BACKBONE_OUT_DIMS.get(self.model_name))
         self.backbone = build_feature_backbone(
@@ -165,10 +180,22 @@ class MTLLiteDepressionModel(pl.LightningModule):
             batch_first=True,
         )
         self.dropout_layer = nn.Dropout(self.dropout)
-        self.reg_task_head = build_regression_task_head(self.hidden_dim, self.hidden_dim, 1)
+        self.task_nuisance_block: Optional[TaskNuisanceBlock] = None
+        if self.task_nuisance_enabled:
+            self.task_nuisance_block = TaskNuisanceBlock(
+                h0_dim=self.hidden_dim,
+                dep_dim=self.task_nuisance_config.dep_dim,
+                nuisance_dim=self.task_nuisance_config.nuisance_dim,
+                variant=self.task_nuisance_config.variant,
+            )
+        self.reg_task_head = build_regression_task_head(
+            self.prediction_dim, self.hidden_dim, 1
+        )
         self.ordinal_task_head = None
         if self.use_ordinal_task:
-            self.ordinal_task_head = build_classification_task_head(self.hidden_dim, self.hidden_dim, self.num_classes)
+            self.ordinal_task_head = build_classification_task_head(
+                self.prediction_dim, self.hidden_dim, self.num_classes
+            )
 
         self.train_rmse = torchmetrics.MeanSquaredError(squared=False)
         self.train_mae = torchmetrics.MeanAbsoluteError()
@@ -265,7 +292,7 @@ class MTLLiteDepressionModel(pl.LightningModule):
         # Linear) but emit ``num_subject_classes`` logits for plain CE.  Built
         # lazily so the optimizer (configured during ``trainer.fit``) sees it.
         self.subject_id_head = nn.Sequential(
-            nn.Linear(self.hidden_dim, self.hidden_dim),
+            nn.Linear(self.prediction_dim, self.hidden_dim),
             nn.LayerNorm(self.hidden_dim),
             nn.GELU(),
             nn.Linear(self.hidden_dim, num_subject_classes),
@@ -577,7 +604,21 @@ class MTLLiteDepressionModel(pl.LightningModule):
     def forward(self, video_tensor, mask, return_features=False, return_layer_features=False):
         frame_features = self.extract_frame_features(video_tensor, mask)
         temporal_features = self.encode_temporal_features(frame_features, mask)
-        shared_features = self.pool_video_features(temporal_features, mask)
+        h0_features = self.pool_video_features(temporal_features, mask)
+        shared_features = h0_features
+        z_dep_features = None
+        z_nuisance_features = None
+        reconstructed_h0 = None
+        if self.task_nuisance_enabled:
+            task_nuisance_output = self.task_nuisance_block(
+                h0_features,
+                reconstruct=self.task_nuisance_config.reconstruction_enabled,
+            )
+            z_dep_features = task_nuisance_output.z_dep
+            z_nuisance_features = task_nuisance_output.z_nuisance
+            reconstructed_h0 = task_nuisance_output.reconstructed_h0
+            shared_features = z_dep_features
+
         bdi_pred = self.reg_task_head(shared_features).squeeze(-1)
         ordinal_logits = None
         if self.ordinal_task_head is not None:
@@ -598,6 +639,7 @@ class MTLLiteDepressionModel(pl.LightningModule):
             layer_features = self._collect_layer_features(
                 frame_features=frame_features,
                 temporal_features=temporal_features,
+                h0_features=h0_features,
                 shared_features=shared_features,
                 mask=mask,
             )
@@ -608,9 +650,20 @@ class MTLLiteDepressionModel(pl.LightningModule):
             shared_features=shared_features if return_features else None,
             layer_features=layer_features,
             identity_logits=identity_logits,
+            h0_features=h0_features if self.task_nuisance_enabled else None,
+            z_dep_features=z_dep_features,
+            z_nuisance_features=z_nuisance_features,
+            reconstructed_h0=reconstructed_h0,
         )
 
-    def _collect_layer_features(self, frame_features, temporal_features, shared_features, mask):
+    def _collect_layer_features(
+        self,
+        frame_features,
+        temporal_features,
+        h0_features,
+        shared_features,
+        mask,
+    ):
         """Build per-layer video-level embeddings for the layer-wise probe.
 
         Hook-captured backbone activations are accumulated in valid-frame order
@@ -626,7 +679,7 @@ class MTLLiteDepressionModel(pl.LightningModule):
         layer_features: Dict[str, torch.Tensor] = {}
 
         # Always available inline results.
-        layer_features["layer_temporal"] = shared_features.detach()
+        layer_features["layer_temporal"] = h0_features.detach()
         layer_features["layer_shared"] = shared_features.detach()
 
         # layer_backbone_out: prefer the frame_features already pooled under the
@@ -641,7 +694,7 @@ class MTLLiteDepressionModel(pl.LightningModule):
             for layer_name, cached in self._layer_probe_cache.items():
                 if layer_name in ("layer_temporal", "layer_shared", "layer_backbone_out"):
                     continue
-                pooled = self._pool_cached_layer(cached, valid_counts, shared_features)
+                pooled = self._pool_cached_layer(cached, valid_counts, h0_features)
                 if pooled is not None:
                     layer_features[layer_name] = pooled
 
@@ -716,17 +769,64 @@ class MTLLiteDepressionModel(pl.LightningModule):
                 subject_index = subject_index.to(outputs.identity_logits.device)
                 loss_id = F.cross_entropy(outputs.identity_logits, subject_index)
 
+        loss_reconstruction = None
+        loss_cross_correlation = None
+        auxiliary_stage_enabled = self.task_nuisance_enabled and (
+            not self.task_nuisance_config.calibration_only or stage == "train"
+        )
+        if auxiliary_stage_enabled and self.task_nuisance_config.reconstruction_enabled:
+            if outputs.reconstructed_h0 is None or outputs.h0_features is None:
+                raise RuntimeError(
+                    "Stage C reconstruction is enabled but forward returned no reconstruction"
+                )
+            loss_reconstruction = reconstruction_mse(
+                outputs.reconstructed_h0, outputs.h0_features
+            )
+        if auxiliary_stage_enabled and self.task_nuisance_config.cross_correlation_enabled:
+            if outputs.z_dep_features is None or outputs.z_nuisance_features is None:
+                raise RuntimeError(
+                    "Stage C cross-correlation is enabled but forward returned no split features"
+                )
+            loss_cross_correlation = cross_correlation_penalty(
+                outputs.z_dep_features, outputs.z_nuisance_features
+            )
+
         total = loss_reg + self.ccc_loss_weight * loss_ccc
         if loss_ord is not None:
             total = total + self.ordinal_weight * loss_ord
         if loss_id is not None:
             total = total + loss_id
+        if self.task_nuisance_config.calibration_only:
+            # Keep the split-only parameters in the autograd graph with zero
+            # contribution. This preserves calibration semantics while avoiding
+            # DDP unused-parameter failures if the support run uses >1 device.
+            if loss_reconstruction is not None and loss_cross_correlation is not None:
+                total = (
+                    total
+                    + 0.0 * loss_reconstruction
+                    + 0.0 * loss_cross_correlation
+                )
+        else:
+            if loss_reconstruction is not None:
+                total = (
+                    total
+                    + self.task_nuisance_config.reconstruction_weight
+                    * loss_reconstruction
+                )
+            if loss_cross_correlation is not None:
+                total = (
+                    total
+                    + self.task_nuisance_config.cross_correlation_weight
+                    * loss_cross_correlation
+                )
         return MTLLiteLosses(
             total=total,
             regression=loss_reg,
             ordinal=loss_ord,
             ccc=loss_ccc,
             identity=loss_id,
+            reconstruction=loss_reconstruction,
+            cross_correlation=loss_cross_correlation,
         )
 
     def prediction_for_metrics(self, bdi_preds):
@@ -755,6 +855,48 @@ class MTLLiteDepressionModel(pl.LightningModule):
             self.log(f"{stage}_ccc_loss", losses.ccc, on_epoch=True, on_step=False, batch_size=current_bs)
         if losses.identity is not None:
             self.log(f"{stage}_identity_loss", losses.identity, on_epoch=True, on_step=False, batch_size=current_bs)
+        if losses.reconstruction is not None:
+            self.log(
+                f"{stage}_reconstruction_loss",
+                losses.reconstruction,
+                on_epoch=True,
+                on_step=False,
+                batch_size=current_bs,
+            )
+        if losses.cross_correlation is not None:
+            self.log(
+                f"{stage}_cross_correlation_loss",
+                losses.cross_correlation,
+                on_epoch=True,
+                on_step=False,
+                batch_size=current_bs,
+            )
+        if (
+            stage == "train"
+            and self.task_nuisance_config.calibration_only
+            and int(self.global_step) < self.task_nuisance_config.calibration_steps
+        ):
+            self.log(
+                "train_primary_loss_calibration",
+                losses.total,
+                on_step=True,
+                on_epoch=False,
+                batch_size=current_bs,
+            )
+            self.log(
+                "train_reconstruction_loss_calibration",
+                losses.reconstruction,
+                on_step=True,
+                on_epoch=False,
+                batch_size=current_bs,
+            )
+            self.log(
+                "train_cross_correlation_loss_calibration",
+                losses.cross_correlation,
+                on_step=True,
+                on_epoch=False,
+                batch_size=current_bs,
+            )
         return losses.total
 
     def training_step(self, batch, batch_idx):

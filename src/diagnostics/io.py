@@ -15,6 +15,12 @@ PREDICTION_FIELDS = [
     "severity_group",
 ]
 
+REPRESENTATION_FEATURE_KEYS = (
+    "features_h0",
+    "features_z_dep",
+    "features_z_nuisance",
+)
+
 
 def ensure_dir(path):
     path = Path(path)
@@ -109,7 +115,16 @@ def read_prediction_table(csv_path):
     return records
 
 
-def save_features_npz(save_path, features, subject_ids, targets, preds, video_ids=None):
+def save_features_npz(
+    save_path,
+    features,
+    subject_ids,
+    targets,
+    preds,
+    video_ids=None,
+    task_names=None,
+    representation_features=None,
+):
     """Save video-level embeddings and metadata to a compressed NPZ file.
 
     Args:
@@ -122,6 +137,10 @@ def save_features_npz(save_path, features, subject_ids, targets, preds, video_id
             When provided, they are stored under the `video_ids` key and can be
             used by downstream retrieval audits to distinguish Freeform/Northwind
             task pairs.
+        task_names: Optional task label for each video.
+        representation_features: Optional mapping containing the Stage C keys
+            `features_h0`, `features_z_dep`, and `features_z_nuisance`. A value
+            of None is recorded as an explicit `not_applicable` status.
     """
     save_path = Path(save_path)
     ensure_dir(save_path.parent)
@@ -133,6 +152,26 @@ def save_features_npz(save_path, features, subject_ids, targets, preds, video_id
     }
     if video_ids is not None:
         archive["video_ids"] = np.asarray([str(item) for item in video_ids])
+    if task_names is not None:
+        archive["task_names"] = np.asarray([str(item) for item in task_names])
+    if representation_features is not None:
+        unknown = set(representation_features) - set(REPRESENTATION_FEATURE_KEYS)
+        if unknown:
+            names = ", ".join(sorted(unknown))
+            raise ValueError(f"Unknown representation feature key(s): {names}")
+        expected_count = len(archive["subject_ids"])
+        for key in REPRESENTATION_FEATURE_KEYS:
+            value = representation_features.get(key)
+            if value is None:
+                archive[f"{key}_status"] = np.asarray("not_applicable")
+                continue
+            array = np.asarray(value, dtype=float)
+            if array.ndim != 2 or array.shape[0] != expected_count:
+                raise ValueError(
+                    f"{key} must have shape (N, D) with N={expected_count}, "
+                    f"got: {array.shape}"
+                )
+            archive[key] = array
     np.savez_compressed(save_path, **archive)
 
 

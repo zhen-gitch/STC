@@ -609,7 +609,7 @@ task consistency 不恶化
 
 ```text
 已完成：Stage A/Stage B、C0 规格冻结和 P0 seed/EarlyStopping
-短期：实现 C1 最小 `z_dep/z_nuisance` block、多表征导出和 train-only loss calibration
+短期：C1 代码已本地实现；运行服务器 `C-REF/C-BN` smoke 与 100-step train-only calibration
 中期：完成 C2 seed-42 screening 与 C3 三 seed validation gate
 中长期：仅当信息分流在外部审计和多 seed 下稳定优于 paired `C-REF` 后，再考虑更复杂结构
 长期：根据支线证据选择 severity-balanced、multi-attacker 或 dynamic feature

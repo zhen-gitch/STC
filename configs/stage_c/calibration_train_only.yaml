@@ -1,6 +1,8 @@
-# SPEC ONLY until C1 implements raw auxiliary-loss logging.
-MODE: "stage_c_spec_only"
+# Train-only raw auxiliary-loss calibration support run.
 EXPERIMENT_NAME: "c_loss_calibration"
+
+EARLY_STOPPING:
+  ENABLE: False
 
 MODEL:
   TASK_NUISANCE:
@@ -11,6 +13,7 @@ MODEL:
     RECONSTRUCTION_ENABLE: True
     CROSS_CORRELATION_ENABLE: True
     AUXILIARY_CALIBRATION_ONLY: True
+    CALIBRATION_STEPS: 100
 
 LOSSES:
   RECONSTRUCTION_WEIGHT: 0.0
