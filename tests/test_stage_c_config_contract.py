@@ -1,7 +1,6 @@
 import pytest
 from omegaconf import OmegaConf
 
-from scripts import train_mtl_lite
 from src.config import CONFIG_DIR, load_experiment_config
 from src.models.task_nuisance import resolve_task_nuisance_config
 
@@ -33,24 +32,27 @@ def test_stage_c_reference_resolves_to_runnable_e2_policy():
 
 
 @pytest.mark.parametrize(
-    "experiment",
+    ("experiment", "reconstruction_weight", "cross_correlation_weight"),
     [
-        "c_rec_split_recon.yaml",
-        "c_full_split_full.yaml",
+        ("c_rec_split_recon.yaml", 0.001, 0.0),
+        ("c_full_split_full.yaml", 0.001, 0.01),
     ],
 )
-def test_unfrozen_stage_c_candidates_are_spec_only(experiment):
+def test_calibrated_stage_c_candidates_are_runnable(
+    experiment,
+    reconstruction_weight,
+    cross_correlation_weight,
+):
     cfg = _load("common.yaml", experiment, "seeds/seed_42.yaml")
 
-    assert cfg.MODE == "stage_c_spec_only"
-    assert cfg.MODEL.TASK_NUISANCE.ENABLE is True
-
-
-def test_spec_only_candidate_is_rejected_by_training_entry():
-    cfg = _load("common.yaml", "c_rec_split_recon.yaml", "seeds/seed_42.yaml")
-
-    with pytest.raises(ValueError, match="stage_c_spec_only"):
-        train_mtl_lite.run_from_config(cfg)
+    assert cfg.MODE == "mtl_lite"
+    policy = resolve_task_nuisance_config(cfg, cfg.PROCESS_TEMPORAL.HIDDEN_DIM)
+    assert policy.enabled is True
+    assert policy.variant == "split"
+    assert policy.reconstruction_enabled is True
+    assert policy.reconstruction_weight == reconstruction_weight
+    assert policy.cross_correlation_weight == cross_correlation_weight
+    assert policy.cross_correlation_enabled is (cross_correlation_weight > 0.0)
 
 
 @pytest.mark.parametrize(
@@ -79,14 +81,14 @@ def test_calibration_config_excludes_auxiliary_losses_from_objective():
     assert cfg.EARLY_STOPPING.ENABLE is False
 
 
-def test_split_candidate_weights_remain_unfrozen_before_calibration():
+def test_split_candidate_weights_match_seed_42_calibration():
     rec = _load("common.yaml", "c_rec_split_recon.yaml")
     full = _load("common.yaml", "c_full_split_full.yaml")
 
-    assert rec.LOSSES.RECONSTRUCTION_WEIGHT is None
+    assert rec.LOSSES.RECONSTRUCTION_WEIGHT == 0.001
     assert rec.LOSSES.CROSS_CORRELATION_WEIGHT == 0.0
-    assert full.LOSSES.RECONSTRUCTION_WEIGHT is None
-    assert full.LOSSES.CROSS_CORRELATION_WEIGHT is None
+    assert full.LOSSES.RECONSTRUCTION_WEIGHT == 0.001
+    assert full.LOSSES.CROSS_CORRELATION_WEIGHT == 0.01
 
 
 @pytest.mark.parametrize("seed", [42, 43, 44, 45, 46])
