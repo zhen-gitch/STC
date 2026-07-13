@@ -1,0 +1,10 @@
+# Postmortem capacity audit only. Preserve the frozen Stage C common protocol
+# while observing the full 40-epoch trajectory without opening test.
+EXPERIMENT_GROUP: "stage_c_capacity_audit"
+RUN_TEST_AFTER_FIT: False
+
+EARLY_STOPPING:
+  ENABLE: False
+
+PROCESS_TEMPORAL:
+  MAX_EPOCHS: 40

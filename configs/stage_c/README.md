@@ -65,3 +65,19 @@ python scripts/train_mtl_lite.py \
   --override configs/stage_c/calibration_train_only.yaml \
   --override configs/stage_c/seeds/seed_42.yaml
 ```
+
+## Postmortem Capacity Audit
+
+The bounded C-BN capacity audit is separate from C2/C3. It runs the full 40
+epochs with EarlyStopping disabled, still selects/logs validation checkpoints,
+and keeps test closed. Fixed dimensions are `96/128/160/192`; do not add
+intermediate points after viewing results.
+
+```bash
+python scripts/train_mtl_lite.py \
+  --override configs/stage_c/common.yaml \
+  --override configs/stage_c/c_bn_bottleneck.yaml \
+  --override configs/stage_c/capacity_audit/common_full40.yaml \
+  --override configs/stage_c/capacity_audit/dep_128.yaml \
+  --override configs/stage_c/seeds/seed_42.yaml
+```

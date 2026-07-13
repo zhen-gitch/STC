@@ -1,0 +1,5 @@
+EXPERIMENT_NAME: "c_bn_dep192_full40"
+
+MODEL:
+  TASK_NUISANCE:
+    DEP_DIM: 192

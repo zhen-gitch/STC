@@ -134,7 +134,7 @@ python scripts/train_mtl_lite.py \
   --override configs/stage_c/seeds/seed_42.yaml
 ```
 
-`C-REC/C-FULL` 仍带 spec-only 哨兵，必须等 calibration 冻结正权重后才能运行。完整矩阵、seed、审计和停止条件见 `docs/STAGE_C_RUNBOOK.md`。
+`C-REC/C-FULL` 已使用 train-only calibration 冻结权重。seed-42 utility gate 已失败，当前不进入 C3；完整结论和停止条件见 `docs/STAGE_C_RUNBOOK.md`。
 
 配置和 P0 策略验证：
 
@@ -226,6 +226,43 @@ python scripts/diagnose_mtl_lite.py \
   --enable-embeddings \
   --enable-training-curves
 ```
+
+### 3.4 Stage C 只读失败机制分析
+
+先用 `diagnose_mtl_lite.py --split train val --enable-embeddings` 为四组导出 NPZ/CSV，再运行：
+
+```bash
+python scripts/audit_representation_leakage.py \
+  --run C-REF <TRAIN_NPZ> <VAL_NPZ> \
+  --run C-BN <TRAIN_NPZ> <VAL_NPZ> \
+  --run C-REC <TRAIN_NPZ> <VAL_NPZ> \
+  --run C-FULL <TRAIN_NPZ> <VAL_NPZ> \
+  --output-dir logs/stage_c/failure_analysis/representation_leakage
+
+python scripts/audit_group_robustness.py \
+  --run C-REF <TRAIN_PRED> <VAL_PRED> \
+  --run C-BN <TRAIN_PRED> <VAL_PRED> \
+  --run C-REC <TRAIN_PRED> <VAL_PRED> \
+  --run C-FULL <TRAIN_PRED> <VAL_PRED> \
+  --output-dir logs/stage_c/failure_analysis/group_robustness
+```
+
+两个脚本不加载或修改 checkpoint，只读取冻结的 train/val 导出。连续风险轴必须同时提供 train/val weak-label CSV；阈值只从 train 中位数估计。
+
+### 3.5 Full-40 Bottleneck Capacity Audit
+
+容量诊断使用独立实验组，关闭 EarlyStopping 以观察完整 40 epoch 曲线，但仍不运行 test：
+
+```bash
+python scripts/train_mtl_lite.py \
+  --override configs/stage_c/common.yaml \
+  --override configs/stage_c/c_bn_bottleneck.yaml \
+  --override configs/stage_c/capacity_audit/common_full40.yaml \
+  --override configs/stage_c/capacity_audit/dep_128.yaml \
+  --override configs/stage_c/seeds/seed_42.yaml
+```
+
+将 `dep_128.yaml` 依次替换为 `dep_96.yaml`、`dep_160.yaml`、`dep_192.yaml`。四个点必须全部预先固定，不根据结果追加维度。
 
 ---
 

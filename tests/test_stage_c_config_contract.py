@@ -92,6 +92,29 @@ def test_split_candidate_weights_match_seed_42_calibration():
     assert full.LOSSES.CROSS_CORRELATION_WEIGHT == 0.01
 
 
+@pytest.mark.parametrize("dep_dim", [96, 128, 160, 192])
+def test_capacity_audit_is_full40_validation_only_bottleneck(dep_dim):
+    cfg = _load(
+        "common.yaml",
+        "c_bn_bottleneck.yaml",
+        "capacity_audit/common_full40.yaml",
+        f"capacity_audit/dep_{dep_dim}.yaml",
+        "seeds/seed_42.yaml",
+    )
+    policy = resolve_task_nuisance_config(cfg, cfg.PROCESS_TEMPORAL.HIDDEN_DIM)
+
+    assert cfg.MODE == "mtl_lite"
+    assert cfg.EXPERIMENT_GROUP == "stage_c_capacity_audit"
+    assert cfg.EXPERIMENT_NAME == f"c_bn_dep{dep_dim}_full40"
+    assert cfg.RUN_TEST_AFTER_FIT is False
+    assert cfg.EARLY_STOPPING.ENABLE is False
+    assert cfg.PROCESS_TEMPORAL.MAX_EPOCHS == 40
+    assert policy.variant == "bottleneck"
+    assert policy.dep_dim == dep_dim
+    assert policy.reconstruction_weight == 0.0
+    assert policy.cross_correlation_weight == 0.0
+
+
 @pytest.mark.parametrize("seed", [42, 43, 44, 45, 46])
 def test_seed_override_files_change_only_the_resolved_seed(seed):
     reference = _load("common.yaml", "c_ref_e2.yaml", "seeds/seed_42.yaml")

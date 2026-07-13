@@ -37,6 +37,12 @@ Stage C 的完整实施规格已写入 `docs/STAGE_C_RUNBOOK.md`。`C-REF / C-BN
 
 这些服务器运行因旧 runner 无条件调用 `trainer.test()` 而提前产生 test 指标；C2 判定只使用 validation，已观察的 test 结果隔离为 exploratory，不用于选择结构或权重。runner 现增加 `RUN_TEST_AFTER_FIT`，旧配置缺省保持 `True`，Stage C common 固定为 `False`。
 
+### 2026-07-13 Stage C 失败机制只读诊断
+
+已实现并在四组 train/val 导出上运行 `representation_leakage.py` 与 `group_robustness.py`。所有 probe/阈值只在 train 拟合，validation 只评估；输入 NPZ、prediction CSV、checkpoint 和 split 均不修改。identity cosine pair-verifier AUROC 在 C-REF `z_dep` 为 `0.9290`，C-BN/C-REC/C-FULL `z_dep` 分别为 `0.9199/0.9344/0.9344`，没有达到相对 C-REF 绝对下降 `0.05` 的风险门槛。C-REC/C-FULL 的 `z_nuisance` AUROC 仍为 `0.9189/0.9209`，说明身份信息没有被路由出两个出口。
+
+BDI ridge probe 显示 C-BN 的 `H0 -> z_dep` CCC 从 `0.3802` 降到 `0.2308`，直接支持 prediction bottleneck 是主要损伤点。C-REC/C-FULL 的 nuisance BDI gate 未触发（CCC gap `0.1152/0.1046`，MAE gap `1.2788/1.8915`），但这不构成成功证据，因为 utility 与 identity risk 已失败。validation group audit 中，三组候选的 severe MAE 相对 C-REF 增加 `0.8771/0.9960/1.0598`，severity worst-group gap 增加 `1.0352/2.0774/2.1278`，全部触发 group utility failure；task gap 缩小但不能抵消 severity failure。pose_rz、black-border、face-offset-y 尚无 train weak-label 表，保持 unavailable，禁止用 val 中位数补阈值。
+
 ### 2026-07-08 Stage A 证据收口结论
 
 本轮对 `logs/analysis_outputs` 进行了全量只读审查：目录下共有 205 个文件，包括 87 个 CSV、32 个 Markdown 报告、82 个 PNG 和 4 个 NPZ；未发现 0 字节或异常小的 CSV/Markdown 文件。`val` 与 `test` 均为 100 个视频、50 个 subject、Freeform/Northwind 各 50，且两者 `video_id` 与 `subject_id` 重叠均为 0。Stage A 的 A1/A2/A3/A4 主要产物已经齐全。

@@ -324,6 +324,18 @@ delta_task_diff_mean <= +0.50 BDI
 
 三组候选全部失败，因此不进入 C3。后续 representation leakage/group robustness 只用于解释负结果，不能用于推翻已冻结的 utility stop condition。旧 runner 在这些运行后自动打开了 test；C2 判定未使用 test，相关 test 数值标记为 exploratory。
 
+### 11.1.2 Seed-42 失败机制诊断
+
+只读 train→val probe 进一步确认：C-BN 的 BDI ridge CCC 从 `H0=0.3802` 降到 `z_dep=0.2308`；C-REC/C-FULL `z_dep` identity pair-verifier AUROC 为 `0.9344/0.9344`，未低于 C-REF `0.9290`。C-REC/C-FULL 的 nuisance BDI gate 未触发，但两个 `z_nuisance` 的 identity AUROC 仍为 `0.9189/0.9209`，因此不能宣称身份风险被分流。
+
+severity group audit 使用 subject bootstrap CI。相对 C-REF，C-BN/C-REC/C-FULL 的 severe MAE 分别增加 `0.8771/0.9960/1.0598`，worst-group gap 增加 `1.0352/2.0774/2.1278`，全部超过冻结上限。task gap 均缩小，但不改变 severity group failure。pose_rz、black-border、face-offset-y 必须等待 train+val weak-label 表；缺 train 时明确标记 unavailable。
+
+### 11.1.3 Postmortem Bottleneck Capacity Audit
+
+为区分“96 维容量不足”和“单层投影本身无效”，允许一个不改变 C2/C3 判定的 bounded diagnostic：只运行 C-BN `DEP_DIM=96/128/160/192`，seed 42，完整 40 epoch，EarlyStopping 关闭，test 保持关闭。`DEP_DIM=192` 是等维投影控制，用于区分降维损失与 `Linear -> LayerNorm -> GELU` 投影损失。
+
+该诊断不是同族超参数搜索：四个点在运行前冻结，不增加中间维度，不读取 test，不改变 reconstruction/decorrelation 权重。每个维度仍报告 best-validation utility、BDI probe 和 identity pair AUROC。高维只恢复 utility 而 identity risk 回到 C-REF 时，只能解释为容量恢复，不能解释为信息分流成功。
+
 ### 11.2 Risk reduction
 
 - identity primary metric 固定为预注册 fresh pair-verifier 中最强攻击器的 AUROC，记为 `R_id=max(AUROC)`；paired-task retrieval top1 为第二 primary metric。
@@ -384,6 +396,9 @@ C2 前置审计：
 src/diagnostics/representation_leakage.py
 src/diagnostics/group_robustness.py
 scripts/audit_representation_leakage.py
+scripts/audit_group_robustness.py
+tests/test_representation_leakage.py
+tests/test_group_robustness.py
 ```
 
 Stage D 汇总：
@@ -401,6 +416,38 @@ python -m compileall src scripts tests
 python -m pytest tests/test_mtl_lite_training_policy.py tests/test_stage_c_config_contract.py
 python -m pytest tests/test_task_nuisance.py tests/test_mtl_lite_forward.py tests/test_mtl_lite_loss_backward.py
 python -m pytest tests/test_diagnose_mtl_lite.py tests/test_mtl_lite_diagnostics.py
+python -m pytest tests/test_representation_leakage.py tests/test_group_robustness.py
+```
+
+Stage C 失败机制分析只读运行：
+
+```bash
+python scripts/audit_representation_leakage.py \
+  --run C-REF <C_REF_TRAIN_NPZ> <C_REF_VAL_NPZ> \
+  --run C-BN <C_BN_TRAIN_NPZ> <C_BN_VAL_NPZ> \
+  --run C-REC <C_REC_TRAIN_NPZ> <C_REC_VAL_NPZ> \
+  --run C-FULL <C_FULL_TRAIN_NPZ> <C_FULL_VAL_NPZ> \
+  --output-dir logs/stage_c/failure_analysis/representation_leakage
+
+python scripts/audit_group_robustness.py \
+  --run C-REF <C_REF_TRAIN_PRED> <C_REF_VAL_PRED> \
+  --run C-BN <C_BN_TRAIN_PRED> <C_BN_VAL_PRED> \
+  --run C-REC <C_REC_TRAIN_PRED> <C_REC_VAL_PRED> \
+  --run C-FULL <C_FULL_TRAIN_PRED> <C_FULL_VAL_PRED> \
+  --output-dir logs/stage_c/failure_analysis/group_robustness
+```
+
+连续风险轴用重复的 `--axis NAME TRAIN_CSV VAL_CSV VALUE_COLUMN` 提供。缺少 train CSV 时不运行该轴，不能改用 validation 阈值。
+
+Full-40 capacity audit 的 override 顺序固定为：
+
+```bash
+python scripts/train_mtl_lite.py \
+  --override configs/stage_c/common.yaml \
+  --override configs/stage_c/c_bn_bottleneck.yaml \
+  --override configs/stage_c/capacity_audit/common_full40.yaml \
+  --override configs/stage_c/capacity_audit/dep_128.yaml \
+  --override configs/stage_c/seeds/seed_42.yaml
 ```
 
 服务器 C1 gate 按顺序运行：

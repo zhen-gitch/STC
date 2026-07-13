@@ -115,7 +115,10 @@ Stage A Shortcut 证据收口
     - 本地 config/forward/loss/backward、默认 state-dict 兼容和多表征导出测试已通过。
     - seed 42 smoke 与 100-step train-only calibration 已完成；冻结 `lambda_rec=0.001`、`lambda_xcorr=0.01`。
 11. **C2-validation-screening**（utility gate 已完成并失败）：C-BN/C-REC/C-FULL 的 validation CCC 相对 C-REF 分别下降 `0.0990/0.1175/0.1147`；C-REC/C-FULL MAE 恶化超过 `0.50`。后续 leakage/group 只用于解释失败，不再决定是否进入 C3。
+    - 已实现并运行 train→val BDI/task probe、identity retrieval/pair verifier、nuisance BDI gate、severity/task group robustness 和 subject bootstrap CI。
+    - identity pair AUROC 未下降，severity worst-group gate 全部失败；pose_rz/black-border/face-offset-y 因缺 train weak-label 表保持 unavailable。
 12. **C3-multi-seed-gate**（停止）：按预注册 severe utility failure 规则，不运行 seeds 43/44，不进入 Stage D final-test 路径。
+13. **Postmortem capacity audit**（下一步）：固定 C-BN `DEP_DIM=96/128/160/192`，seed 42，完整 40 epoch、validation-only。只判断容量/投影损伤曲线，不恢复 C3，也不增加中间维度点。
 
 #### 实施验收命令
 
@@ -213,16 +216,19 @@ python -m pytest tests/test_error_identity_coupling.py tests/test_artifact_weakl
 - [x] C0 固定 Stage C 对照：`C-REF/C-BN/C-REC/C-FULL`，第一版不加入 `z_id`。
 - [x] C0 不显式划分 `z_art`、`z_ctx`、`z_pose`、`z_quality`；这些变量只用于 post-hoc probe、case study 和 group-wise evaluation。
 - [x] C2 seed 42 utility screening：三组候选均触发 severe utility failure，当前结构假设在 utility gate 被否证。
+- [x] C2 失败机制只读诊断：实现 `representation_leakage.py`、`group_robustness.py`、两个 CLI 和合成契约测试；已对四组 train/val 导出运行。
+- [ ] 补齐 train weak-label summary 后，仅补跑 pose_rz/black-border/face-offset-y group 轴；禁止使用 val 阈值。
 - [x] C3 seeds 42/43/44 gate：按停止规则取消，不运行 seed 43/44。
+- [ ] 运行 C-BN full-40 capacity audit：`DEP_DIM=96/128/160/192`，统一运行 best-val utility 与只读 leakage/group 诊断。
 - [ ] Stage D 后续扩展：只有基础两出口方案通过 C3 且证据仍支持时，才重新评估可选 `z_id`；不属于 C1-C3 第一版。
 
 ### D. Falsification and Robustness Validation
 
 - [ ] D1 multi-attacker：使用 paired-task retrieval、kNN、linear/SVM 或 MLP attacker 报告最强 identity risk，避免单一 attacker 假安全。
-- [ ] D2 nuisance leakage：检查 `z_nuisance` 单独预测 BDI 的能力，避免非任务出口携带主要 BDI 信号；`z_id` 仅在后续获准扩展时加入矩阵。
+- [x] D2 nuisance leakage：train→val BDI ridge gate 未触发，但 identity risk 未下降且 utility 已失败，不构成成功信息分流证据。
 - [ ] D3 shortcut/artifact probes：用 artifact/quality/context 变量攻击 `z_dep`，只作为评估，不作为第一版训练监督。
 - [ ] D4 severity-balanced 支线：验证 weighted SmoothL1 / MAE 是否改善 minimal/severe bias，并检查是否与粗粒度信息分流互补。
-- [ ] D5 group-wise robustness：报告 severity bin、task、identity-risk group、artifact-risk group 的 MAE/RMSE/CCC。
+- [ ] D5 group-wise robustness：severity/task 已完成并显示 severity failure；artifact/pose/geometry 轴待 train weak-label 表。
 - [ ] D6 dynamic feature 支线：暂缓，仅当粗粒度信息分流降低风险后 BDI 表现仍受限时再启动。
 
 ### 路线细化后的执行闭环
