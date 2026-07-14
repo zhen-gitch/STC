@@ -1,5 +1,5 @@
 import math
-from numbers import Integral
+from numbers import Integral, Real
 from typing import Dict, List, Optional
 
 import pytorch_lightning as pl
@@ -42,6 +42,17 @@ def _get_nested_config_value(configs, section_name, nested_section_name, key, de
     if nested_section is None:
         return default
     return getattr(nested_section, key, default)
+
+
+def _resolve_non_negative_loss_weight(configs, key):
+    """Read a finite, non-negative explicit regularization coefficient."""
+    value = _get_config_value(configs, "LOSSES", key, 0.0)
+    if isinstance(value, bool) or not isinstance(value, Real):
+        raise ValueError(f"LOSSES.{key} must be a finite non-negative number")
+    value = float(value)
+    if not math.isfinite(value) or value < 0.0:
+        raise ValueError(f"LOSSES.{key} must be a finite non-negative number")
+    return value
 
 
 def adversarial_gradient_diagnostics(
@@ -199,6 +210,8 @@ class MTLLiteDepressionModel(pl.LightningModule):
                 _get_config_value(configs, "PROCESS_TEMPORAL", "CCC_LOSS_WEIGHT", 0.0),
             )
         )
+        self.l1_weight = _resolve_non_negative_loss_weight(configs, "L1_WEIGHT")
+        self.l2_weight = _resolve_non_negative_loss_weight(configs, "L2_WEIGHT")
         self.use_ordinal_task = bool(
             _get_nested_config_value(
                 configs,
@@ -837,6 +850,32 @@ class MTLLiteDepressionModel(pl.LightningModule):
         ordinal_levels = get_coral_levels(labels["class_label"].long(), self.num_classes)
         return true_bdi, true_bdi_norm, ordinal_levels
 
+    def _parameter_regularization(self, stage):
+        """Return mean L1/L2 penalties for trainable matrix/tensor weights.
+
+        Explicit penalties are deliberately train-only so validation/test
+        losses remain comparable with the historical baseline. Biases and
+        one-dimensional normalization parameters are excluded; using a mean
+        makes the configured scale independent of parameter-count changes.
+        """
+        if stage != "train":
+            return None, None
+        l1_sum = None
+        l2_sum = None
+        parameter_count = 0
+        for parameter in self.parameters():
+            if not parameter.requires_grad or parameter.ndim < 2:
+                continue
+            l1_value = parameter.abs().float().sum()
+            l2_value = parameter.square().float().sum()
+            l1_sum = l1_value if l1_sum is None else l1_sum + l1_value
+            l2_sum = l2_value if l2_sum is None else l2_sum + l2_value
+            parameter_count += parameter.numel()
+        if parameter_count == 0:
+            return None, None
+        denominator = float(parameter_count)
+        return l1_sum / denominator, l2_sum / denominator
+
     def compute_losses(self, outputs, labels, stage="train"):
         true_bdi, true_bdi_norm, ordinal_levels = self.prepare_labels(labels)
         # Stage B2: regression MSE is severity-bin reweighted when the switch
@@ -912,6 +951,11 @@ class MTLLiteDepressionModel(pl.LightningModule):
                     + self.task_nuisance_config.cross_correlation_weight
                     * loss_cross_correlation
                 )
+        loss_l1, loss_l2 = self._parameter_regularization(stage)
+        if loss_l1 is not None and self.l1_weight > 0.0:
+            total = total + self.l1_weight * loss_l1
+        if loss_l2 is not None and self.l2_weight > 0.0:
+            total = total + self.l2_weight * loss_l2
         return MTLLiteLosses(
             total=total,
             regression=loss_reg,
@@ -920,6 +964,8 @@ class MTLLiteDepressionModel(pl.LightningModule):
             identity=loss_id,
             reconstruction=loss_reconstruction,
             cross_correlation=loss_cross_correlation,
+            l1=loss_l1,
+            l2=loss_l2,
         )
 
     def prediction_for_metrics(self, bdi_preds):
@@ -999,6 +1045,20 @@ class MTLLiteDepressionModel(pl.LightningModule):
             self.log(
                 f"{stage}_cross_correlation_loss",
                 losses.cross_correlation,
+                on_epoch=True,
+                on_step=False,
+                batch_size=current_bs,
+            )
+        if stage == "train" and losses.l1 is not None and losses.l2 is not None:
+            weighted_l1 = self.l1_weight * losses.l1
+            weighted_l2 = self.l2_weight * losses.l2
+            self.log("train_l1_penalty", losses.l1, on_epoch=True, on_step=False, batch_size=current_bs)
+            self.log("train_l2_penalty", losses.l2, on_epoch=True, on_step=False, batch_size=current_bs)
+            self.log("train_l1_loss", weighted_l1, on_epoch=True, on_step=False, batch_size=current_bs)
+            self.log("train_l2_loss", weighted_l2, on_epoch=True, on_step=False, batch_size=current_bs)
+            self.log(
+                "train_regularization_ratio",
+                (weighted_l1 + weighted_l2) / losses.regression.detach().abs().clamp_min(1e-8),
                 on_epoch=True,
                 on_step=False,
                 batch_size=current_bs,

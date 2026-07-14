@@ -1,0 +1,27 @@
+# Fixed protocol for the explicit L1/L2 overfit audit.
+# AdamW weight decay remains the baseline value from stage_b/base_regression_only.yaml.
+EXPERIMENT_GROUP: "regularization_audit"
+SEED: 42
+RUN_TEST_AFTER_FIT: False
+
+EARLY_STOPPING:
+  ENABLE: False
+
+PROCESS_TEMPORAL:
+  MAX_EPOCHS: 40
+
+MODEL:
+  AUXILIARY_TASKS:
+    ORDINAL_CLASSIFICATION: False
+  IDENTITY_ADVERSARIAL:
+    ENABLE: False
+  SEVERITY_BALANCED_REGRESSION:
+    ENABLE: False
+  TASK_NUISANCE:
+    ENABLE: False
+
+LOSSES:
+  ORDINAL_WEIGHT: 0.0
+  CCC_WEIGHT: 0.0
+  L1_WEIGHT: 0.0
+  L2_WEIGHT: 0.0

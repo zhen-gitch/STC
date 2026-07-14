@@ -1,0 +1,5 @@
+EXPERIMENT_NAME: "reg_regularization_elastic"
+
+LOSSES:
+  L1_WEIGHT: 0.01
+  L2_WEIGHT: 0.1

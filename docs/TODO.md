@@ -45,6 +45,8 @@ Stage A Shortcut 证据收口
 
 > 状态（2026-07-14）：**C2/C3 已停止；当前活动任务改为一个独立、配对的 identity-gradient audit**。该实验先验证 `L_BDI + GRL(L_identity)` 是否提供有效且可审计的梯度、是否与 BDI 冲突、是否改变过拟合；在结果收口前不运行新的维度或 lambda sweep，也不重新打开 C3。
 
+> 并行的正则化审计已实现但不改变 Stage C 判定：在现有 AdamW `weight_decay=5e-4` 基础上，固定比较显式 L1/L2/elastic 三种参数惩罚与 reference，观察完整 40 epoch 的 overfit 曲线。配置和入口见 `configs/regularization_audit/`、`scripts/regularization_audit/run_matrix.sh`；不根据结果临时追加系数 sweep。
+
 1. **A0-result-gate**：已完成 A1-A4 服务器输出收口。
    - 输入：A1 layerwise summary、A2 coupling report、A3 matched-only weaklabel report、A4 severity imbalance report。
    - 输出：四条结论已写入 `docs/CURRENT_STATUS.md` 和 `docs/RGB_OVERFITTING_AUDIT_PLAN.md`。

@@ -1,0 +1,8 @@
+# Append last for a short local/server smoke test.
+EXTRACT_FEATURE:
+  BATCH_SIZE: 2
+  CHUNK_SIZE: 32
+
+PROCESS_TEMPORAL:
+  MAX_SEQ_LEN: 1000
+  MAX_EPOCHS: 2

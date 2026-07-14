@@ -31,6 +31,21 @@
 
 Stage C 的完整实施规格已写入 `docs/STAGE_C_RUNBOOK.md`。`C-REF / C-BN / C-REC / C-FULL` 的 seed-42 运行已完成，`H0=192`、`z_dep=96`、`z_nuisance=96`。相对 `C-REF`，三组候选的 validation CCC 分别下降 `0.0990 / 0.1175 / 0.1147`；C-REC/C-FULL 的 MAE 分别恶化 `0.5339 / 0.5254`，全部触发冻结的 severe utility failure。Stage C 家族继续停止进入 C3，不加入 `z_id`、pose/AU 训练监督或更多 latent；下述 GRL 实验作为独立梯度机制审计，不推翻该停止结论。
 
+### 2026-07-14 Explicit regularization audit implementation
+
+为检验“跑满 40 epoch 后过拟合是否可由参数正则缓解”，新增独立的
+`regularization_audit` 固定矩阵。现有 AdamW `WEIGHT_DECAY=5e-4` 在四组中保持不变；
+新增显式 `LOSSES.L1_WEIGHT/L2_WEIGHT`，默认均为 0。正则项只在 train stage 加入，
+只统计可训练且至少二维的参数张量（排除 bias/LayerNorm 向量），并记录原始均值、
+加权项及其相对 BDI 回归损失的比例；val/test 仍使用未正则化的主损失和指标。
+
+固定实验为 reference `(0,0)`、L1 `(0.01,0)`、L2 `(0,0.1)`、elastic `(0.01,0.1)`，
+均使用 seed 42、完整 40 epoch、相同 split/backbone/precision，禁止看完验证结果后追加
+权重 sweep。运行入口为 `scripts/regularization_audit/run_matrix.sh`；结果用
+`summarize_training_overfit.py` 比较 best-val、末 epoch 退化、train-val gap、预测标准差
+和 group 指标。若 gap/退化下降但 utility 同时下降，判定为欠拟合；若末期仍明显恶化，
+结论是固定显式正则不足以替代 EarlyStopping。
+
 ### 2026-07-14 Identity-gradient audit 实施决定
 
 在用户重新授权后，新增一个独立于 Stage C/C3 的配对机制实验，先回答“语义损失能否提供有效梯度”，再讨论表示维度。reference 与 candidate 都使用纯 regression-only、seed 42、相同 split/backbone/optimizer/precision、完整 40 epoch和 validation-only；candidate 固定 `lambda_id=0.05`，训练标量损失仍为 `L_BDI + L_identity`，identity 分支通过 GRL 向共享表示提供 `-lambda_id * grad(L_identity)`。

@@ -47,3 +47,8 @@ class MTLLiteLosses:
     # train-batch values but are deliberately excluded from ``total``.
     reconstruction: Optional[torch.Tensor] = None
     cross_correlation: Optional[torch.Tensor] = None
+    # Explicit parameter penalties. These are raw mean penalties and are
+    # populated only for the training stage; their configured weights are
+    # applied when constructing ``total``.
+    l1: Optional[torch.Tensor] = None
+    l2: Optional[torch.Tensor] = None

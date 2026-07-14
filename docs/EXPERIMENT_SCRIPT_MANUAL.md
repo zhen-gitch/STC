@@ -94,7 +94,37 @@ python scripts/train_mtl_lite.py --override configs/mtl_lite_debug_smoke.yaml
 <LOG_DIR>/default/mtl_lite_debug_smoke/version_0/
 ```
 
-### 2.5 Stage C reference
+### 2.5 Explicit L1/L2 regularization audit
+
+该审计在 Stage B regression-only 协议上固定比较四组完整 40 epoch 运行：
+
+```text
+reference: L1=0,    L2=0
+l1:        L1=0.01, L2=0
+l2:        L1=0,    L2=0.1
+elastic:   L1=0.01, L2=0.1
+```
+
+AdamW `PROCESS_TEMPORAL.WEIGHT_DECAY` 不变；显式参数惩罚只进入 train loss，
+验证和测试指标不包含惩罚。运行矩阵并汇总 overfit 曲线：
+
+```bash
+bash scripts/regularization_audit/run_matrix.sh
+```
+
+仅运行短 smoke：
+
+```bash
+DEBUG=1 SKIP_DIAG=1 bash scripts/regularization_audit/run_matrix.sh
+```
+
+已有 run 只做汇总：
+
+```bash
+SKIP_TRAIN=1 SKIP_DIAG=1 bash scripts/regularization_audit/run_matrix.sh
+```
+
+### 2.6 Stage C reference
 
 Stage C 必须按 `common -> experiment -> seed -> optional debug` 顺序叠加 override。`C-REF` reference：
 
@@ -143,7 +173,7 @@ python -m pytest tests/test_mtl_lite_training_policy.py tests/test_stage_c_confi
 python -m pytest tests/test_task_nuisance.py tests/test_mtl_lite_forward.py tests/test_mtl_lite_loss_backward.py
 ```
 
-### 2.6 Behavior-only baseline
+### 2.7 Behavior-only baseline
 
 需要额外提供 `DATASET.OPENFACE_ROOT`：
 
