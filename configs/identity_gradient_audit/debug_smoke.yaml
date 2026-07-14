@@ -1,0 +1,10 @@
+# Layer last for a short server smoke. Preserve experiment name and test policy.
+EXPERIMENT_GROUP: "identity_gradient_audit_debug"
+
+EXTRACT_FEATURE:
+  BATCH_SIZE: 2
+  CHUNK_SIZE: 32
+
+PROCESS_TEMPORAL:
+  MAX_SEQ_LEN: 1000
+  MAX_EPOCHS: 2

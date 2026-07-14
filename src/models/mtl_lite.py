@@ -1,4 +1,5 @@
 import math
+from numbers import Integral
 from typing import Dict, List, Optional
 
 import pytorch_lightning as pl
@@ -41,6 +42,62 @@ def _get_nested_config_value(configs, section_name, nested_section_name, key, de
     if nested_section is None:
         return default
     return getattr(nested_section, key, default)
+
+
+def adversarial_gradient_diagnostics(
+    bdi_loss,
+    identity_loss,
+    representation,
+    eps=1e-12,
+):
+    """Measure task/adversarial gradient interaction at one representation.
+
+    ``identity_loss`` must already flow through the GRL, so its gradient with
+    respect to ``representation`` is the reversed contribution that the
+    encoder receives during the real backward pass. ``autograd.grad`` does not
+    populate parameter ``.grad`` fields; retaining the graph lets Lightning
+    perform the normal optimization backward afterwards.
+    """
+    if representation is None or not representation.requires_grad:
+        raise ValueError(
+            "Gradient audit requires a differentiable shared representation"
+        )
+    if identity_loss is None:
+        raise ValueError("Gradient audit requires an identity loss")
+
+    bdi_grad = torch.autograd.grad(
+        bdi_loss,
+        representation,
+        retain_graph=True,
+        create_graph=False,
+    )[0]
+    identity_grad = torch.autograd.grad(
+        identity_loss,
+        representation,
+        retain_graph=True,
+        create_graph=False,
+    )[0]
+
+    bdi_flat = bdi_grad.detach().float().reshape(-1)
+    identity_flat = identity_grad.detach().float().reshape(-1)
+    bdi_norm = torch.linalg.vector_norm(bdi_flat)
+    identity_norm = torch.linalg.vector_norm(identity_flat)
+    denominator = (bdi_norm * identity_norm).clamp_min(float(eps))
+    cosine = torch.dot(bdi_flat, identity_flat) / denominator
+    ratio = identity_norm / bdi_norm.clamp_min(float(eps))
+    combined_norm = torch.linalg.vector_norm(bdi_flat + identity_flat)
+    cancellation = 1.0 - combined_norm / (
+        bdi_norm + identity_norm
+    ).clamp_min(float(eps))
+
+    return {
+        "bdi_norm": bdi_norm,
+        "identity_reversed_norm": identity_norm,
+        "identity_to_bdi_ratio": ratio,
+        "cosine": cosine,
+        "conflict": (cosine < 0.0).to(dtype=torch.float32),
+        "cancellation": cancellation.clamp(0.0, 1.0),
+    }
 
 
 # RPDF Stage A1: suggested layer-wise probe targets.
@@ -229,6 +286,42 @@ class MTLLiteDepressionModel(pl.LightningModule):
             _get_nested_config_value(
                 configs, "MODEL", "IDENTITY_ADVERSARIAL", "LAMBDA_ID", 0.05
             )
+        )
+        gradient_audit_enabled = _get_nested_config_value(
+            configs,
+            "MODEL",
+            "IDENTITY_ADVERSARIAL",
+            "GRADIENT_AUDIT_ENABLE",
+            False,
+        )
+        if not isinstance(gradient_audit_enabled, bool):
+            raise ValueError(
+                "MODEL.IDENTITY_ADVERSARIAL.GRADIENT_AUDIT_ENABLE must be a boolean"
+            )
+        gradient_audit_every_n_steps = _get_nested_config_value(
+            configs,
+            "MODEL",
+            "IDENTITY_ADVERSARIAL",
+            "GRADIENT_AUDIT_EVERY_N_STEPS",
+            1,
+        )
+        if (
+            isinstance(gradient_audit_every_n_steps, bool)
+            or not isinstance(gradient_audit_every_n_steps, Integral)
+            or gradient_audit_every_n_steps <= 0
+        ):
+            raise ValueError(
+                "MODEL.IDENTITY_ADVERSARIAL.GRADIENT_AUDIT_EVERY_N_STEPS "
+                "must be a positive integer"
+            )
+        if gradient_audit_enabled and not self.identity_adversarial:
+            raise ValueError(
+                "Identity gradient audit requires "
+                "MODEL.IDENTITY_ADVERSARIAL.ENABLE=True"
+            )
+        self.identity_gradient_audit_enabled = gradient_audit_enabled
+        self.identity_gradient_audit_every_n_steps = int(
+            gradient_audit_every_n_steps
         )
         self.grl: Optional[GradientReversalLayer] = (
             GradientReversalLayer(self.lambda_id) if self.identity_adversarial else None
@@ -839,12 +932,51 @@ class MTLLiteDepressionModel(pl.LightningModule):
         getattr(self, f"{stage}_ccc")(metric_preds, true_bdi)
         return metric_preds
 
-    def _shared_step(self, batch, stage):
+    def _shared_step(self, batch, stage, batch_idx=None):
         video_tensor, mask, labels = batch
-        outputs = self(video_tensor, mask)
+        audit_gradients = (
+            stage == "train"
+            and self.identity_gradient_audit_enabled
+            and batch_idx is not None
+            and batch_idx % self.identity_gradient_audit_every_n_steps == 0
+        )
+        outputs = self(
+            video_tensor,
+            mask,
+            return_features=audit_gradients,
+        )
         losses = self.compute_losses(outputs, labels, stage=stage)
         true_bdi = labels["bdi_score"].float()
         current_bs = video_tensor.size(0)
+
+        if audit_gradients and losses.identity is not None:
+            gradient_metrics = adversarial_gradient_diagnostics(
+                losses.regression,
+                losses.identity,
+                outputs.shared_features,
+            )
+            for name, value in gradient_metrics.items():
+                self.log(
+                    f"train_grad_{name}",
+                    value,
+                    on_step=True,
+                    on_epoch=True,
+                    batch_size=current_bs,
+                )
+
+            subject_index = self._map_subjects_to_index(labels["subject_id"])
+            if subject_index is not None:
+                subject_index = subject_index.to(outputs.identity_logits.device)
+                identity_accuracy = (
+                    outputs.identity_logits.detach().argmax(dim=-1) == subject_index
+                ).float().mean()
+                self.log(
+                    "train_identity_accuracy",
+                    identity_accuracy,
+                    on_step=True,
+                    on_epoch=True,
+                    batch_size=current_bs,
+                )
 
         self._update_metrics(stage, outputs.bdi_pred, true_bdi)
         self.log(f"{stage}_loss", losses.total, on_epoch=True, on_step=False, batch_size=current_bs)
@@ -900,13 +1032,13 @@ class MTLLiteDepressionModel(pl.LightningModule):
         return losses.total
 
     def training_step(self, batch, batch_idx):
-        return self._shared_step(batch, "train")
+        return self._shared_step(batch, "train", batch_idx=batch_idx)
 
     def validation_step(self, batch, batch_idx):
-        self._shared_step(batch, "val")
+        self._shared_step(batch, "val", batch_idx=batch_idx)
 
     def test_step(self, batch, batch_idx):
-        self._shared_step(batch, "test")
+        self._shared_step(batch, "test", batch_idx=batch_idx)
 
     def _log_epoch_metrics(self, stage):
         rmse = getattr(self, f"{stage}_rmse")

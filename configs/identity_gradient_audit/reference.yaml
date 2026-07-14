@@ -1,0 +1,6 @@
+EXPERIMENT_NAME: "iga_regression_only_reference"
+
+MODEL:
+  IDENTITY_ADVERSARIAL:
+    ENABLE: False
+    GRADIENT_AUDIT_ENABLE: False

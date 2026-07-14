@@ -264,6 +264,48 @@ python scripts/train_mtl_lite.py \
 
 将 `dep_128.yaml` 依次替换为 `dep_96.yaml`、`dep_160.yaml`、`dep_192.yaml`。四个点必须全部预先固定，不根据结果追加维度。
 
+### 3.6 Regression-only Identity Gradient Audit
+
+该配对实验固定纯 regression-only 基座，比较 task-only reference 与
+`L_BDI + GRL(L_identity)`。两组完整运行 40 epoch 用于过拟合审计，但不打开
+test；candidate 同时记录 BDI/反向 identity 梯度的范数、比值、余弦、冲突率
+和抵消率。
+
+```bash
+bash scripts/identity_gradient_audit/run_matrix.sh
+```
+
+首次运行先做 candidate debug smoke：
+
+```bash
+python scripts/train_mtl_lite.py \
+  --override configs/stage_b/base_regression_only.yaml \
+  --override configs/identity_gradient_audit/common_full40.yaml \
+  --override configs/identity_gradient_audit/bdi_identity_adversarial.yaml \
+  --override configs/identity_gradient_audit/debug_smoke.yaml
+```
+
+只有 debug `metrics.csv` 出现有限的 `train_grad_*_step/epoch` 字段后，才运行
+full-40 配对矩阵。
+
+只复用已完成 run 并重新汇总：
+
+```bash
+SKIP_TRAIN=1 bash scripts/identity_gradient_audit/run_matrix.sh
+```
+
+只生成 gradient conflict 与 training overfit，不重新导出 train/val 表征：
+
+```bash
+SKIP_TRAIN=1 SKIP_DIAG=1 \
+  bash scripts/identity_gradient_audit/run_matrix.sh
+```
+
+输出位于 `<LOG_DIR>/identity_gradient_audit/analysis/`，包括
+`gradient_conflict`、`training_overfit`、`representation_leakage` 和
+`group_robustness`。完整协议与字段解释见
+`configs/identity_gradient_audit/README.md`。读取结果前不得追加 lambda 或维度点。
+
 ---
 
 ## 4. 审计入口

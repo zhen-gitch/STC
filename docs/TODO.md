@@ -24,7 +24,7 @@ Stage A Shortcut 证据收口
 | A. Shortcut 证据收口 | 身份、artifact/quality、severity imbalance 是否确实影响预测或误差？ | 已完成：A1+A2 成立，A3 仅作评估，A4 支持 severity-balanced |
 | B. Identity-adversarial baseline | 只抑制可验证身份捷径是否足够？ | 已完成：E2 弱有效，E1/E3 无效，identity 泄漏全局未解，进入 Stage C（结论见 `CURRENT_STATUS.md` 2026-07-10 B5） |
 | C. Coarse task-nuisance 信息分流 | `z_dep / z_nuisance` 是否在等参数条件下优于共享表征和 GRL baseline？ | seed-42 utility gate 已否证当前 96 维 bottleneck/split 家族，停止进入 C3 |
-| D. Falsification / robustness | 信息分流失败来自 bottleneck、泄漏未降还是优化不稳定？ | 对冻结 seed-42 checkpoint 做 leakage/group 失败机制诊断，不扩模型 |
+| D. Falsification / robustness | 信息分流失败来自 bottleneck、泄漏未降还是优化不稳定？ | 先运行 regression-only 配对 identity-gradient audit，再决定是否授权维度实验 |
 
 阅读规则：只执行新任务时读到“暂缓项”为止即可；后续章节主要是历史任务、已完成基础设施和旧阶段记录。
 
@@ -43,7 +43,7 @@ Stage A Shortcut 证据收口
 
 #### 立即可编程任务包
 
-> 状态（2026-07-13）：**C1 已完成，C2 seed-42 utility gate 已否证当前候选**。C-BN/C-REC/C-FULL 相对 C-REF 均发生 severe utility failure；当前活动任务是 validation-only 协议修复和失败机制诊断，禁止进入 C3 或继续调同族结构。
+> 状态（2026-07-14）：**C2/C3 已停止；当前活动任务改为一个独立、配对的 identity-gradient audit**。该实验先验证 `L_BDI + GRL(L_identity)` 是否提供有效且可审计的梯度、是否与 BDI 冲突、是否改变过拟合；在结果收口前不运行新的维度或 lambda sweep，也不重新打开 C3。
 
 1. **A0-result-gate**：已完成 A1-A4 服务器输出收口。
    - 输入：A1 layerwise summary、A2 coupling report、A3 matched-only weaklabel report、A4 severity imbalance report。
@@ -118,7 +118,8 @@ Stage A Shortcut 证据收口
     - 已实现并运行 train→val BDI/task probe、identity retrieval/pair verifier、nuisance BDI gate、severity/task group robustness 和 subject bootstrap CI。
     - identity pair AUROC 未下降，severity worst-group gate 全部失败；pose_rz/black-border/face-offset-y 因缺 train weak-label 表保持 unavailable。
 12. **C3-multi-seed-gate**（停止）：按预注册 severe utility failure 规则，不运行 seeds 43/44，不进入 Stage D final-test 路径。
-13. **Postmortem capacity audit**（下一步）：固定 C-BN `DEP_DIM=96/128/160/192`，seed 42，完整 40 epoch、validation-only。只判断容量/投影损伤曲线，不恢复 C3，也不增加中间维度点。
+13. **Postmortem capacity audit**（训练与 utility 审查已完成）：固定 C-BN `DEP_DIM=96/128/160/192`，seed 42，完整 40 epoch、validation-only。结果呈非单调，160 维仅部分恢复 utility，192 等维投影仍失败；外部 leakage/effective-rank 汇总仍待补，不恢复 C3。
+14. **Identity-gradient audit**（当前下一步）：在纯 regression-only 基座上配对运行 reference 与 `BDI + GRL identity`，固定 `lambda_id=0.05`、seed 42、完整 40 epoch、test 关闭。记录 BDI/反向 identity 梯度范数、比值、余弦、冲突率、抵消率和 attacker train accuracy，并统一运行 overfit、train→val leakage 和 group robustness。只有双损失先表现出有效身份风险下降且 utility/过拟合不恶化，才允许重新设计维度实验。
 
 #### 实施验收命令
 
@@ -219,7 +220,8 @@ python -m pytest tests/test_error_identity_coupling.py tests/test_artifact_weakl
 - [x] C2 失败机制只读诊断：实现 `representation_leakage.py`、`group_robustness.py`、两个 CLI 和合成契约测试；已对四组 train/val 导出运行。
 - [ ] 补齐 train weak-label summary 后，仅补跑 pose_rz/black-border/face-offset-y group 轴；禁止使用 val 阈值。
 - [x] C3 seeds 42/43/44 gate：按停止规则取消，不运行 seed 43/44。
-- [ ] 运行 C-BN full-40 capacity audit：`DEP_DIM=96/128/160/192`，统一运行 best-val utility 与只读 leakage/group 诊断。
+- [x] 运行 C-BN full-40 capacity audit：`DEP_DIM=96/128/160/192` 的训练与 best-val utility 审查已完成；只读 leakage/effective-rank 汇总保持待补。
+- [ ] 运行 identity-gradient audit 配对矩阵：`iga_regression_only_reference` vs `iga_bdi_identity_adversarial`，并审查 gradient conflict、overfit、representation leakage 和 group robustness。
 - [ ] Stage D 后续扩展：只有基础两出口方案通过 C3 且证据仍支持时，才重新评估可选 `z_id`；不属于 C1-C3 第一版。
 
 ### D. Falsification and Robustness Validation

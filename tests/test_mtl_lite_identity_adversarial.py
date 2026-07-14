@@ -21,15 +21,19 @@ import torch
 import torch.nn as nn
 from omegaconf import OmegaConf
 
+from src.models.gradient_reversal import GradientReversalLayer
+from src.models.mtl_lite import adversarial_gradient_diagnostics
 from tests.test_mtl_lite_forward import DummyBackbone, minimal_mtl_lite_config
 
 
-def _identity_adversarial_config(lambda_id=0.05):
+def _identity_adversarial_config(lambda_id=0.05, gradient_audit=False):
     cfg = minimal_mtl_lite_config()
     cfg.MODEL = {
         "IDENTITY_ADVERSARIAL": {
             "ENABLE": True,
             "LAMBDA_ID": lambda_id,
+            "GRADIENT_AUDIT_ENABLE": gradient_audit,
+            "GRADIENT_AUDIT_EVERY_N_STEPS": 1,
             "NUM_SUBJECT_CLASSES": 0,  # placeholder; injected from train split
         }
     }
@@ -124,6 +128,94 @@ def test_identity_branch_produces_logits_and_loss(monkeypatch):
     assert head_grads
     assert all(torch.isfinite(g).all() for g in head_grads)
     assert sum(g.detach().abs().sum().item() for g in head_grads) > 0.0
+
+
+def test_adversarial_gradient_diagnostics_measure_reversed_conflict():
+    representation = torch.tensor([[1.0, 2.0]], requires_grad=True)
+    bdi_loss = representation.square().sum()
+    identity_loss = GradientReversalLayer(lambda_=0.5)(representation).sum()
+
+    metrics = adversarial_gradient_diagnostics(
+        bdi_loss,
+        identity_loss,
+        representation,
+    )
+
+    expected_bdi = torch.tensor([2.0, 4.0])
+    expected_identity = torch.tensor([-0.5, -0.5])
+    expected_cosine = torch.dot(expected_bdi, expected_identity) / (
+        expected_bdi.norm() * expected_identity.norm()
+    )
+    assert torch.allclose(metrics["bdi_norm"], expected_bdi.norm())
+    assert torch.allclose(
+        metrics["identity_reversed_norm"], expected_identity.norm()
+    )
+    assert torch.allclose(metrics["cosine"], expected_cosine)
+    assert metrics["conflict"].item() == 1.0
+    assert 0.0 <= metrics["cancellation"].item() <= 1.0
+
+
+def test_gradient_audit_logs_task_identity_interaction(monkeypatch):
+    cfg = _identity_adversarial_config(gradient_audit=True)
+    model = _build_model(monkeypatch, cfg)
+    model.set_subject_index({"203_1": 0, "204_1": 1})
+    logged = {}
+
+    def capture_log(name, value, **kwargs):
+        logged[name] = value
+
+    model.log = capture_log
+    model.train()
+    batch = _dummy_batch(["203_1", "204_1"])
+    loss = model.training_step(batch, batch_idx=0)
+
+    assert torch.isfinite(loss)
+    expected = {
+        "train_grad_bdi_norm",
+        "train_grad_identity_reversed_norm",
+        "train_grad_identity_to_bdi_ratio",
+        "train_grad_cosine",
+        "train_grad_conflict",
+        "train_grad_cancellation",
+        "train_identity_accuracy",
+    }
+    assert expected <= set(logged)
+    assert all(torch.isfinite(logged[name]) for name in expected)
+
+    loss.backward()
+    audited_modules = (
+        model.temporal_encoder,
+        model.reg_task_head,
+        model.subject_id_head,
+    )
+    for module in audited_modules:
+        gradients = [
+            parameter.grad
+            for parameter in module.parameters()
+            if parameter.grad is not None
+        ]
+        assert gradients
+        assert all(torch.isfinite(gradient).all() for gradient in gradients)
+
+
+def test_gradient_audit_requires_identity_adversarial(monkeypatch):
+    cfg = minimal_mtl_lite_config()
+    cfg.MODEL = {
+        "IDENTITY_ADVERSARIAL": {
+            "ENABLE": False,
+            "GRADIENT_AUDIT_ENABLE": True,
+        }
+    }
+    with pytest.raises(ValueError, match="requires.*ENABLE=True"):
+        _build_model(monkeypatch, cfg)
+
+
+@pytest.mark.parametrize("value", [0, -1, True, 1.5, "1"])
+def test_gradient_audit_interval_must_be_positive_integer(monkeypatch, value):
+    cfg = _identity_adversarial_config(gradient_audit=True)
+    cfg.MODEL.IDENTITY_ADVERSARIAL.GRADIENT_AUDIT_EVERY_N_STEPS = value
+    with pytest.raises(ValueError, match="must be a positive integer"):
+        _build_model(monkeypatch, cfg)
 
 
 # ---------------------------------------------------------------------------

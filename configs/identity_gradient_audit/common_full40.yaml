@@ -1,0 +1,25 @@
+# Paired postmortem experiment: observe the complete 40-epoch trajectory
+# without opening test. Both reference and adversarial runs use this protocol.
+EXPERIMENT_GROUP: "identity_gradient_audit"
+SEED: 42
+RUN_TEST_AFTER_FIT: False
+
+EARLY_STOPPING:
+  ENABLE: False
+
+PROCESS_TEMPORAL:
+  MAX_EPOCHS: 40
+
+MODEL:
+  AUXILIARY_TASKS:
+    ORDINAL_CLASSIFICATION: False
+  SEVERITY_BALANCED_REGRESSION:
+    ENABLE: False
+  TASK_NUISANCE:
+    ENABLE: False
+
+LOSSES:
+  ORDINAL_WEIGHT: 0.0
+  CCC_WEIGHT: 0.0
+  RECONSTRUCTION_WEIGHT: 0.0
+  CROSS_CORRELATION_WEIGHT: 0.0

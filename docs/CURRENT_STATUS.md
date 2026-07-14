@@ -4,7 +4,7 @@
 
 ## 状态日期
 
-2026-07-13
+2026-07-14
 
 ## 阅读提示
 
@@ -22,14 +22,20 @@
 | 第一版 latent | `z_dep`、`z_nuisance` |
 | 可选 latent | `z_id` 不进入第一版；基础方案通过 C3 后才重新论证 |
 | 不做 | 不显式建 `z_art/z_ctx/z_pose/z_quality`，不做多级 RPDF |
-| 下一步 | C2 utility failure 已冻结；修复 validation-only 协议并对 seed-42 checkpoint 做失败机制诊断，不进入 C3 |
+| 下一步 | 运行独立的 regression-only identity-gradient audit；先验证双损失梯度，再决定是否授权维度实验，不进入 C3 |
 | 审计判据 | BDI metrics、identity risk、nuisance/BDI leakage、shortcut probe risk、severity bias、task consistency、train-val gap |
 | 主张边界 | reconstruction/decorrelation 收敛或单一 attacker 下降不等于语义解耦成功 |
 | 反证条件 | 不优于 paired-seed `C-REF`、multi-seed 不稳定或风险改善伴随 utility/group robustness 恶化时停止增加复杂度 |
 
 “可审计”要求每个表示出口和训练约束都对应可独立复现的外部测量；“可证伪”要求在编码和运行前冻结强 baseline、统一指标、multi-seed 规则和停止条件。负结果应作为机制结论保留，而不是通过继续堆叠 latent、门控或损失规避。
 
-Stage C 的完整实施规格已写入 `docs/STAGE_C_RUNBOOK.md`。`C-REF / C-BN / C-REC / C-FULL` 的 seed-42 运行已完成，`H0=192`、`z_dep=96`、`z_nuisance=96`。相对 `C-REF`，三组候选的 validation CCC 分别下降 `0.0990 / 0.1175 / 0.1147`；C-REC/C-FULL 的 MAE 分别恶化 `0.5339 / 0.5254`，全部触发冻结的 severe utility failure。当前停止进入 C3，不加入 `z_id`、pose/AU 训练监督、新 GRL 或更多 latent。
+Stage C 的完整实施规格已写入 `docs/STAGE_C_RUNBOOK.md`。`C-REF / C-BN / C-REC / C-FULL` 的 seed-42 运行已完成，`H0=192`、`z_dep=96`、`z_nuisance=96`。相对 `C-REF`，三组候选的 validation CCC 分别下降 `0.0990 / 0.1175 / 0.1147`；C-REC/C-FULL 的 MAE 分别恶化 `0.5339 / 0.5254`，全部触发冻结的 severe utility failure。Stage C 家族继续停止进入 C3，不加入 `z_id`、pose/AU 训练监督或更多 latent；下述 GRL 实验作为独立梯度机制审计，不推翻该停止结论。
+
+### 2026-07-14 Identity-gradient audit 实施决定
+
+在用户重新授权后，新增一个独立于 Stage C/C3 的配对机制实验，先回答“语义损失能否提供有效梯度”，再讨论表示维度。reference 与 candidate 都使用纯 regression-only、seed 42、相同 split/backbone/optimizer/precision、完整 40 epoch和 validation-only；candidate 固定 `lambda_id=0.05`，训练标量损失仍为 `L_BDI + L_identity`，identity 分支通过 GRL 向共享表示提供 `-lambda_id * grad(L_identity)`。
+
+新实现默认关闭，只在专用配置中记录 shared representation 上的 BDI 梯度范数、反向 identity 梯度范数、二者比值、余弦、冲突率、抵消率和 train attacker accuracy。配对运行后统一生成 gradient conflict、training overfit、train→val representation leakage 和 group robustness 报告；test 保持关闭。该实验不使用 reconstruction/decorrelation/severity weighting/TaskNuisanceBlock，不追加 lambda 或 dimension sweep。只有 identity risk 下降且 utility、severity/task group robustness 与过拟合不恶化时，才允许另行预注册带语义梯度的维度实验。
 
 ### 2026-07-13 Stage C C2 utility 否证结论
 
