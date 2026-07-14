@@ -37,6 +37,11 @@ All four Stage C candidates are runnable. The seed-42 calibration froze
 `lambda_rec=0.001` and `lambda_xcorr=0.01`; Stage C common config keeps test
 closed with `RUN_TEST_AFTER_FIT: False` during validation-only work.
 
+The exploratory validation/test role-swap audit lives under
+`configs/split_sensitivity/`. It keeps the raw split file and training split
+unchanged; read its README before opening the original test split for model
+selection.
+
 Run the MTL-Lite base smoke with:
 
 ```bash

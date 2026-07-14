@@ -1,0 +1,10 @@
+# Exploratory split-role sensitivity condition.
+# Logical validation reads the physical original test split; logical test reads
+# the physical original validation split. The train split is unchanged.
+
+EXPERIMENT_GROUP: "split_sensitivity"
+EXPERIMENT_NAME: "e2_p0_val_test_swapped"
+RUN_TEST_AFTER_FIT: True
+
+DATASET:
+  SWAP_VAL_TEST: True

@@ -219,6 +219,29 @@ DATASET:
   diagnostics/behavior/test_predictions.csv
 ```
 
+### 2.9 Validation/Test role-swap split-sensitivity audit
+
+该实验保持 train、seed、backbone、optimizer、损失和 EarlyStopping 不变，
+只交换逻辑 `val` 与 `test` 的物理来源。它是 exploratory split-sensitivity
+审计，不是新的无偏测试集结果；原 test 在交换条件下参与 checkpoint 选择。
+完整协议见 `configs/split_sensitivity/README.md`。
+
+```bash
+python scripts/train_mtl_lite.py \
+  --override configs/photometric_normalization/common.yaml \
+  --override configs/photometric_normalization/p0_rgb.yaml \
+  --override configs/split_sensitivity/reference.yaml
+
+python scripts/train_mtl_lite.py \
+  --override configs/photometric_normalization/common.yaml \
+  --override configs/photometric_normalization/p0_rgb.yaml \
+  --override configs/split_sensitivity/val_test_swapped.yaml
+```
+
+短 smoke 在最后叠加 `configs/split_sensitivity/debug_smoke.yaml`。交换条件
+的映射为：logical `train` = original `train`，logical `val` = original
+`test`，logical `test` = original `val`。
+
 ---
 
 ## 3. 离线诊断入口（`diagnose_mtl_lite.py`）

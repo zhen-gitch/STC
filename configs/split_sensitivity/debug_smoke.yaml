@@ -1,0 +1,14 @@
+# Short smoke override for the split-role audit. Keep this file last.
+
+EXPERIMENT_GROUP: "split_sensitivity_debug"
+
+EXTRACT_FEATURE:
+  BATCH_SIZE: 2
+  CHUNK_SIZE: 32
+
+PROCESS_TEMPORAL:
+  MAX_SEQ_LEN: 1000
+  MAX_EPOCHS: 2
+
+EARLY_STOPPING:
+  PATIENCE: 1

@@ -1,0 +1,9 @@
+# Paired control for the validation/test role-swap audit.
+# The training split remains the original train split.
+
+EXPERIMENT_GROUP: "split_sensitivity"
+EXPERIMENT_NAME: "e2_p0_original_roles"
+RUN_TEST_AFTER_FIT: True
+
+DATASET:
+  SWAP_VAL_TEST: False

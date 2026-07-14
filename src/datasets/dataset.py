@@ -33,6 +33,28 @@ def _get_config_value(configs, section_name, key, default):
     return getattr(section, key, default)
 
 
+def resolve_dataset_split_roles(configs):
+    """Return physical split names for the logical train/val/test roles.
+
+    The default mapping is identity.  The optional ``SWAP_VAL_TEST`` switch is
+    intentionally limited to exchanging validation and test; the training
+    split never moves, so train-only weighting and subject-index construction
+    cannot accidentally consume an evaluation split.
+    """
+    swap_val_test = _get_config_value(
+        configs, "DATASET", "SWAP_VAL_TEST", False
+    )
+    if not isinstance(swap_val_test, bool):
+        raise ValueError(
+            "DATASET.SWAP_VAL_TEST must be a boolean, "
+            f"got: {swap_val_test!r}"
+        )
+
+    if swap_val_test:
+        return {"train": "train", "val": "test", "test": "val"}
+    return {"train": "train", "val": "val", "test": "test"}
+
+
 def load_data_list(dataset_split_file_path:str, images_folder_path:str, dataset):
     """Return absolute video-folder paths for the requested split."""
     data = []
@@ -252,14 +274,27 @@ class AVECDataModule(pl.LightningDataModule):
         self.cfgs = configs
         self.num_workers = configs.EXTRACT_FEATURE.NUM_WORKERS
         self.batch_size = configs.EXTRACT_FEATURE.BATCH_SIZE
+        self.split_roles = resolve_dataset_split_roles(configs)
         self.train_dataset = None
         self.val_dataset = None
         self.test_dataset = None
 
+        if self.split_roles["val"] != "val":
+            print(
+                "[DATA] SWAP_VAL_TEST=True: logical val <- physical test; "
+                "logical test <- physical val"
+            )
+
     def setup(self, stage=None):
-        self.train_dataset = AVECDataset(self.cfgs, dataset='train')
-        self.val_dataset = AVECDataset(self.cfgs, dataset='val')
-        self.test_dataset = AVECDataset(self.cfgs, dataset='test')
+        self.train_dataset = AVECDataset(
+            self.cfgs, dataset=self.split_roles["train"]
+        )
+        self.val_dataset = AVECDataset(
+            self.cfgs, dataset=self.split_roles["val"]
+        )
+        self.test_dataset = AVECDataset(
+            self.cfgs, dataset=self.split_roles["test"]
+        )
 
     def train_dataloader(self):
         return DataLoader(self.train_dataset,

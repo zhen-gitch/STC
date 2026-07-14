@@ -23,7 +23,8 @@ only partially reachable.
 `TARGET_MEDIAN=0.50` and `TARGET_SPAN=0.50` are preregistered canonical targets,
 not statistics fitted from train, validation, or test.  This avoids split
 leakage in the first bounded ablation.  P3 color constancy is intentionally not
-part of this matrix.
+part of this matrix.  The separate val/test role-swap audit lives under
+`configs/split_sensitivity/` and does not add a fourth photometric condition.
 
 All runs are validation-only (`RUN_TEST_AFTER_FIT=False`).  Keep the split,
 backbone weights, seed, precision, and override order identical.  The external
