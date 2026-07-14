@@ -40,7 +40,11 @@ Stage D: falsification and robustness validation
 
 核心主张：不显式枚举所有潜在 nuisance factors，而是把 `z_dep` 与 `z_nuisance` 作为粗粒度信息分流假设；仅对 subject identity 等可验证 shortcut 使用弱监督或对抗约束。artifact、context、pose、quality 等因素作为 audit/probe/case-study/group-wise evaluation 变量。reconstruction、decorrelation、训练内 adversary 或单一 probe 不能单独证明语义解耦；结论必须由 external multi-attacker、leakage matrix、group-wise evaluation 和 multi-seed 对照支持。
 
-截至 2026-07-12，Stage A/Stage B、C0 和 P0 已完成；C1 最小 `TaskNuisanceBlock`、stop-gradient reconstruction、float32 cross-correlation、严格配置校验和多表征导出已在本地实现并通过测试。当前剩余项是服务器 `C-REF/C-BN` debug smoke 和 100-step train-only calibration；完成前不进入 C2，也不解除 `C-REC/C-FULL` 的 spec-only 哨兵。完整协议见 `docs/STAGE_C_RUNBOOK.md`。
+截至 2026-07-14，Stage C 的 `C-REF/C-BN/C-REC/C-FULL` 已在 seed 42 被 utility gate 否证并停止进入 C3。后续 capacity audit、identity-gradient、显式 L1/L2、continuous severity weighting 和 split sensitivity 也已收口：维度变化没有稳定恢复 utility；GRL candidate 短期改善 BDI，但 external identity leakage 与末期过拟合恶化；全局参数正则无实质收益；连续权重不及四档 E2；checkpoint 选择对验证 subject composition 敏感。因此不继续 dimension/lambda/regularization sweep，也不重新打开 Stage C。
+
+当前活动路线是单模型 AU/FACS 语义局部输入正则：训练时同一 backbone、时序编码器和 BDI head 同时处理 global face 与四个整体 AU 区域，视图沿 batch 维展开并完全共享参数；validation/test/inference 只使用 global face。四区为 brow、eye-cheek、nose-upper-lip、mouth-jaw。左右 landmark 只作为 tracking components 计算可见性并合成整体 mask，不形成左右语义分支。区域外 blur + feather，禁止硬黑背景。必须设置四个 equal-area arbitrary grid 对照；AU 不优于 grid 时只能主张一般局部正则。
+
+任何训练实现前先完成只读 `AU-T0a/T0b/T1/T2`：先确认 aligned JPG 与 OpenFace `frame/timestamp` 的 join，再确认约 `640x480` 检测坐标到实际 `112x112` aligned 输入的合法变换，最后比较 static/raw/stabilized dynamic masks并审查 high-yaw、rapid-turn、low-confidence overlay。初始门槛为 frame join `>=0.995`、median adjacent-mask IoU `>=0.75`、valid-frame ratio `>=0.80`、jump rate `<=0.05` 且无系统性 high-yaw 错位。完整任务见 `TODO.md`，机制解释见 `RGB_OVERFITTING_AUDIT_PLAN.md`，字段规格见 `SHORTCUT_AUDIT_DESIGN.md`。
 
 ### 机制证据背景：RGB 过拟合多因素审计
 

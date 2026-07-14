@@ -20,6 +20,57 @@
 
 当前不做：不把 artifact、context、pose、quality 逐项建成 latent；它们只作为审计变量、probe、case study 和分组评估维度。
 
+### 当前主动干预：单模型 AU 语义局部正则
+
+Stage C 的 `z_dep/z_nuisance` 结构、identity-gradient、显式 L1/L2 和 continuous severity weighting 已经完成反证或收口。现有证据不支持继续做无语义门禁的表示维度 sweep：改变维度只能改变容量和压缩率，不能自动给特征分离提供正确梯度方向。当前主动干预转向输入侧局部归纳偏置，但仍保持项目的可审计与可证伪原则。
+
+核心假设是：全脸 RGB 同时包含抑郁相关行为与身份、姿态、边界和局部饰物等捷径；训练时给同一个模型加入 AU/FACS 语义局部视图，可以提高局部行为证据在共享参数更新中的占比，而无需训练多个模型或在推理时融合多个分支。
+
+```text
+train:
+  global face + all valid AU-semantic local views
+        -> flatten on batch axis
+        -> one shared backbone + one temporal encoder + one BDI head
+
+validation / test / inference:
+  global face only
+```
+
+该设计有四个关键边界：
+
+1. **同一模型**：所有视图完全共享参数，不建立区域专属 backbone、GRU 或 prediction head，不增加表示对齐损失。
+2. **全局保留**：global face 始终参与训练和推理；局部视图只作为训练正则，不能替代全脸上下文。
+3. **全部区域参与**：每个 batch 使用全部有效语义区域，不随机只选一个。局部损失先对区域求均值，避免区域数量直接放大总梯度。
+4. **全局单视图推理**：若只在局部多视图推理时改善，则不能证明共享模型学会了更好的全局表示。
+
+首版 AU 组采用四个粗粒度 FACS 语义整体区域，而不是逐 AU 或逐侧建分支：brow（AU1/2/4）、eye-cheek（AU5/6/7/45）、nose-upper-lip（AU9/10）、mouth-jaw（AU12/14/15/17/20/23/24/25/26）。OpenFace 的标准 AU 强度是区域整体输出，不提供左右独立监督；左右 landmark 只在 mask tracker 内部分别估计可见性和质量，然后合成为一个整体语义区域。候选损失冻结为：
+
+```text
+L_local = mean_r(valid_r * L_bdi(local_r))
+L_total = L_bdi(global) + lambda_AU * L_local
+lambda_AU = 0.5  # first registered setting
+```
+
+当四个整体区域均有效时，每个区域对总损失的最终权重为 `0.5 / 4 = 0.125`。训练输入总视图数为五个：一个 global 和四个 local semantic views。
+
+区域外使用原图模糊背景与 feathered boundary；禁止硬黑遮挡，因为已有审计证明黑边和硬转换本身可能成为 patch shortcut。区域 mask 必须逐帧动态跟踪，AU 语义固定但几何位置不固定。
+
+### 训练前门禁：动态 AU 跟踪必须先被审计
+
+现有 OpenFace landmark 坐标约处于 `640x480` 检测空间，而实际模型读取 `112x112` aligned face。静态 canonical mask 无法覆盖大幅转头，直接把原始坐标叠到 aligned frame 也没有几何依据。因此第一阶段只做只读 mask audit，不修改训练 forward。
+
+需要比较三类表示：static canonical mask、raw per-frame landmark mask、temporally stabilized dynamic mask。稳定化只消除检测抖动：短缺失允许插值，长缺失保持 invalid；真实的大幅头动必须保留。推荐把轨迹拆成全局 face transform（location/scale/roll/projected yaw-pitch）和局部 landmark residual，后者可更强平滑，前者只做轻量去抖。
+
+每个 frame-region 的质量权重定义为：
+
+```text
+q_t,r = confidence * tracking_validity * pose_visibility * mask_coverage
+```
+
+大 yaw 时不镜像或合成隐藏侧；区域有效帧不足时跳过该 local loss，global loss 始终保留。初始门槛为 median adjacent-mask IoU `>=0.75`、valid-frame ratio `>=0.80`、landmark jump rate `<=0.05`，并要求 high-yaw overlay 无系统性错位。门槛需由大 yaw、快速转头和低 confidence 样本人工复核后再校准。
+
+最终反证矩阵固定为 global-only、global + equal-area arbitrary grid、global + AU semantic regions。AU 组只有在同等局部面积和相同训练预算下优于 grid，才能主张 FACS 语义带来增益；否则结论只能是一般局部多视图正则。完整脚本与输出字段见 `SHORTCUT_AUDIT_DESIGN.md`，当前执行顺序见 `TODO.md`。
+
 ## 路线进一步细化：从证据闭环到可证伪的粗粒度信息分流
 
 项目目标正式设定为 **可审计、可证伪的粗粒度任务-干扰信息分流**。当前路线应按四个闭环推进，避免把模型实现成一次性打开所有模块的复杂因子分解网络。新的原则是：不显式枚举全部潜在 nuisance factors，只对 subject identity 等可验证 shortcut 变量进行弱监督或对抗约束；artifact、context、pose、quality 等难以完整验证的因素先作为审计变量和分组评估维度。

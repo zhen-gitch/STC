@@ -24,7 +24,8 @@ Stage A Shortcut 证据收口
 | A. Shortcut 证据收口 | 身份、artifact/quality、severity imbalance 是否确实影响预测或误差？ | 已完成：A1+A2 成立，A3 仅作评估，A4 支持 severity-balanced |
 | B. Identity-adversarial baseline | 只抑制可验证身份捷径是否足够？ | 已完成：E2 弱有效，E1/E3 无效，identity 泄漏全局未解，进入 Stage C（结论见 `CURRENT_STATUS.md` 2026-07-10 B5） |
 | C. Coarse task-nuisance 信息分流 | `z_dep / z_nuisance` 是否在等参数条件下优于共享表征和 GRL baseline？ | seed-42 utility gate 已否证当前 96 维 bottleneck/split 家族，停止进入 C3 |
-| D. Falsification / robustness | 信息分流失败来自 bottleneck、泄漏未降还是优化不稳定？ | 先运行 regression-only 配对 identity-gradient audit，再决定是否授权维度实验 |
+| D. Falsification / robustness | 信息分流失败来自 bottleneck、泄漏未降还是优化不稳定？ | 已完成 identity-gradient、正则化、连续加权和 split sensitivity 收口；不授权维度 sweep |
+| E. AU-guided local regularization | 同一模型能否在保留全局输入时被 AU 语义局部视图引导，降低全脸捷径摄入？ | 当前先做只读 `AU-T0` 动态跟踪审计，审计通过后才实现训练 |
 
 阅读规则：只执行新任务时读到“暂缓项”为止即可；后续章节主要是历史任务、已完成基础设施和旧阶段记录。
 
@@ -43,11 +44,11 @@ Stage A Shortcut 证据收口
 
 #### 立即可编程任务包
 
-> 状态（2026-07-14）：**C2/C3 已停止；当前活动任务按用户指定先运行 continuous severity-density weighting 固定矩阵**。identity-gradient 与 L1/L2 审计保留为待运行支线；在这些结果收口前不运行新的维度或 lambda sweep，也不重新打开 C3。
+> 状态（2026-07-14）：**C2/C3 已停止；identity-gradient、L1/L2、continuous severity weighting 和 split sensitivity 均已完成审阅**。这些结果没有建立可验证的特征解耦方向，因此不运行新的维度或 lambda sweep，也不重新打开 C3。当前活动任务切换为只读 `AU-T0` 动态区域跟踪审计。
 
-> 并行的正则化审计已实现但不改变 Stage C 判定：在现有 AdamW `weight_decay=5e-4` 基础上，固定比较显式 L1/L2/elastic 三种参数惩罚与 reference，观察完整 40 epoch 的 overfit 曲线。配置和入口见 `configs/regularization_audit/`、`scripts/regularization_audit/run_matrix.sh`；不根据结果临时追加系数 sweep。
+> 正则化审计已完成：四组 best-val RMSE 基本重合且全部继续过拟合，关闭系数 sweep，EarlyStopping 保留为训练策略。
 
-> 连续 severity-density weighting 已实现待服务器运行：仅使用 train 标签直方图和 Gaussian 平滑密度，首轮固定 `POWER=0.25/0.5`，不与 sampler、LDS/FDS 或 deferred weighting 组合。入口见 `configs/continuous_severity_weighting/`、`scripts/continuous_severity_weighting/run_matrix.sh`。
+> 连续 severity-density weighting 已完成：优于 plain MSE，但 CCC、预测压缩和 severe bias 均不及四档 E2，关闭 alpha/sigma sweep。后续若重新比较权重形状，必须先控制 E2 与 continuous 的样本平均 loss scale。
 
 1. **A0-result-gate**：已完成 A1-A4 服务器输出收口。
    - 输入：A1 layerwise summary、A2 coupling report、A3 matched-only weaklabel report、A4 severity imbalance report。
@@ -123,7 +124,16 @@ Stage A Shortcut 证据收口
     - identity pair AUROC 未下降，severity worst-group gate 全部失败；pose_rz/black-border/face-offset-y 因缺 train weak-label 表保持 unavailable。
 12. **C3-multi-seed-gate**（停止）：按预注册 severe utility failure 规则，不运行 seeds 43/44，不进入 Stage D final-test 路径。
 13. **Postmortem capacity audit**（训练与 utility 审查已完成）：固定 C-BN `DEP_DIM=96/128/160/192`，seed 42，完整 40 epoch、validation-only。结果呈非单调，160 维仅部分恢复 utility，192 等维投影仍失败；外部 leakage/effective-rank 汇总仍待补，不恢复 C3。
-14. **Identity-gradient audit**（当前下一步）：在纯 regression-only 基座上配对运行 reference 与 `BDI + GRL identity`，固定 `lambda_id=0.05`、seed 42、完整 40 epoch、test 关闭。记录 BDI/反向 identity 梯度范数、比值、余弦、冲突率、抵消率和 attacker train accuracy，并统一运行 overfit、train→val leakage 和 group robustness。只有双损失先表现出有效身份风险下降且 utility/过拟合不恶化，才允许重新设计维度实验。
+14. **Identity-gradient audit**（已完成，未通过）：candidate 改善短期 validation utility 和 severe bias，但 external identity pair AUROC、same-subject retrieval 与末期过拟合恶化；冲突率约 `60.2%`。训练内 attacker collapse 不构成 identity invariance，维度实验不获授权。
+15. **AU-T0a frame-contract inventory**（代码已实现，待服务器真实数据运行）：新增纯标准库只读诊断和 CLI，检查 aligned JPG 文件名/尺寸、OpenFace `frame/timestamp`、0/1-based offset、重复/缺失/非单调帧，并复现当前 `SAMPLE_STEP` 和截断后实际使用的 frame id。输出 summary、selected mapping、issues 和 report；正式 join rate 必须 `>=0.995`，禁止按数组位置静默合并。
+16. **AU-T0b coordinate-contract audit**：确定约 `640x480` 检测 landmark 到实际 aligned 输入的合法映射。优先使用已有 alignment transform；否则用固定版本 OpenFace 对 aligned JPG 重新生成 aligned-space landmark；canonical similarity transform 只有在 overlay 通过时可用。禁止直接比例缩放。
+17. **AU-T1 dynamic-mask tracking audit**：只生成 brow、eye-cheek、nose-upper-lip、mouth-jaw 四个整体语义区域。左右 landmark 仅作为 tracking components 分别计算 pose visibility/quality 后合成整体 mask，不产生左右 view 或 loss。比较 static canonical、raw per-frame、stabilized dynamic，输出 IoU、centroid velocity、jump rate 和 pose/confidence 分组失败率。
+18. **AU-T2 tracking gate**：冻结 `join>=0.995`、median IoU `>=0.75`、valid ratio `>=0.80`、jump rate `<=0.05`、train overlay correct `>=0.95`、hidden-side hallucination `=0`。tracking 必须先在完整帧率稳定化，再应用 `SAMPLE_STEP`；短缺失可插值，长失败保持 invalid。失败时只修数据几何，不进入训练。
+19. **AU-M0 single-model data path**（等待 AU-T2）：dataset train-only 返回 `[B,5,T,C,H,W]`，即 global + 四个整体区域；进入模型前展开到 batch 轴。所有视图共享同一 backbone/temporal encoder/BDI head，RGB 与 mask 复用相同 resize/flip/affine 参数；默认关闭时旧数据格式不变。
+20. **AU-M1 loss/metric contract**：首版只兼容 regression-only + 四档 E2。固定 `L_total=L_global+0.5*mean(valid four local losses)`，四区全有效时每区权重 `0.125`。metrics、checkpoint、validation/test/inference 只读取 global prediction；禁止区域专属 head、左右损失、alignment/consistency loss。
+21. **AU-M2 100-step gradient calibration**：seed 42 train-only 比较 AU 与四个 equal-area grid views，记录每区 loss、last-trainable-block/projection gradient norm、aggregate local/global norm ratio、cosine、conflict、cancellation 和单区贡献率，并运行 step-100 external identity probe。非有限、局部梯度主导、AU 冲突明显劣于 grid 或 identity risk 上升 `>0.02` 时停止 full training。
+22. **AU-M3 validation matrix**：seed 42 固定比较 G0 global-only E2、G1 global+four equal-area grids、G2 global+four stabilized AU regions。若 G2 不优于 G1，只能解释为一般 local regularization；若 global-only inference 不改善，停止该路线。
+23. **AU-M4 multi-seed gate**：G2 通过 seed-42 utility/risk gate 后才运行 seeds 43/44。沿用 severe utility failure：任一 seed `delta_CCC<-0.05` 或 `delta_MAE>+0.50` 立即停止。AU 语义主张要求 G2 在 multi-seed 和 paired subject bootstrap 下稳定优于 G1；协议冻结前 test 关闭。
 
 #### 实施验收命令
 
@@ -225,7 +235,12 @@ python -m pytest tests/test_error_identity_coupling.py tests/test_artifact_weakl
 - [ ] 补齐 train weak-label summary 后，仅补跑 pose_rz/black-border/face-offset-y group 轴；禁止使用 val 阈值。
 - [x] C3 seeds 42/43/44 gate：按停止规则取消，不运行 seed 43/44。
 - [x] 运行 C-BN full-40 capacity audit：`DEP_DIM=96/128/160/192` 的训练与 best-val utility 审查已完成；只读 leakage/effective-rank 汇总保持待补。
-- [ ] 运行 identity-gradient audit 配对矩阵：`iga_regression_only_reference` vs `iga_bdi_identity_adversarial`，并审查 gradient conflict、overfit、representation leakage 和 group robustness。
+- [x] 运行 identity-gradient audit 配对矩阵：短期 utility 改善，但 external identity leakage 与末期过拟合恶化；作为负机制消融收口，不授权维度实验。
+- [ ] `AU-T0a/T0b` frame + coordinate contract：T0a 代码已完成，待服务器运行；T0b 等待 T0a 真实报告通过后实现 landmark 到 aligned input 的合法映射和 overlay。
+- [ ] `AU-T1/T2` 四整体区域动态 mask 审计：左右只作 tracking components；比较 static/raw/stabilized，满足 join/IoU/valid/jump/人工 overlay 门槛。
+- [ ] `AU-M0/M1` 单模型数据与损失接口：global + 四区域，共享全部参数，global-only metrics/inference，默认配置兼容。
+- [ ] `AU-M2` 100-step AU-vs-grid 梯度校准和 external identity probe；未通过不运行 full-40。
+- [ ] `AU-M3/M4` G0/G1/G2 seed-42 筛选与 seeds 43/44 gate；test 在协议冻结前关闭。
 - [ ] Stage D 后续扩展：只有基础两出口方案通过 C3 且证据仍支持时，才重新评估可选 `z_id`；不属于 C1-C3 第一版。
 
 ### D. Falsification and Robustness Validation
@@ -235,7 +250,7 @@ python -m pytest tests/test_error_identity_coupling.py tests/test_artifact_weakl
 - [ ] D3 shortcut/artifact probes：用 artifact/quality/context 变量攻击 `z_dep`，只作为评估，不作为第一版训练监督。
 - [ ] D4 severity-balanced 支线：验证 weighted SmoothL1 / MAE 是否改善 minimal/severe bias，并检查是否与粗粒度信息分流互补。
 - [ ] D5 group-wise robustness：severity/task 已完成并显示 severity failure；artifact/pose/geometry 轴待 train weak-label 表。
-- [ ] D6 dynamic feature 支线：暂缓，仅当粗粒度信息分流降低风险后 BDI 表现仍受限时再启动。
+- [ ] D6 learned dynamic-feature 支线仍暂缓：不新增 optical flow、AU-delta encoder、two-stream fusion 或独立动态模型。当前 AU 路线只用逐帧 landmark 动态跟踪输入区域，属于预处理/质量门禁，不等同于该支线。
 
 ### 路线细化后的执行闭环
 

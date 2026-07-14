@@ -22,7 +22,7 @@
 | 第一版 latent | `z_dep`、`z_nuisance` |
 | 可选 latent | `z_id` 不进入第一版；基础方案通过 C3 后才重新论证 |
 | 不做 | 不显式建 `z_art/z_ctx/z_pose/z_quality`，不做多级 RPDF |
-| 下一步 | 先运行 continuous severity-density weighting 固定矩阵；identity-gradient 与 L1/L2 审计保留待运行，不进入 C3 |
+| 下一步 | 先实施只读 `AU-T0a` frame join inventory 和 `AU-T0b` aligned-coordinate contract；通过后才进入动态 mask 审计 |
 | 审计判据 | BDI metrics、identity risk、nuisance/BDI leakage、shortcut probe risk、severity bias、task consistency、train-val gap |
 | 主张边界 | reconstruction/decorrelation 收敛或单一 attacker 下降不等于语义解耦成功 |
 | 反证条件 | 不优于 paired-seed `C-REF`、multi-seed 不稳定或风险改善伴随 utility/group robustness 恶化时停止增加复杂度 |
@@ -31,39 +31,32 @@
 
 Stage C 的完整实施规格已写入 `docs/STAGE_C_RUNBOOK.md`。`C-REF / C-BN / C-REC / C-FULL` 的 seed-42 运行已完成，`H0=192`、`z_dep=96`、`z_nuisance=96`。相对 `C-REF`，三组候选的 validation CCC 分别下降 `0.0990 / 0.1175 / 0.1147`；C-REC/C-FULL 的 MAE 分别恶化 `0.5339 / 0.5254`，全部触发冻结的 severe utility failure。Stage C 家族继续停止进入 C3，不加入 `z_id`、pose/AU 训练监督或更多 latent；下述 GRL 实验作为独立梯度机制审计，不推翻该停止结论。
 
-### 2026-07-14 Explicit regularization audit implementation
+### 2026-07-14 近期机制实验收口与路线调整
 
-为检验“跑满 40 epoch 后过拟合是否可由参数正则缓解”，新增独立的
-`regularization_audit` 固定矩阵。现有 AdamW `WEIGHT_DECAY=5e-4` 在四组中保持不变；
-新增显式 `LOSSES.L1_WEIGHT/L2_WEIGHT`，默认均为 0。正则项只在 train stage 加入，
-只统计可训练且至少二维的参数张量（排除 bias/LayerNorm 向量），并记录原始均值、
-加权项及其相对 BDI 回归损失的比例；val/test 仍使用未正则化的主损失和指标。
+近期四类实验已经收口，结论共同指向：继续增加全局参数正则、连续标签权重、身份对抗强度或表示维度，不能在当前证据下解释或解决过拟合。
 
-固定实验为 reference `(0,0)`、L1 `(0.01,0)`、L2 `(0,0.1)`、elastic `(0.01,0.1)`，
-均使用 seed 42、完整 40 epoch、相同 split/backbone/precision，禁止看完验证结果后追加
-权重 sweep。运行入口为 `scripts/regularization_audit/run_matrix.sh`；结果用
-`summarize_training_overfit.py` 比较 best-val、末 epoch 退化、train-val gap、预测标准差
-和 group 指标。若 gap/退化下降但 utility 同时下降，判定为欠拟合；若末期仍明显恶化，
-结论是固定显式正则不足以替代 EarlyStopping。
+1. **Identity-gradient audit**：candidate 的 best-val RMSE 从 `10.7153` 改善到 `10.5176`，CCC 从约 `0.362` 提升到 `0.477`，severe bias 从 `-15.763` 改善到 `-12.703`；但外部 identity pair AUROC 从 `0.9308` 升到 `0.9447`，same-subject top1 从 `0.52` 升到 `0.54`，说明身份泄漏没有下降。反向 identity/BDI 梯度范数比均值为 `0.3535`，冲突率 `60.2%`，末期 validation 退化从 `0.756` 扩大到 `2.183`。该实验仅作为“短期 utility 改善但去身份机制失败”的负机制消融，不授权维度 sweep。
+2. **Explicit L1/L2 audit**：reference、L1、L2、elastic 的 best-val RMSE 均在 `10.708-10.720`，四组都在 best epoch 后继续过拟合。当前全局均值参数惩罚贡献较小，不能替代 EarlyStopping，关闭系数扩展。
+3. **Continuous severity-density weighting**：`POWER=0.25/0.5` 均优于 plain MSE，但弱于四档 E2。alpha 0.25 的 val `MAE/RMSE/CCC=8.284/10.598/0.409`，alpha 0.5 为 `8.307/10.700/0.413`；E2 的 CCC 为 `0.457`，severe bias 也更好（`-12.030` vs `-14.320/-14.260`）。不继续 alpha/sigma sweep。连续模式按样本均值归一到 `1.0`，而 E2 的实际样本平均权重约 `0.861`，因此后续若比较权重形状，必须先控制整体 loss scale。
+4. **Split sensitivity**：original 与 val/test-swapped 两组训练指标到 epoch 16 完全一致，说明训练过程没有改变，变化来自 checkpoint monitor 所见验证集合。epoch 10 相比 epoch 8 提高 CCC、扩大预测方差并缓解 severe bias，但略损伤 original-val MAE/RMSE 与 task consistency。swapped 条件使用原 test 选 checkpoint，只能作为探索性敏感性证据；论文级结论仍需重复 subject-disjoint folds/group CV。
 
-### 2026-07-14 Continuous severity-density weighting audit
+因此，当前不再把“增大/缩小/先升后降表示维度”作为立即实验。维度只有在训练目标能提供可验证的语义梯度、且外部 leakage 风险确实下降后才有解释价值。下一条主动干预路线转为输入侧局部归纳偏置：保留全脸信息，同时用动态 AU/FACS 语义区域训练同一个共享模型。
 
-在 E2 四档 severity-balanced MSE 的基础上，新增连续标签密度权重模式，
-但尚未运行服务器训练。runner 只从 train split 构建 `0..MAX_SCORE` 标签直方图，
-用 Gaussian `SMOOTHING_SIGMA=2.0` 平滑，再按
-`(density + DENSITY_EPSILON)^(-POWER)` 计算权重，clip 到 `[0.5, 4.0]` 并按
-训练集经验分布归一化；非整数 BDI 使用相邻分数权重线性插值。首轮固定比较
-`POWER=0.25` 与 `POWER=0.5`，不加入 sampler、LDS/FDS 或 deferred weighting。
+### 2026-07-14 单模型 AU 语义区域路线
 
-运行入口是 `scripts/continuous_severity_weighting/run_matrix.sh`。判读仍需同时看
-CCC、severity bias、`pred_std/true_std`、best epoch、train-val gap、末期验证退化、
-identity attacker 和 task consistency；该实验只能检验长尾/压缩机制，不能作为特征解耦证明。
+目标不是训练多个区域模型，也不是在推理时做多分支融合，而是让同一个 MTL-Lite backbone、时序编码器和 BDI head 在训练时同时处理全局脸与全部有效 AU 语义局部视图。各视图沿 batch 维展开并共享全部参数；validation/test/inference 只输入全脸。若 global-only inference 得到改善，才能说明局部训练改变了同一模型的表示偏好，而不是依赖额外推理模型。
 
-### 2026-07-14 Identity-gradient audit 实施决定
+首版只定义四个整体 AU 语义区域：brow（AU1/2/4）、eye-cheek（AU5/6/7/45）、nose-upper-lip（AU9/10）、mouth-jaw（AU12/14/15/17/20/23/24/25/26）。标准 OpenFace AU 输出不提供左右独立监督，因此左右 landmark 只能作为内部 tracking components，用于姿态可见性、质量权重和整体 mask 合成，不能形成独立语义视图、预测或损失。所有有效整体区域都参与训练，不随机只选一个；候选总损失为 `L_global + 0.5 * mean(L_brow,L_eye,L_nose,L_mouth)`，四区全部有效时每区最终权重为 `0.125`。区域外使用模糊背景和 feathered mask，禁止硬黑填充。
 
-在用户重新授权后，新增一个独立于 Stage C/C3 的配对机制实验，先回答“语义损失能否提供有效梯度”，再讨论表示维度。reference 与 candidate 都使用纯 regression-only、seed 42、相同 split/backbone/optimizer/precision、完整 40 epoch和 validation-only；candidate 固定 `lambda_id=0.05`，训练标量损失仍为 `L_BDI + L_identity`，identity 分支通过 GRL 向共享表示提供 `-lambda_id * grad(L_identity)`。
+该路线的首要风险是帧/坐标契约与动态跟踪，而不是模型结构。现有 dataset 只返回排序和采样后的图像，没有暴露 JPG frame id 或 OpenFace 行号；现有 OpenFace CSV landmark 又位于约 `640x480` 检测坐标系，不能直接覆盖到实际 `112x112` aligned 输入。当前立即任务是只读 `AU-T0a/T0b`：先验证 JPG 文件名、CSV `frame/timestamp` 与当前采样索引的 join，再检查 OpenFace 对齐变换/元数据并确定坐标映射。之后才比较 static canonical、raw per-frame 和 temporally stabilized dynamic masks。训练实现必须等待 tracking gate 通过。
 
-新实现默认关闭，只在专用配置中记录 shared representation 上的 BDI 梯度范数、反向 identity 梯度范数、二者比值、余弦、冲突率、抵消率和 train attacker accuracy。配对运行后统一生成 gradient conflict、training overfit、train→val representation leakage 和 group robustness 报告；test 保持关闭。该实验不使用 reconstruction/decorrelation/severity weighting/TaskNuisanceBlock，不追加 lambda 或 dimension sweep。只有 identity risk 下降且 utility、severity/task group robustness 与过拟合不恶化时，才允许另行预注册带语义梯度的维度实验。
+初始门槛冻结为：frame join rate `>=0.995`、median adjacent-mask IoU `>=0.75`、区域 valid-frame ratio `>=0.80`、landmark jump rate `<=0.05`，且 high-yaw 样本不能出现系统性错位。短缺失只允许插值，长失败保持 invalid；大 yaw 时左右 tracking components 分别估计可见性后合成为一个整体语义 mask，不镜像或补造隐藏侧。AU 语义区域还必须和四个 equal-area arbitrary grid 区域做面积匹配对照；若 AU 不优于 grid，只能主张局部正则有效，不能主张 FACS 语义有效。
+
+### 2026-07-14 AU-T0a frame-contract implementation
+
+已实现只读 `src/diagnostics/au_region_tracking.py` 与 `scripts/audit_au_region_tracking.py`。当前阶段只验证 aligned JPG 与 OpenFace CSV 的 frame contract，不生成区域裁剪、不恢复 landmark 坐标、不修改 dataset/model。诊断自动评估 `-2..2` frame offset，报告 0/1-based 差异、无法解析的文件名、重复/缺失帧、frame/timestamp 单调性，并用现有 `select_temporal_indices` 复现模型实际选中帧。
+
+固定输出为 `frame_contract_summary.csv`、`selected_frame_mapping.csv`、`frame_contract_issues.csv` 和 `frame_contract_report.md`。实现使用 Python 标准库，避免 T0a 被训练环境的 numpy/torch 依赖阻塞。合成 core/CLI 测试已在本机直接调用通过；本机缺少 pytest，因此正式 pytest 收集和真实数据审计仍需服务器运行。T0a 真实报告未通过前不得实现 T0b 或动态 mask。
 
 ### 2026-07-13 Stage C C2 utility 否证结论
 

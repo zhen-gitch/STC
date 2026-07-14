@@ -1515,3 +1515,213 @@ A0   [ ] 服务器对 RGB baseline 运行 A1-A4，写入结论，关闭 Stage A
 ```
 
 所有新增诊断脚本遵循既有约定：只读 checkpoint + 数据，不污染 val/test，不改训练超参，输出到 `<run_dir>/diagnostics/<audit_name>/`。
+
+## 14. Dynamic AU-semantic Region Tracking Audit
+
+本节定义单模型 AU 语义局部正则在训练前必须通过的只读几何审计。该审计不读取 BDI prediction 来调 mask，不修改 aligned frame、OpenFace CSV、split 或 checkpoint，也不进入训练 forward。
+
+### 14.1 审计目标与坐标契约
+
+目标是回答两个独立问题：
+
+1. OpenFace landmark 如何合法映射到模型实际读取的 `112x112` aligned face；
+2. 映射后的逐帧 AU 区域是否在大 yaw、快速转头和低 confidence 条件下仍能稳定跟踪。
+
+当前已知 OpenFace CSV 的 `x_* / y_*` 范围约对应 `640x480` 检测坐标系，不能直接覆盖到 aligned frame。合法映射只接受以下来源之一：
+
+- OpenFace 输出或运行元数据中的逐帧 alignment transform；
+- 使用 OpenFace canonical template 与检测 landmark 恢复出的 similarity/affine transform，并用真实 aligned frame 验证；
+- 在 aligned frame 上重新检测 landmark，且与 OpenFace frame index、裁剪和旋转约定严格对齐。
+
+禁止只按 `112/640`、`112/480` 独立缩放坐标，因为 aligned face 通常包含旋转、平移、尺度和裁剪变换。脚本必须把 `source_coordinate_system`、`mapping_method`、`transform_available`、`mapping_residual` 写入 manifest。
+
+在坐标映射之前必须先冻结 frame join 契约。aligned JPG 文件名中的帧号、OpenFace `frame`、`timestamp` 和数据集排序索引必须显式对齐；检查 0/1-based offset、重复帧、缺失帧和非单调时间戳。正式审计要求 `frame_join_rate >= 0.995`。禁止只因为 JPG 数量与 CSV 行数相同就按行号静默拼接。
+
+### 14.2 AU 语义区域
+
+首版区域使用四个整体粗粒度语义组，避免逐 AU 或逐侧产生人为分支：
+
+```text
+brow: AU1, AU2, AU4
+eye_cheek: AU5, AU6, AU7, AU45
+nose_upper_lip: AU9, AU10
+mouth_jaw: AU12, AU14, AU15, AU17, AU20, AU23, AU24, AU25, AU26
+```
+
+标准 OpenFace AU 输出不提供左右独立监督，因此 `brow` 和 `eye_cheek` 只产生一个整体语义视图。mask 由对应 landmark polygon、局部尺度 margin 和 feather radius 生成。左右 landmark polygon 可在 tracker 内部作为 `left_component/right_component` 分别计算 `pose_visibility` 和 tracking quality，然后按质量加权并集合成为一个整体 mask：
+
+```text
+M_region = max(q_left * M_left, q_right * M_right)
+```
+
+左右 component 不进入模型输出，不产生独立 BDI prediction 或 loss，也不能在论文中解释为左右 AU 表征。区域外只在未来训练视图中使用 blur；跟踪审计 overlay 同时显示 component polygon、合成 soft-mask contour、landmark 和整体 region validity。
+
+### 14.3 三组跟踪对照
+
+每个视频必须生成以下三组结果：
+
+```text
+static_canonical     # 固定在 aligned 坐标中的 canonical 区域
+raw_dynamic          # 映射后的逐帧 landmark 直接生成区域
+stabilized_dynamic   # 保留真实姿态轨迹，只抑制检测跳变和局部抖动
+```
+
+`stabilized_dynamic` 建议将轨迹拆为：
+
+```text
+global face transform: center, scale, roll, projected yaw/pitch
+local residual: brow/eye/nose/mouth landmark deformation
+```
+
+全局 transform 只做轻量鲁棒平滑，防止抹掉真实快速转头；局部 residual 可使用更强的短窗 median/robust smoothing。单帧异常点先由速度、加速度、transform residual 和 OpenFace confidence 联合判定。只插值长度不超过冻结上限的短缺失区间；长缺失保持 invalid，不跨长时间段幻觉补全。
+
+### 14.4 帧级质量与时序聚合
+
+每个 frame-region 计算：
+
+```text
+q_t,r = confidence * tracking_validity * pose_visibility * mask_coverage
+```
+
+其中左右 component 的 `pose_visibility` 根据 yaw/pitch 和区域朝向分别估计；隐藏侧不镜像、不复制可见侧、不合成区域。整体 region quality 由可见 component 的面积和质量聚合得到。
+
+首版训练保持现有 MTL-Lite boolean temporal mask 语义：`q_t,r` 用于生成 frame/region validity、跳过低质量区域并记录诊断，不直接作为连续 temporal pooling 权重。这样避免在现有 `encode_temporal_features` 与 `masked_mean_pool` 中重复乘权。连续质量加权 pooling 只有在首版通过后才可作为独立消融。未来若显式实现加权 pooling，可使用：
+
+```text
+h_r = sum_t(q_t,r * h_t,r) / sum_t(q_t,r)
+```
+
+当某区域 valid-frame ratio 低于训练门槛时跳过该区域 local loss，但 global view 始终有效。审计阶段必须同时报告未加权和质量加权统计，防止质量权重掩盖系统性失败。
+
+### 14.5 输出结构
+
+建议输出到：
+
+```text
+logs/au_region_tracking_audit/
+  tables/
+    coordinate_mapping_manifest.csv
+    frame_region_tracking.csv
+    video_region_tracking_summary.csv
+    pose_confidence_failure_summary.csv
+    tracking_method_comparison.csv
+    overlay_manifest.csv
+  figures/
+    overlays/<video_id>/<method>/<frame>.png
+    adjacent_iou_distribution.png
+    centroid_velocity_distribution.png
+    failure_rate_by_yaw.png
+  reports/
+    coordinate_contract_report.md
+    au_region_tracking_report.md
+```
+
+`frame_region_tracking.csv` 至少包含：
+
+```text
+split, video_id, frame_index, timestamp, method, region,
+confidence, success, yaw, pitch, roll,
+transform_available, mapping_residual,
+tracking_valid, interpolated, pose_visibility, mask_coverage,
+mask_area, centroid_x, centroid_y, centroid_velocity,
+adjacent_mask_iou, landmark_jump, quality_weight
+```
+
+`video_region_tracking_summary.csv` 至少包含：
+
+```text
+split, video_id, method, region, frame_count,
+valid_frame_ratio, interpolated_frame_ratio,
+median_adjacent_mask_iou, p10_adjacent_mask_iou,
+median_centroid_velocity, p95_centroid_velocity,
+landmark_jump_rate, low_coverage_rate,
+mean_quality_weight, high_yaw_frame_ratio
+```
+
+### 14.6 Overlay 抽样与人工审查
+
+overlay 必须覆盖：
+
+- 最大 absolute yaw/pitch 的视频和帧；
+- centroid velocity / landmark jump 最高的快速转头区间；
+- confidence 最低、`success=0` 或短缺失插值区间；
+- 正常 frontal、稳定 tracking 的低风险对照。
+
+阈值和 stabilizer 参数只在 train split 的无标签几何样本上冻结。validation/test 只报告，不依据其结果回调阈值。人工审查记录 `correct / shifted / wrong_region / hidden_side_hallucination / invalid_should_skip`，并在报告中按 yaw/pitch/confidence 分组统计。
+
+### 14.7 初始通过门槛与停止条件
+
+第一版全局门槛冻结为：
+
+```text
+frame join rate >= 0.995
+median adjacent-mask IoU >= 0.75
+valid-frame ratio >= 0.80
+landmark jump rate <= 0.05
+no systematic high-yaw region misalignment
+```
+
+此外，`stabilized_dynamic` 应在不显著降低 high-yaw/rapid-turn 轨迹幅度的前提下优于 `raw_dynamic` 的 IoU 和 jump rate；否则判定为过度平滑。若 coordinate transform 无法恢复、关键区域长期低 coverage、或隐藏侧频繁产生虚假 mask，停止训练实现，先解决数据几何问题。
+
+### 14.8 训练阶段的反证控制
+
+跟踪审计通过后，训练矩阵至少包含：
+
+```text
+G0 global-only baseline
+G1 global + equal-area arbitrary grid views
+G2 global + AU-semantic dynamic views
+```
+
+三组使用同一模型、split、seed、optimizer、训练预算和 global-only validation/test/inference。G1 固定为四个 grid views，G2 固定为四个整体 AU semantic views；二者必须匹配局部区域总面积和 loss scale。只有 G2 稳定优于 G1，才能支持 AU/FACS 语义贡献；若 G1≈G2，则只支持一般局部正则；若 global-only inference 无改善或 identity/pose/artifact group risk 恶化，则停止增加区域分支、对齐损失和推理融合。
+
+### 14.9 实施路线与代码边界
+
+实施必须按以下顺序推进，前一阶段未通过时不得提前修改训练模型。
+
+#### AU-T0 Frame/Coordinate Contract
+
+新增只读模块和 CLI：
+
+```text
+src/diagnostics/au_region_tracking.py
+scripts/audit_au_region_tracking.py
+tests/test_au_region_tracking.py
+tests/test_audit_au_region_tracking.py
+```
+
+第一阶段只完成 frame join inventory、图像原始尺寸、OpenFace 行对齐、坐标来源和 mapping overlay。坐标恢复优先级固定为：已有 alignment transform；固定版本 OpenFace 在 aligned JPG 上重新输出 aligned-space landmark；canonical template + similarity transform 且 overlay 通过。禁止未经验证的独立比例缩放。
+
+#### AU-T1 Dynamic Tracking
+
+tracking 在完整原始帧率上运行，完成跳变检测、短缺失插值和稳定化后，再应用训练的 `SAMPLE_STEP`。轨迹拆为 global face transform 与 local residual；global 只轻量平滑，local residual 可使用短窗 robust smoothing。输出 static/raw/stabilized 三组对照和 high-yaw/rapid-turn/low-confidence/frontal overlays。
+
+#### AU-T2 Tracking Gate
+
+除自动门槛外，train-only 人工 overlay 正确率初始要求 `>=0.95`，`hidden_side_hallucination=0`。validation/test 只报告，不回调 tracker 参数。未通过时只修数据几何，不进入训练。
+
+#### AU-M0 Single-model Data Contract
+
+训练 dataset 返回：
+
+```text
+views:          [B, 5, T, C, H, W]  # global + 4 semantic regions
+temporal_masks: [B, 5, T]
+region_valid:   [B, 4]
+```
+
+进入模型前展开为 `[B*5,T,C,H,W]`。RGB 与 mask/局部视图必须复用同一组 resize、flip 和 affine 参数；默认关闭时现有 dataset 返回格式完全不变。metrics、checkpoint monitor 和 validation/test predictions 只读取 global view。
+
+首版只允许 regression-only + 四档 E2 severity weighting，禁止同时打开 identity adversary、TaskNuisanceBlock、ordinal、区域专属 head 或 global-local alignment loss。总损失固定为：
+
+```text
+L_total = L_global + 0.5 * mean(valid L_brow,L_eye,L_nose,L_mouth)
+```
+
+#### AU-M1 100-step Gradient Calibration
+
+正式 full-40 前，在 train-only seed 42 上记录每区 loss、最后可训练 backbone block/projection 的 gradient norm、aggregate local/global norm ratio、cosine、conflict、cancellation 和单区贡献率。同步运行 equal-area grid calibration。若局部梯度主导全局梯度、出现非有限值、AU 比 grid 冲突更严重，或 step-100 external identity risk 上升超过 `0.02`，停止 full training，不追加 teacher、区域权重或 consistency loss。
+
+#### AU-M2/M3 Validation Matrix
+
+seed 42 固定比较 G0/G1/G2；通过 utility、risk 和 AU-vs-grid gate 后才运行 seeds 43/44。沿用 Stage C utility failure 条件：`delta_CCC < -0.05` 或 `delta_MAE > +0.50` 的任一 seed 立即停止。论文中的 AU 语义主张还要求 G2 在 multi-seed 和 paired subject bootstrap 下稳定优于 G1；final test 在协议冻结前保持关闭。

@@ -23,6 +23,9 @@ Stage C: Coarse task-nuisance information separation
         ↓
 Stage D: Falsification and robustness validation
         multi-attacker / leakage matrix / severity-balanced loss / group-wise robustness / task consistency
+        ↓
+当前主动干预：单模型 AU 语义局部输入正则
+        dynamic tracking read-only audit -> shared-model training -> global-only inference
 ```
 
 旧的 RPDF-Net、`z_art`、`z_m`、递进分解和多级门控方案保留为历史设计背景或可选远期支线，不再作为当前主线。input artifact、boundary smoothing、temporal sampling、identity retrieval 和 Shortcut-Regularized MTL 方案现在主要作为问题证据、对照基线和审计工具。需要决定“接下来做什么”时，优先看 `TODO.md` 的“当前立即执行任务（权威入口）”。
@@ -39,6 +42,7 @@ Stage D: Falsification and robustness validation
 | artifact / context / quality | 用于 audit、probe、case study 和 group-wise evaluation |
 | 主张边界 | 辅助损失收敛不等于语义解耦；结论必须由外部审计支持 |
 | 反证条件 | 不优于 paired-seed `C-REF`、multi-seed 不稳定或风险下降以 utility 恶化为代价时停止扩展 |
+| 当前下一步 | `AU-T0a` frame join inventory -> `AU-T0b` aligned-coordinate contract -> `AU-T1/T2` 四整体区域动态跟踪审计；通过后才实现单模型训练 |
 | 下一步入口 | `TODO.md` 的“当前立即执行任务（权威入口）” |
 
 ## 快速读取策略

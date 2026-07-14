@@ -1065,3 +1065,23 @@ Coordinate scale correction:
 - Demoted `z_art`, `z_m`, `z_ctx`, `z_quality`, and two-level progressive RPDF to historical design background or deferred branches rather than the current model mainline.
 - Repositioned artifact/context/quality variables as shortcut probes, case-study anchors, and group-wise evaluation variables instead of first-version training branches.
 - Updated route-facing docs and execution docs: `DOCS_GUIDE.md`, `CURRENT_STATUS.md`, `TODO.md`, `RGB_OVERFITTING_AUDIT_PLAN.md`, `OVERFITTING_MECHANISM_ROADMAP.md`, `CODEX_CONTEXT.md`, `RESEARCH_NOTES.md`, `SHORTCUT_AUDIT_DESIGN.md`, and `EXPERIMENT_SCRIPT_MANUAL.md`.
+
+### 2026-07-14 Recent audit closure and AU-guided local-view route
+
+- Closed four recent mechanism audits:
+  - identity-adversarial gradients improved short-term validation utility but increased fresh external identity leakage and late overfit;
+  - explicit L1/L2/elastic penalties produced nearly identical best validation RMSE and did not remove late overfit;
+  - continuous severity-density weighting improved over plain MSE but remained weaker than the four-bin E2 baseline;
+  - validation/test role swapping showed checkpoint-selection sensitivity, not a different training trajectory, and is exploratory because the original test split selected the swapped checkpoint.
+- Did not authorize further representation-dimension or lambda sweeps. Dimension changes are not interpreted as feature separation without an independently verified semantic gradient or leakage reduction.
+- Registered a new input-side intervention: one shared MTL-Lite model processes the global face and all valid AU/FACS semantic local views during training; validation, test, and inference remain global-only.
+- Corrected the semantic granularity to four whole AU-related regions: brow, eye-cheek, nose-upper-lip, and mouth-jaw. Standard OpenFace AU outputs do not provide left/right supervision. Left/right landmarks remain internal tracking components for pose visibility and mask composition, not separate views, predictions, or losses. Local regions use blurred context and feathered masks rather than hard-black occlusion.
+- Added the required read-only tracking gate before training:
+  - recover the coordinate mapping from OpenFace detection landmarks to the actual `112x112` aligned input;
+  - compare static canonical, raw per-frame, and temporally stabilized dynamic masks;
+  - audit valid-frame ratio, adjacent-mask IoU, centroid velocity, landmark jump rate, and pose/confidence-stratified failures;
+  - inspect overlays from high-yaw, rapid-turn, low-confidence, and stable frontal cases.
+- Frozen initial tracking gates: median adjacent-mask IoU `>=0.75`, valid-frame ratio `>=0.80`, landmark jump rate `<=0.05`, and no systematic high-yaw misalignment.
+- Frozen falsification controls: global-only baseline, equal-area arbitrary grid local views, and AU-semantic local views under the same model and training budget. AU semantics may be claimed only if they outperform the grid control with global-only inference.
+- Refined the implementation sequence after correcting AU granularity: frame join inventory and aligned-coordinate recovery precede tracking; four whole semantic masks are audited before model changes; a train-only 100-step AU-vs-grid gradient calibration and external identity probe precede full-40 training; seed 42 precedes seeds 43/44. The route explicitly forbids separate left/right views, region-specific heads, consistency-loss stacking, and multi-view inference.
+- Implemented the AU-T0a frame-contract inventory as a read-only standard-library diagnostic. It matches normalized video ids across aligned frame directories and OpenFace CSV files, infers bounded frame offsets, detects parse failures/duplicates/missing frames/non-monotonic frame or timestamp sequences, and reproduces the configured temporal sampling indices. Added the CLI and focused synthetic tests. Local compile, CLI help, empty-root smoke, direct core/CLI synthetic tests, and `git diff --check` passed; local pytest collection is unavailable.

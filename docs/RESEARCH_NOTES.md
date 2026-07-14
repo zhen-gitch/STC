@@ -852,3 +852,23 @@ task_diff_mean 不恶化
 ```
 
 若 identity retrieval 下降但 severity agreement 和 task consistency 也下降，应解释为 `middle_crop` 式失败。若 severe bias 改善但 identity retrieval 上升，应解释为 `border_black_feather` 式 identity / artifact 纠缠。
+
+## 2026-07-14 AU-guided Single-model Local-view Regularization
+
+近期实验进一步限定了方法选择。identity-adversarial gradient 能改善短期 BDI utility，却没有降低 fresh external identity leakage；显式 L1/L2 没有缓解主要过拟合；连续标签密度权重不及四档 severity weighting；单独改变 representation dimension 也不能提供语义分离方向。这些结果支持把下一次干预放在可观察、可审计的输入归纳偏置，而不是继续增加 latent 或 loss 组合。
+
+AU/FACS 区域适合作为局部视图语义来源，原因不是 AU 标签可以直接等同于抑郁，而是 FACS 提供了比任意网格更明确、可复核的面部运动解剖分区。多视图/多裁剪训练的一般作用是迫使共享参数在不同局部观测下保持任务能力；本项目进一步要求全脸始终保留、所有视图共享同一个模型、推理只用全脸，从而把实验问题收紧为：局部语义训练是否改变了同一模型对全脸证据的选择。
+
+首版语义粒度必须与可用监督一致：标准 OpenFace AU 输出描述整体动作单元强度，不提供左右独立强度，因此模型只使用 brow、eye-cheek、nose-upper-lip、mouth-jaw 四个整体区域。左右 landmark 可以分别追踪以处理大 yaw 和遮挡，但它们只是几何质量组件，最终合成为一个整体区域 mask，不能解释为左右 AU 表征或建立左右独立损失。
+
+该设计不能预设 AU 语义一定有效。必须加入 equal-area arbitrary grid 控制：
+
+```text
+global-only
+global + equal-area grid local views
+global + AU/FACS semantic local views
+```
+
+若 AU 与 grid 相当，只能说明局部多视图具有一般正则作用；只有 AU 在相同面积、loss scale 和训练预算下稳定更好，才支持语义分区贡献。若改善只存在于多区域推理而 global-only inference 不改善，则不能说明全局表示被纠正。
+
+视频场景还要求区域逐帧动态跟踪。FACS 语义可以固定，但 mask 几何不能固定。OpenFace 检测坐标与 aligned 输入坐标之间必须有合法的 alignment transform；真实大幅转头应保留，检测抖动才应被平滑。大 yaw 下隐藏侧不能通过镜像或复制生成，低有效率区域应跳过 local loss。由此，动态 tracking audit 是方法成立的前置实验，而不是工程细节。

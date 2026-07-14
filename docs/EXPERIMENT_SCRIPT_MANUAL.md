@@ -409,6 +409,23 @@ python scripts/audit_temporal_sampling.py \
 
 `--sample-step` / `--max-seq-len` / `--sampling-strategy` 必须与对应实验的 `resolved_config.yaml` 一致。
 
+### 4.2.1 AU-T0a frame-contract inventory
+
+该命令只核对 aligned JPG 与 OpenFace CSV 帧，不生成裁剪图或修改训练数据：
+
+```bash
+python scripts/audit_au_region_tracking.py \
+  --image-root /path/to/AVEC2014/face_images \
+  --openface-root /path/to/openface_csv_root \
+  --output-dir logs/au_region_tracking_audit/t0a_frame_contract \
+  --sample-step 10 \
+  --max-seq-len 2000 \
+  --sampling-strategy stride_head \
+  --join-threshold 0.995
+```
+
+若 JPG 文件名中的帧号不是最后一个数字组，使用例如 `--frame-id-regex 'frame_(\d+)'` 显式指定。参数必须先在 train 数据约定上冻结，不能根据 validation/test 结果反复修改。
+
 ### 4.3 OpenFace alignment geometry audit
 
 ```bash
