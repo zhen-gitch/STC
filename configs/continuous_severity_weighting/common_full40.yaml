@@ -1,0 +1,31 @@
+# Fixed continuous severity-density weighting audit.
+# All weights are estimated from train labels only; validation/test labels are
+# never used to construct the density.
+EXPERIMENT_GROUP: "continuous_severity_weighting"
+SEED: 42
+RUN_TEST_AFTER_FIT: False
+
+EARLY_STOPPING:
+  ENABLE: False
+
+PROCESS_TEMPORAL:
+  MAX_EPOCHS: 40
+
+MODEL:
+  AUXILIARY_TASKS:
+    ORDINAL_CLASSIFICATION: False
+  IDENTITY_ADVERSARIAL:
+    ENABLE: False
+  TASK_NUISANCE:
+    ENABLE: False
+  SEVERITY_BALANCED_REGRESSION:
+    ENABLE: True
+    WEIGHTING_MODE: "continuous"
+    SMOOTHING_SIGMA: 2.0
+    DENSITY_EPSILON: 0.001
+    MIN_WEIGHT: 0.5
+    MAX_WEIGHT: 4.0
+
+LOSSES:
+  ORDINAL_WEIGHT: 0.0
+  CCC_WEIGHT: 0.0

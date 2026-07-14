@@ -22,7 +22,7 @@
 | 第一版 latent | `z_dep`、`z_nuisance` |
 | 可选 latent | `z_id` 不进入第一版；基础方案通过 C3 后才重新论证 |
 | 不做 | 不显式建 `z_art/z_ctx/z_pose/z_quality`，不做多级 RPDF |
-| 下一步 | 运行独立的 regression-only identity-gradient audit；先验证双损失梯度，再决定是否授权维度实验，不进入 C3 |
+| 下一步 | 先运行 continuous severity-density weighting 固定矩阵；identity-gradient 与 L1/L2 审计保留待运行，不进入 C3 |
 | 审计判据 | BDI metrics、identity risk、nuisance/BDI leakage、shortcut probe risk、severity bias、task consistency、train-val gap |
 | 主张边界 | reconstruction/decorrelation 收敛或单一 attacker 下降不等于语义解耦成功 |
 | 反证条件 | 不优于 paired-seed `C-REF`、multi-seed 不稳定或风险改善伴随 utility/group robustness 恶化时停止增加复杂度 |
@@ -45,6 +45,19 @@ Stage C 的完整实施规格已写入 `docs/STAGE_C_RUNBOOK.md`。`C-REF / C-BN
 `summarize_training_overfit.py` 比较 best-val、末 epoch 退化、train-val gap、预测标准差
 和 group 指标。若 gap/退化下降但 utility 同时下降，判定为欠拟合；若末期仍明显恶化，
 结论是固定显式正则不足以替代 EarlyStopping。
+
+### 2026-07-14 Continuous severity-density weighting audit
+
+在 E2 四档 severity-balanced MSE 的基础上，新增连续标签密度权重模式，
+但尚未运行服务器训练。runner 只从 train split 构建 `0..MAX_SCORE` 标签直方图，
+用 Gaussian `SMOOTHING_SIGMA=2.0` 平滑，再按
+`(density + DENSITY_EPSILON)^(-POWER)` 计算权重，clip 到 `[0.5, 4.0]` 并按
+训练集经验分布归一化；非整数 BDI 使用相邻分数权重线性插值。首轮固定比较
+`POWER=0.25` 与 `POWER=0.5`，不加入 sampler、LDS/FDS 或 deferred weighting。
+
+运行入口是 `scripts/continuous_severity_weighting/run_matrix.sh`。判读仍需同时看
+CCC、severity bias、`pred_std/true_std`、best epoch、train-val gap、末期验证退化、
+identity attacker 和 task consistency；该实验只能检验长尾/压缩机制，不能作为特征解耦证明。
 
 ### 2026-07-14 Identity-gradient audit 实施决定
 

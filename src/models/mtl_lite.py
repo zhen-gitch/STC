@@ -359,6 +359,50 @@ class MTLLiteDepressionModel(pl.LightningModule):
                 configs, "MODEL", "SEVERITY_BALANCED_REGRESSION", "POWER", 0.5
             )
         )
+        self.severity_weighting_mode = str(
+            _get_nested_config_value(
+                configs,
+                "MODEL",
+                "SEVERITY_BALANCED_REGRESSION",
+                "WEIGHTING_MODE",
+                "bin",
+            )
+        ).strip().lower()
+        if self.severity_weighting_mode not in {"bin", "continuous"}:
+            raise ValueError(
+                "MODEL.SEVERITY_BALANCED_REGRESSION.WEIGHTING_MODE must be "
+                "'bin' or 'continuous'"
+            )
+        self.severity_smoothing_sigma = float(
+            _get_nested_config_value(
+                configs,
+                "MODEL",
+                "SEVERITY_BALANCED_REGRESSION",
+                "SMOOTHING_SIGMA",
+                2.0,
+            )
+        )
+        self.severity_density_epsilon = float(
+            _get_nested_config_value(
+                configs,
+                "MODEL",
+                "SEVERITY_BALANCED_REGRESSION",
+                "DENSITY_EPSILON",
+                1e-3,
+            )
+        )
+        if not math.isfinite(self.severity_power) or self.severity_power < 0.0:
+            raise ValueError("severity POWER must be finite and non-negative")
+        if (
+            not math.isfinite(self.severity_smoothing_sigma)
+            or self.severity_smoothing_sigma <= 0.0
+        ):
+            raise ValueError("severity SMOOTHING_SIGMA must be finite and positive")
+        if (
+            not math.isfinite(self.severity_density_epsilon)
+            or self.severity_density_epsilon <= 0.0
+        ):
+            raise ValueError("severity DENSITY_EPSILON must be finite and positive")
         self.severity_min_weight = float(
             _get_nested_config_value(
                 configs, "MODEL", "SEVERITY_BALANCED_REGRESSION", "MIN_WEIGHT", 0.5
@@ -378,6 +422,9 @@ class MTLLiteDepressionModel(pl.LightningModule):
         # Injected by the runner from the train split; empty dict => disabled
         # even if the switch is on (no train stats yet).
         self.severity_bin_weights: Dict[str, float] = {}
+        # Continuous mode stores one smoothed density-derived weight per BDI
+        # score in [0, MAX_SCORE]; interpolation is used for non-integer labels.
+        self.severity_label_weights: List[float] = []
 
     def set_subject_index(self, subject_id_to_index):
         """Inject the train-only subject table and build the attacker head.
@@ -441,7 +488,10 @@ class MTLLiteDepressionModel(pl.LightningModule):
         normalized) is printed for log traceability.  No-op when the switch is
         off.
         """
-        if not self.severity_balanced_regression:
+        if (
+            not self.severity_balanced_regression
+            or self.severity_weighting_mode != "bin"
+        ):
             self.severity_bin_weights = {}
             return
         counts = {name: int(bin_counts.get(name, 0)) for name in self.severity_bin_names}
@@ -475,6 +525,78 @@ class MTLLiteDepressionModel(pl.LightningModule):
                 f"clipped={clipped[name]:.4f}  normalized={normalized[name]:.4f}"
             )
 
+    def set_severity_label_histogram(self, histogram):
+        """Inject train-only BDI counts and build smoothed continuous weights.
+
+        The histogram is label-only train statistics. A Gaussian kernel smooths
+        the empirical density over the integer BDI score axis before applying
+        ``(density + epsilon) ** (-POWER)``. Clipping and empirical mean
+        normalization keep the weighted MSE on the same scale as plain MSE.
+        """
+        self.severity_label_weights = []
+        if (
+            not self.severity_balanced_regression
+            or self.severity_weighting_mode != "continuous"
+        ):
+            return
+        counts = [max(0, int(value)) for value in list(histogram)]
+        expected_length = self.max_score + 1
+        if len(counts) != expected_length:
+            raise ValueError(
+                "Continuous severity histogram must have MAX_SCORE + 1 entries"
+            )
+        total = sum(counts)
+        if total <= 0:
+            print("[SEVERITY-BALANCE] Empty train label histogram; weighting disabled.")
+            return
+
+        radius = max(1, int(math.ceil(3.0 * self.severity_smoothing_sigma)))
+        smoothed_density = []
+        for score in range(expected_length):
+            density_mass = 0.0
+            for neighbor in range(
+                max(0, score - radius), min(expected_length, score + radius + 1)
+            ):
+                distance = (score - neighbor) / self.severity_smoothing_sigma
+                density_mass += counts[neighbor] * math.exp(-0.5 * distance * distance)
+            smoothed_density.append(density_mass / float(total))
+
+        raw = [
+            (density + self.severity_density_epsilon) ** (-self.severity_power)
+            for density in smoothed_density
+        ]
+        clipped = [
+            min(max(weight, self.severity_min_weight), self.severity_max_weight)
+            for weight in raw
+        ]
+        empirical_mean = sum(
+            count * weight for count, weight in zip(counts, clipped)
+        ) / float(total)
+        if not math.isfinite(empirical_mean) or empirical_mean <= 0.0:
+            print("[SEVERITY-BALANCE] Invalid continuous weights; weighting disabled.")
+            return
+        self.severity_label_weights = [weight / empirical_mean for weight in clipped]
+        observed = [
+            self.severity_label_weights[score]
+            for score, count in enumerate(counts)
+            if count > 0
+        ]
+        print(
+            "[SEVERITY-BALANCE] Continuous train-label weights: "
+            f"sigma={self.severity_smoothing_sigma:.3f} "
+            f"power={self.severity_power:.3f} "
+            f"observed_min={min(observed):.4f} "
+            f"observed_max={max(observed):.4f}"
+        )
+        for score, count in enumerate(counts):
+            if count > 0:
+                print(
+                    f"  score={score:2d} count={count:4d} "
+                    f"density={smoothed_density[score]:.6f} "
+                    f"raw={raw[score]:.4f} clipped={clipped[score]:.4f} "
+                    f"normalized={self.severity_label_weights[score]:.4f}"
+                )
+
     def _severity_bin_index(self, true_bdi):
         """Map a tensor of raw BDI scores to per-sample bin indices.
 
@@ -500,6 +622,24 @@ class MTLLiteDepressionModel(pl.LightningModule):
         weight table is empty (switch off or no train stats), this falls back
         to plain ``F.mse_loss`` so the result is bit-identical to E0.
         """
+        if self.severity_weighting_mode == "continuous":
+            if not self.severity_label_weights:
+                return F.mse_loss(bdi_pred.float(), true_bdi_norm.float())
+            weight_table = torch.tensor(
+                self.severity_label_weights,
+                device=bdi_pred.device,
+                dtype=bdi_pred.dtype,
+            )
+            scores = true_bdi.float().clamp(0.0, float(self.max_score))
+            lower = scores.floor().long()
+            upper = scores.ceil().long()
+            fraction = scores - lower.float()
+            per_sample_w = (
+                weight_table[lower] * (1.0 - fraction)
+                + weight_table[upper] * fraction
+            )
+            sq_err = (bdi_pred.float() - true_bdi_norm.float()) ** 2
+            return (per_sample_w * sq_err).mean()
         if not self.severity_bin_weights:
             return F.mse_loss(bdi_pred.float(), true_bdi_norm.float())
         bin_idx = self._severity_bin_index(true_bdi).to(bdi_pred.device)

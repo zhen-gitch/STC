@@ -124,7 +124,26 @@ DEBUG=1 SKIP_DIAG=1 bash scripts/regularization_audit/run_matrix.sh
 SKIP_TRAIN=1 SKIP_DIAG=1 bash scripts/regularization_audit/run_matrix.sh
 ```
 
-### 2.6 Stage C reference
+### 2.6 Continuous severity-density weighting
+
+该审计用 train-only BDI 标签直方图估计连续密度，经 Gaussian 平滑后对回归 MSE
+赋予连续权重。首轮只比较 `POWER=0.25` 和 `POWER=0.5`，固定
+`SMOOTHING_SIGMA=2.0`、`DENSITY_EPSILON=0.001`、权重范围 `[0.5, 4.0]`。
+
+```bash
+bash scripts/continuous_severity_weighting/run_matrix.sh
+```
+
+短 smoke：
+
+```bash
+DEBUG=1 SKIP_DIAG=1 bash scripts/continuous_severity_weighting/run_matrix.sh
+```
+
+权重只作用于 BDI regression MSE；CCC、ordinal、validation/test 标签和测试指标口径不变。
+结果应与 `logs/stage_b/aggregate/` 中已有 E2 四档权重结果比较。
+
+### 2.7 Stage C reference
 
 Stage C 必须按 `common -> experiment -> seed -> optional debug` 顺序叠加 override。`C-REF` reference：
 
@@ -173,7 +192,7 @@ python -m pytest tests/test_mtl_lite_training_policy.py tests/test_stage_c_confi
 python -m pytest tests/test_task_nuisance.py tests/test_mtl_lite_forward.py tests/test_mtl_lite_loss_backward.py
 ```
 
-### 2.7 Behavior-only baseline
+### 2.8 Behavior-only baseline
 
 需要额外提供 `DATASET.OPENFACE_ROOT`：
 

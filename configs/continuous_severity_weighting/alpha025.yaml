@@ -1,0 +1,5 @@
+EXPERIMENT_NAME: "continuous_weight_alpha025"
+
+MODEL:
+  SEVERITY_BALANCED_REGRESSION:
+    POWER: 0.25

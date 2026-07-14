@@ -228,6 +228,25 @@ def build_train_severity_bin_counts(cfgs, edges=(13, 19, 28)):
     return counts
 
 
+def build_train_severity_label_histogram(cfgs, max_score=63):
+    """Build a train-only integer BDI histogram for continuous weighting."""
+    label_dir = Path(cfgs.LABEL_DIR).expanduser()
+    train_folders = load_data_list(
+        cfgs.DATASET_SPLIT_FILE, cfgs.IMAGE_DIR, "train"
+    )
+    histogram = [0] * (int(max_score) + 1)
+    for folder in train_folders:
+        video_id = Path(folder).name
+        subject_id = video_id[0:5]
+        label_path = label_dir / f"{subject_id}_Depression.csv"
+        if not label_path.exists():
+            continue
+        label = int(label_path.read_text().strip())
+        if 0 <= label <= int(max_score):
+            histogram[label] += 1
+    return histogram
+
+
 def build_mtl_lite_trainer(
     cfgs, calibration_only=False, calibration_steps=100
 ):
@@ -293,7 +312,10 @@ def run_mtl_lite(cfgs):
     # regression is enabled.  Bin edges are taken from the model so the
     # runner-side counting and model-side bin indexing share one source of
     # truth.  Val/test labels are never read for weighting.
-    if model.severity_balanced_regression:
+    if (
+        model.severity_balanced_regression
+        and model.severity_weighting_mode == "bin"
+    ):
         bin_counts = build_train_severity_bin_counts(
             cfgs, edges=tuple(model.severity_bin_edges)
         )
@@ -301,6 +323,20 @@ def run_mtl_lite(cfgs):
         print(
             f"[RUNNER] severity-balanced regression ON: train bin counts "
             f"{bin_counts}, power={model.severity_power}"
+        )
+    elif (
+        model.severity_balanced_regression
+        and model.severity_weighting_mode == "continuous"
+    ):
+        histogram = build_train_severity_label_histogram(
+            cfgs, max_score=model.max_score
+        )
+        model.set_severity_label_histogram(histogram)
+        print(
+            "[RUNNER] continuous severity weighting ON: train histogram "
+            f"observed_labels={sum(count > 0 for count in histogram)}, "
+            f"samples={sum(histogram)}, sigma={model.severity_smoothing_sigma}, "
+            f"power={model.severity_power}"
         )
 
     calibration_only = model.task_nuisance_config.calibration_only
