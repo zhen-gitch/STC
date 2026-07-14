@@ -1,0 +1,7 @@
+# P2: align robust luminance center and bounded q10-q90 contrast span.
+
+EXPERIMENT_NAME: "p2_luma_center_contrast"
+
+DATASET:
+  PHOTOMETRIC_NORMALIZATION:
+    MODE: "luma_center_contrast"

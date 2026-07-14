@@ -1,0 +1,7 @@
+# P1: align each video's robust luminance median to the canonical target.
+
+EXPERIMENT_NAME: "p1_luma_center"
+
+DATASET:
+  PHOTOMETRIC_NORMALIZATION:
+    MODE: "luma_center"

@@ -19,6 +19,10 @@ from torchvision.io import read_image, ImageReadMode
 from torchvision.transforms import v2  # 视频级的图像增强
 
 from src.datasets.input_variants import apply_input_variant, normalize_input_variant
+from src.datasets.photometric_normalization import (
+    apply_photometric_normalization,
+    resolve_photometric_normalization_config,
+)
 from src.datasets.temporal_sampling import normalize_temporal_sampling_strategy, select_temporal_indices
 
 
@@ -102,6 +106,9 @@ class AVECDataset(Dataset):
         self.input_variant = normalize_input_variant(
             _get_config_value(configs, "DATASET", "INPUT_VARIANT", "rgb")
         )
+        self.photometric_normalization = resolve_photometric_normalization_config(
+            configs
+        )
 
         # Base transform must stay deterministic; random augmentations are applied
         # only in _apply_video_augmentation for the training views.
@@ -166,6 +173,9 @@ class AVECDataset(Dataset):
         return torch.cat((video_tensor, padding_frames), dim=0)
 
     def _build_video_output(self, raw_video_tensor):
+        raw_video_tensor = apply_photometric_normalization(
+            raw_video_tensor, self.photometric_normalization
+        )
         raw_video_tensor = apply_input_variant(raw_video_tensor, self.input_variant)
         if self.dataset_name == "train" and self.return_multi_view_train:
             return {

@@ -1,0 +1,14 @@
+# Layer last for a short P0/P1/P2 smoke without changing experiment identity.
+
+EXPERIMENT_GROUP: "photometric_normalization_debug"
+
+EXTRACT_FEATURE:
+  BATCH_SIZE: 2
+  CHUNK_SIZE: 32
+
+PROCESS_TEMPORAL:
+  MAX_SEQ_LEN: 1000
+  MAX_EPOCHS: 2
+
+EARLY_STOPPING:
+  PATIENCE: 1

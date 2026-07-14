@@ -5,6 +5,56 @@
 This log records completed project maintenance, smoke validation, and experiment
 workflow milestones. Keep entries concise and reproducible.
 
+## 2026-07-14
+
+### P0/P1/P2 video-level photometric normalization implementation
+
+- Added an optional, deterministic video-level luminance normalization stage
+  before existing input variants, resize/model normalization, and padding.
+- Frozen matrix:
+  - P0 `none`: original RGB control;
+  - P1 `luma_center`: bounded video-level luminance-median alignment;
+  - P2 `luma_center_contrast`: P1 plus bounded q10-q90 contrast alignment.
+- The transform uses one mapping for all sampled frames in a video, excludes
+  axis-connected near-black OpenFace padding from robust statistics, preserves
+  those padding pixels, and changes RGB channels by the same luminance delta.
+  The shared delta is gamut-limited per pixel so saturated colors preserve
+  their channel differences instead of undergoing channel-wise clipping.
+- The first matrix uses fixed canonical targets (`median=0.50`, `span=0.50`) and
+  therefore does not fit any transform target from validation/test. P1/P2 do not
+  claim to normalize color or skin tone; color constancy remains a later P3.
+- Added standalone validation-only configs under
+  `configs/photometric_normalization/`. P0/P1/P2 differ only in experiment name
+  and photometric mode and use the same seed, split, backbone policy, optimizer,
+  precision, severity-balanced loss, EarlyStopping, and checkpoint monitor.
+- Local validation completed:
+  - photometric/config tests: `48 passed`;
+  - input/dataset/model/loss/training-policy regression selection: `120 passed`;
+  - root `tests/` suite: `344 passed`; three failures and two errors remain in
+    legacy end-to-end tests that import the absent `src.models.end_to_end`;
+  - Python compilation and `git diff --check` passed;
+  - a synthetic `[200, 3, 112, 112]` P2 tensor smoke preserved shape and uint8
+    range.
+- Real AVEC one-batch/training smoke remains server-only because the local
+  `configs/local_paths.yaml` contains no dataset paths or backbone weights.
+- Interpretation caveats are frozen: the strict padding mask is not a general
+  connected-component segmentation, and the unchanged `mean=std=0.5` model
+  normalization may differ from the external DeiT pretraining contract. The
+  latter requires a separate factorial control and must not be changed inside
+  P0/P1/P2.
+- Reproducible server command (replace the final override for P1/P2):
+
+```bash
+python scripts/train_mtl_lite.py \
+  --override configs/photometric_normalization/common.yaml \
+  --override configs/photometric_normalization/p0_rgb.yaml \
+  --override configs/photometric_normalization/debug_smoke.yaml
+```
+
+- Before each real run, record `git rev-parse HEAD`,
+  `git branch --show-current`, the exact command, GPU/device, and the generated
+  `<LOG_DIR>/photometric_normalization*/<EXPERIMENT_NAME>/version_N/resolved_config.yaml`.
+
 ## 2026-06-12
 
 ### Debug smoke and config-path maintenance

@@ -1,0 +1,7 @@
+# P0 control: original RGB input, no photometric normalization.
+
+EXPERIMENT_NAME: "p0_rgb"
+
+DATASET:
+  PHOTOMETRIC_NORMALIZATION:
+    MODE: "none"
