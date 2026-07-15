@@ -426,6 +426,30 @@ python scripts/audit_au_region_tracking.py \
 
 若 JPG 文件名中的帧号不是最后一个数字组，使用例如 `--frame-id-regex 'frame_(\d+)'` 显式指定。参数必须先在 train 数据约定上冻结，不能根据 validation/test 结果反复修改。
 
+### 4.2.2 AU-T0b aligned-coordinate contract
+
+T0b 必须读取已经通过的 T0a summary/mapping 和冻结的 split 文件。推荐优先在 aligned JPG 上使用固定 OpenFace 版本重新检测 landmark，并将对应 CSV root 传给：
+
+```bash
+/home/zhen/miniconda3/bin/conda run -n light \
+python scripts/audit_au_coordinate_contract.py \
+  --image-root /usr/local/conda/zhen/dataset/AVEC2014/face_images \
+  --openface-root /usr/local/conda/zhen/dataset/AVEC2014/openface_features \
+  --frame-contract-summary logs/au_region_tracking_audit/t0a_frame_contract/tables/frame_contract_summary.csv \
+  --selected-frame-mapping logs/au_region_tracking_audit/t0a_frame_contract/tables/selected_frame_mapping.csv \
+  --dataset-split-file /usr/local/conda/zhen/dataset/AVEC2014/dataset_split.json \
+  --aligned-openface-root /path/to/openface_rerun_on_aligned_jpg \
+  --mapping-method aligned_redetection \
+  --output-dir logs/au_region_tracking_audit/t0b_coordinate_contract \
+  --min-mapping-valid-ratio 0.995 \
+  --min-in-bounds-ratio 0.80 \
+  --max-overlays 120
+```
+
+若预处理阶段保存了逐帧 2x3 变换，使用 `--mapping-method explicit_affine --transform-root /path/to/transform_csv_root`；每个视频 CSV 必须包含 `frame,m00,m01,m02,m10,m11,m12`。只有存在经过确认的 aligned-space canonical template 时才使用 `--mapping-method canonical_similarity --canonical-template /path/to/template.csv`，template 格式为 `landmark_id,x,y`。
+
+不提供上述任何合法来源时，`auto` 会输出 `BLOCKED`，不会执行检测坐标到 `112x112` 的独立比例缩放。自动检查成功仍只输出 `REVIEW_REQUIRED`；必须填写 `overlay_manifest.csv` 的 `review_status/review_notes` 并人工确认 train overlays，才能判定 T0b PASS。validation/test 不用于修改 mapping、阈值或 template。
+
 ### 4.3 OpenFace alignment geometry audit
 
 ```bash

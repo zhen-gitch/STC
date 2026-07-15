@@ -42,7 +42,7 @@ Stage D: Falsification and robustness validation
 | artifact / context / quality | 用于 audit、probe、case study 和 group-wise evaluation |
 | 主张边界 | 辅助损失收敛不等于语义解耦；结论必须由外部审计支持 |
 | 反证条件 | 不优于 paired-seed `C-REF`、multi-seed 不稳定或风险下降以 utility 恶化为代价时停止扩展 |
-| 当前下一步 | `AU-T0a` frame join inventory -> `AU-T0b` aligned-coordinate contract -> `AU-T1/T2` 四整体区域动态跟踪审计；通过后才实现单模型训练 |
+| 当前下一步 | `AU-T0a` 已通过；运行并人工审阅 `AU-T0b` aligned-coordinate contract -> `AU-T1/T2` 四整体区域动态跟踪审计；通过后才实现单模型训练 |
 | 下一步入口 | `TODO.md` 的“当前立即执行任务（权威入口）” |
 
 ## 快速读取策略

@@ -125,8 +125,8 @@ Stage A Shortcut 证据收口
 12. **C3-multi-seed-gate**（停止）：按预注册 severe utility failure 规则，不运行 seeds 43/44，不进入 Stage D final-test 路径。
 13. **Postmortem capacity audit**（训练与 utility 审查已完成）：固定 C-BN `DEP_DIM=96/128/160/192`，seed 42，完整 40 epoch、validation-only。结果呈非单调，160 维仅部分恢复 utility，192 等维投影仍失败；外部 leakage/effective-rank 汇总仍待补，不恢复 C3。
 14. **Identity-gradient audit**（已完成，未通过）：candidate 改善短期 validation utility 和 severe bias，但 external identity pair AUROC、same-subject retrieval 与末期过拟合恶化；冲突率约 `60.2%`。训练内 attacker collapse 不构成 identity invariance，维度实验不获授权。
-15. **AU-T0a frame-contract inventory**（代码已实现，待服务器真实数据运行）：新增纯标准库只读诊断和 CLI，检查 aligned JPG 文件名/尺寸、OpenFace `frame/timestamp`、0/1-based offset、重复/缺失/非单调帧，并复现当前 `SAMPLE_STEP` 和截断后实际使用的 frame id。输出 summary、selected mapping、issues 和 report；正式 join rate 必须 `>=0.995`，禁止按数组位置静默合并。
-16. **AU-T0b coordinate-contract audit**：确定约 `640x480` 检测 landmark 到实际 aligned 输入的合法映射。优先使用已有 alignment transform；否则用固定版本 OpenFace 对 aligned JPG 重新生成 aligned-space landmark；canonical similarity transform 只有在 overlay 通过时可用。禁止直接比例缩放。
+15. **AU-T0a frame-contract inventory**（已完成并通过）：300 个视频全部 PASS，最低 join rate `1.0`，41,016 个模型选中帧全部连接，最佳 offset 全部为 `0`。该 gate 只证明 frame identity，不证明空间坐标映射。
+16. **AU-T0b coordinate-contract audit**（代码已实现，待真实数据运行与人工 overlay）：新增只读 coordinate core/CLI，`auto` 仅按显式 affine、aligned JPG 重检测、caller-supplied canonical similarity 三种合法来源选择；禁止直接比例缩放。输出逐帧 transform、in-bounds、可选 aligned-reference residual、train-only 分层 overlay 和运行 provenance。自动通过只标记 `REVIEW_REQUIRED`，人工 overlay 未通过前不得进入 T1。
 17. **AU-T1 dynamic-mask tracking audit**：只生成 brow、eye-cheek、nose-upper-lip、mouth-jaw 四个整体语义区域。左右 landmark 仅作为 tracking components 分别计算 pose visibility/quality 后合成整体 mask，不产生左右 view 或 loss。比较 static canonical、raw per-frame、stabilized dynamic，输出 IoU、centroid velocity、jump rate 和 pose/confidence 分组失败率。
 18. **AU-T2 tracking gate**：冻结 `join>=0.995`、median IoU `>=0.75`、valid ratio `>=0.80`、jump rate `<=0.05`、train overlay correct `>=0.95`、hidden-side hallucination `=0`。tracking 必须先在完整帧率稳定化，再应用 `SAMPLE_STEP`；短缺失可插值，长失败保持 invalid。失败时只修数据几何，不进入训练。
 19. **AU-M0 single-model data path**（等待 AU-T2）：dataset train-only 返回 `[B,5,T,C,H,W]`，即 global + 四个整体区域；进入模型前展开到 batch 轴。所有视图共享同一 backbone/temporal encoder/BDI head，RGB 与 mask 复用相同 resize/flip/affine 参数；默认关闭时旧数据格式不变。
@@ -236,7 +236,7 @@ python -m pytest tests/test_error_identity_coupling.py tests/test_artifact_weakl
 - [x] C3 seeds 42/43/44 gate：按停止规则取消，不运行 seed 43/44。
 - [x] 运行 C-BN full-40 capacity audit：`DEP_DIM=96/128/160/192` 的训练与 best-val utility 审查已完成；只读 leakage/effective-rank 汇总保持待补。
 - [x] 运行 identity-gradient audit 配对矩阵：短期 utility 改善，但 external identity leakage 与末期过拟合恶化；作为负机制消融收口，不授权维度实验。
-- [ ] `AU-T0a/T0b` frame + coordinate contract：T0a 代码已完成，待服务器运行；T0b 等待 T0a 真实报告通过后实现 landmark 到 aligned input 的合法映射和 overlay。
+- [ ] `AU-T0a/T0b` frame + coordinate contract：T0a 已在完整 300 视频上通过；T0b core/CLI/合成测试已完成，待服务器提供合法 mapping source、运行并完成人工 train overlay 审阅。
 - [ ] `AU-T1/T2` 四整体区域动态 mask 审计：左右只作 tracking components；比较 static/raw/stabilized，满足 join/IoU/valid/jump/人工 overlay 门槛。
 - [ ] `AU-M0/M1` 单模型数据与损失接口：global + 四区域，共享全部参数，global-only metrics/inference，默认配置兼容。
 - [ ] `AU-M2` 100-step AU-vs-grid 梯度校准和 external identity probe；未通过不运行 full-40。

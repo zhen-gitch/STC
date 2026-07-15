@@ -4,7 +4,7 @@
 
 ## 状态日期
 
-2026-07-14
+2026-07-15
 
 ## 阅读提示
 
@@ -22,7 +22,7 @@
 | 第一版 latent | `z_dep`、`z_nuisance` |
 | 可选 latent | `z_id` 不进入第一版；基础方案通过 C3 后才重新论证 |
 | 不做 | 不显式建 `z_art/z_ctx/z_pose/z_quality`，不做多级 RPDF |
-| 下一步 | 先实施只读 `AU-T0a` frame join inventory 和 `AU-T0b` aligned-coordinate contract；通过后才进入动态 mask 审计 |
+| 下一步 | `AU-T0a` 已通过；运行只读 `AU-T0b` aligned-coordinate contract 并人工审阅 train overlay，通过后才进入动态 mask 审计 |
 | 审计判据 | BDI metrics、identity risk、nuisance/BDI leakage、shortcut probe risk、severity bias、task consistency、train-val gap |
 | 主张边界 | reconstruction/decorrelation 收敛或单一 attacker 下降不等于语义解耦成功 |
 | 反证条件 | 不优于 paired-seed `C-REF`、multi-seed 不稳定或风险改善伴随 utility/group robustness 恶化时停止增加复杂度 |
@@ -52,11 +52,19 @@ Stage C 的完整实施规格已写入 `docs/STAGE_C_RUNBOOK.md`。`C-REF / C-BN
 
 初始门槛冻结为：frame join rate `>=0.995`、median adjacent-mask IoU `>=0.75`、区域 valid-frame ratio `>=0.80`、landmark jump rate `<=0.05`，且 high-yaw 样本不能出现系统性错位。短缺失只允许插值，长失败保持 invalid；大 yaw 时左右 tracking components 分别估计可见性后合成为一个整体语义 mask，不镜像或补造隐藏侧。AU 语义区域还必须和四个 equal-area arbitrary grid 区域做面积匹配对照；若 AU 不优于 grid，只能主张局部正则有效，不能主张 FACS 语义有效。
 
+### 2026-07-15 AU-T0a 通过与 AU-T0b coordinate-contract implementation
+
+AU-T0a 已在 300 个视频上正确运行：`300 PASS / 0 FAIL / 0 BLOCKED`，最低 frame join rate 为 `1.0`，41,016 个当前模型选中帧全部精确连接，300 个视频的最佳 offset 均为 `0`。因此 frame-contract gate 已通过，但该结果只证明 JPG/OpenFace frame identity，不证明检测坐标到 `112x112` aligned input 的空间映射。
+
+已新增只读 `src/diagnostics/au_coordinate_contract.py` 与 `scripts/audit_au_coordinate_contract.py`。T0b 不实现或允许 `112/640`、`112/480` 独立缩放，只接受三种可审计来源，`auto` 优先级固定为：逐帧显式 2x3 affine transform；在 aligned JPG 上重新运行 OpenFace 得到的 aligned-space landmark；调用方提供 canonical aligned template 后逐帧拟合 similarity transform。没有合法来源时输出 `BLOCKED`，不会静默猜测坐标。
+
+固定输出包括 `coordinate_mapping_manifest.csv`、`coordinate_frame_summary.csv`、`coordinate_transforms.csv`、`overlay_manifest.csv`、`coordinate_contract_issues.csv`、`coordinate_contract_report.md` 和 `run_manifest.json`。自动检查通过只标记 `REVIEW_REQUIRED`，不能视为 T0b PASS；必须在 train split 人工审阅 high-pose、rapid-turn、low-confidence、high-residual 和 frontal-control overlays。validation/test 不参与阈值或映射调参。动态 mask 与训练实现继续被该人工 gate 阻断。
+
 ### 2026-07-14 AU-T0a frame-contract implementation
 
 已实现只读 `src/diagnostics/au_region_tracking.py` 与 `scripts/audit_au_region_tracking.py`。当前阶段只验证 aligned JPG 与 OpenFace CSV 的 frame contract，不生成区域裁剪、不恢复 landmark 坐标、不修改 dataset/model。诊断自动评估 `-2..2` frame offset，报告 0/1-based 差异、无法解析的文件名、重复/缺失帧、frame/timestamp 单调性，并用现有 `select_temporal_indices` 复现模型实际选中帧。
 
-固定输出为 `frame_contract_summary.csv`、`selected_frame_mapping.csv`、`frame_contract_issues.csv` 和 `frame_contract_report.md`。实现使用 Python 标准库，避免 T0a 被训练环境的 numpy/torch 依赖阻塞。合成 core/CLI 测试已在本机直接调用通过；本机缺少 pytest，因此正式 pytest 收集和真实数据审计仍需服务器运行。T0a 真实报告未通过前不得实现 T0b 或动态 mask。
+固定输出为 `frame_contract_summary.csv`、`selected_frame_mapping.csv`、`frame_contract_issues.csv` 和 `frame_contract_report.md`。实现使用 Python 标准库，避免 T0a 被训练环境的 numpy/torch 依赖阻塞。该实现状态已由上方 2026-07-15 的完整数据运行结论取代。
 
 ### 2026-07-13 Stage C C2 utility 否证结论
 
