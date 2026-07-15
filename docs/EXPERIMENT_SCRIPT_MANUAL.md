@@ -426,7 +426,46 @@ python scripts/audit_au_region_tracking.py \
 
 若 JPG 文件名中的帧号不是最后一个数字组，使用例如 `--frame-id-regex 'frame_(\d+)'` 显式指定。参数必须先在 train 数据约定上冻结，不能根据 validation/test 结果反复修改。
 
-### 4.2.2 AU-T0b aligned-coordinate contract
+### 4.2.2 Aligned JPG server/local integrity gate
+
+在本地重新运行 OpenFace 前，服务器和本地必须分别对训练实际可见的全部 JPG 生成清单。正式检查建议同时启用文件 SHA-256、完整图片解码、`112x112` 尺寸检查和 decoded-RGB pixel SHA-256。
+
+服务器运行：
+
+```bash
+python scripts/audit_image_integrity.py inventory \
+  --image-root /usr/local/conda/zhen/dataset/AVEC2014/face_images \
+  --output-dir logs/au_region_tracking_audit/image_integrity/server \
+  --label server \
+  --workers 16 \
+  --pixel-hash
+```
+
+将 `logs/au_region_tracking_audit/image_integrity/server/` 复制到本地后，本地 WSL 运行：
+
+```bash
+/home/zhen/miniconda3/bin/conda run -n light \
+python scripts/audit_image_integrity.py inventory \
+  --image-root /home/zhen/dataset/depression/avec/2014/face_images \
+  --output-dir logs/au_region_tracking_audit/image_integrity/local \
+  --label local_wsl \
+  --workers 16 \
+  --pixel-hash
+```
+
+比较两份排序 manifest：
+
+```bash
+/home/zhen/miniconda3/bin/conda run -n light \
+python scripts/audit_image_integrity.py compare \
+  --reference-manifest logs/au_region_tracking_audit/image_integrity/server/tables/image_manifest.csv \
+  --candidate-manifest logs/au_region_tracking_audit/image_integrity/local/tables/image_manifest.csv \
+  --output-dir logs/au_region_tracking_audit/image_integrity/comparison
+```
+
+最终门槛为 `EXACT_PASS`：所有训练可见 JPG 的相对路径、文件数量、完整解码、`112x112` 尺寸和文件 SHA-256 均一致。`PIXEL_EQUIVALENT` 表示 decoded RGB 相同但 JPEG 文件字节不同，只能作为可解释的重编码情况，不能声明原始文件逐字节一致。`FAIL` 时先依据 `image_comparison_issues.csv` 修复缺失、额外、损坏或像素不同文件。调试可附加 `--max-videos 2`，正式清单必须删除该参数。
+
+### 4.2.3 AU-T0b aligned-coordinate contract
 
 T0b 必须读取已经通过的 T0a summary/mapping 和冻结的 split 文件。推荐优先在 aligned JPG 上使用固定 OpenFace 版本重新检测 landmark，并将对应 CSV root 传给：
 

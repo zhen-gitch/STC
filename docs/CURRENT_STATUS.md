@@ -60,6 +60,8 @@ AU-T0a 已在 300 个视频上正确运行：`300 PASS / 0 FAIL / 0 BLOCKED`，�
 
 固定输出包括 `coordinate_mapping_manifest.csv`、`coordinate_frame_summary.csv`、`coordinate_transforms.csv`、`overlay_manifest.csv`、`coordinate_contract_issues.csv`、`coordinate_contract_report.md` 和 `run_manifest.json`。自动检查通过只标记 `REVIEW_REQUIRED`，不能视为 T0b PASS；必须在 train split 人工审阅 high-pose、rapid-turn、low-confidence、high-residual 和 frontal-control overlays。validation/test 不参与阈值或映射调参。动态 mask 与训练实现继续被该人工 gate 阻断。
 
+在本地 OpenFace aligned-landmark 重检测前，新增 `src/diagnostics/image_integrity.py` 与 `scripts/audit_image_integrity.py`，用于确认本地 aligned JPG 未损坏且与服务器逐文件一致。inventory 严格复现训练可见文件契约，只扫描一级视频目录中的直接 JPG；逐图记录文件 SHA-256、完整 Pillow 解码、`112x112` 尺寸和可选 decoded-RGB pixel SHA-256。服务器和本地分别生成排序 manifest 后由 compare 流式合并，只有路径集合、解码、尺寸和文件 SHA-256 全部一致才输出 `EXACT_PASS`。该工具不修改或重新编码图片。
+
 ### 2026-07-14 AU-T0a frame-contract implementation
 
 已实现只读 `src/diagnostics/au_region_tracking.py` 与 `scripts/audit_au_region_tracking.py`。当前阶段只验证 aligned JPG 与 OpenFace CSV 的 frame contract，不生成区域裁剪、不恢复 landmark 坐标、不修改 dataset/model。诊断自动评估 `-2..2` frame offset，报告 0/1-based 差异、无法解析的文件名、重复/缺失帧、frame/timestamp 单调性，并用现有 `select_temporal_indices` 复现模型实际选中帧。
