@@ -1,5 +1,7 @@
 import csv
 import json
+import subprocess
+import sys
 from pathlib import Path
 
 from PIL import Image
@@ -24,6 +26,31 @@ def _read_rows(path):
 
 def _read_json(path):
     return json.loads(Path(path).read_text(encoding="utf-8"))
+
+
+def test_image_integrity_import_does_not_require_numpy():
+    project_root = Path(__file__).resolve().parents[1]
+    code = """
+import builtins
+original_import = builtins.__import__
+def deny_numpy(name, *args, **kwargs):
+    if name == 'numpy' or name.startswith('numpy.'):
+        raise ModuleNotFoundError("numpy intentionally unavailable")
+    return original_import(name, *args, **kwargs)
+builtins.__import__ = deny_numpy
+import src.diagnostics.image_integrity
+print('ok')
+"""
+
+    result = subprocess.run(
+        [sys.executable, "-c", code],
+        cwd=project_root,
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+
+    assert result.stdout.strip() == "ok"
 
 
 def test_find_training_image_paths_ignores_nested_notebook_files(tmp_path):

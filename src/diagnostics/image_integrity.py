@@ -12,11 +12,10 @@ import sys
 from collections import Counter
 from concurrent.futures import ProcessPoolExecutor
 from datetime import datetime, timezone
+from io import BytesIO
 from pathlib import Path
 
 from PIL import Image
-
-from src.diagnostics.io import ensure_dir
 
 
 IMAGE_SUFFIXES = {".jpg", ".jpeg"}
@@ -57,6 +56,12 @@ COMPARISON_FIELDS = [
     "candidate_decode_status",
     "detail",
 ]
+
+
+def ensure_dir(path):
+    path = Path(path)
+    path.mkdir(parents=True, exist_ok=True)
+    return path
 
 
 def _sha256_file(path, chunk_size=1024 * 1024):
@@ -102,8 +107,9 @@ def _inspect_image_task(task):
         "issue": "",
     }
     try:
-        row["file_size"] = path.stat().st_size
-        row["file_sha256"] = _sha256_file(path)
+        encoded_bytes = path.read_bytes()
+        row["file_size"] = len(encoded_bytes)
+        row["file_sha256"] = hashlib.sha256(encoded_bytes).hexdigest()
     except OSError as exc:
         row["issue"] = f"file_read_error:{type(exc).__name__}:{exc}"
         return row
@@ -112,12 +118,12 @@ def _inspect_image_task(task):
         return row
 
     try:
-        with Image.open(path) as image:
+        with Image.open(BytesIO(encoded_bytes)) as image:
             row["image_format"] = str(image.format or "")
             row["image_mode"] = str(image.mode or "")
             row["width"], row["height"] = image.size
             image.verify()
-        with Image.open(path) as image:
+        with Image.open(BytesIO(encoded_bytes)) as image:
             image.load()
             if compute_pixel_hash:
                 row["pixel_sha256"] = _pixel_sha256(image)

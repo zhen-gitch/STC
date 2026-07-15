@@ -22,7 +22,7 @@
 | 第一版 latent | `z_dep`、`z_nuisance` |
 | 可选 latent | `z_id` 不进入第一版；基础方案通过 C3 后才重新论证 |
 | 不做 | 不显式建 `z_art/z_ctx/z_pose/z_quality`，不做多级 RPDF |
-| 下一步 | `AU-T0a` 已通过；运行只读 `AU-T0b` aligned-coordinate contract 并人工审阅 train overlay，通过后才进入动态 mask 审计 |
+| 下一步 | aligned JPG 已通过跨机一致性门禁；先运行 OpenFace 2.2.0 两视频 debug 与全量 aligned-landmark 生成，再运行 `AU-T0b` 并人工审阅 train overlay |
 | 审计判据 | BDI metrics、identity risk、nuisance/BDI leakage、shortcut probe risk、severity bias、task consistency、train-val gap |
 | 主张边界 | reconstruction/decorrelation 收敛或单一 attacker 下降不等于语义解耦成功 |
 | 反证条件 | 不优于 paired-seed `C-REF`、multi-seed 不稳定或风险改善伴随 utility/group robustness 恶化时停止增加复杂度 |
@@ -58,9 +58,13 @@ AU-T0a 已在 300 个视频上正确运行：`300 PASS / 0 FAIL / 0 BLOCKED`，�
 
 已新增只读 `src/diagnostics/au_coordinate_contract.py` 与 `scripts/audit_au_coordinate_contract.py`。T0b 不实现或允许 `112/640`、`112/480` 独立缩放，只接受三种可审计来源，`auto` 优先级固定为：逐帧显式 2x3 affine transform；在 aligned JPG 上重新运行 OpenFace 得到的 aligned-space landmark；调用方提供 canonical aligned template 后逐帧拟合 similarity transform。没有合法来源时输出 `BLOCKED`，不会静默猜测坐标。
 
-固定输出包括 `coordinate_mapping_manifest.csv`、`coordinate_frame_summary.csv`、`coordinate_transforms.csv`、`overlay_manifest.csv`、`coordinate_contract_issues.csv`、`coordinate_contract_report.md` 和 `run_manifest.json`。自动检查通过只标记 `REVIEW_REQUIRED`，不能视为 T0b PASS；必须在 train split 人工审阅 high-pose、rapid-turn、low-confidence、high-residual 和 frontal-control overlays。validation/test 不参与阈值或映射调参。动态 mask 与训练实现继续被该人工 gate 阻断。
+固定输出包括 `coordinate_mapping_manifest.csv`、`coordinate_frame_summary.csv`、`coordinate_transforms.csv`、`overlay_manifest.csv`、`coordinate_contract_issues.csv`、`coordinate_contract_report.md` 和 `run_manifest.json`。`mapping_valid` 现在还强制要求实际映射来源的 OpenFace `success=1`；失败检测即使残留坐标仍在图像范围内也不能通过。自动检查通过只标记 `REVIEW_REQUIRED`，不能视为 T0b PASS；必须在 train split 人工审阅 high-pose、rapid-turn、low-confidence、high-residual 和 frontal-control overlays。validation/test 不参与阈值或映射调参。动态 mask 与训练实现继续被该人工 gate 阻断。
 
 在本地 OpenFace aligned-landmark 重检测前，新增 `src/diagnostics/image_integrity.py` 与 `scripts/audit_image_integrity.py`，用于确认本地 aligned JPG 未损坏且与服务器逐文件一致。inventory 严格复现训练可见文件契约，只扫描一级视频目录中的直接 JPG；逐图记录文件 SHA-256、完整 Pillow 解码、`112x112` 尺寸和可选 decoded-RGB pixel SHA-256。服务器和本地分别生成排序 manifest 后由 compare 流式合并，只有路径集合、解码、尺寸和文件 SHA-256 全部一致才输出 `EXACT_PASS`。该工具不修改或重新编码图片。
+
+完整性门禁现已在真实全量数据上通过：服务器与 Windows 均为 `300` 个视频目录、`493,141` 张 `112x112 RGB JPEG`，全部完整解码；`493,141/493,141` 为 `EXACT_MATCH`，两端 manifest SHA-256 均为 `07bc830c452a8faab1d58935d7f58d807313c218b3c4af8db053777c759daabb`，最终状态为 `EXACT_PASS`。因此本地 JPG 与服务器训练输入已建立逐字节同一性，可进入冻结版本重检测，不需要再做默认 pixel-hash 全量重算。
+
+Windows OpenFace 已冻结为 `D:\Tools\OpenFace` 下的 `OpenFace 2.2.0`。`FeatureExtraction.exe` SHA-256 为 `5995ae5cce749c4969ac4dd7e62d3f740cc9f702961f9573be7e14c4ca5b7f86`，`model/main_ceclm_general.txt` SHA-256 为 `52f38548cffab1731f80e9e71f22a8b29373a2750eb6dc718069d56e82997543`。新增 `scripts/run_openface_aligned_landmarks.ps1`，只执行完整序列 `-fdir + -2Dfp + -mloc`，输出独立 aligned-space landmark CSV；脚本检查版本/哈希/图像门禁、帧行数与连续性、必要列和 `success>=0.995`，并写入二进制、模型、git、命令和逐视频审计清单。当前下一门禁是两视频 debug；通过后在新目录完成 300 视频全量生成，再把该目录作为 `--aligned-openface-root` 运行 T0b。原始 `face_images` 和历史 `openface_features` 继续冻结且不得覆盖。
 
 ### 2026-07-14 AU-T0a frame-contract implementation
 

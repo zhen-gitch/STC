@@ -78,6 +78,8 @@ FRAME_FIELDS = [
     "roll",
     "mapping_method",
     "source_coordinate_system",
+    "mapping_source_confidence",
+    "mapping_source_success",
     "transform_available",
     "landmark_count",
     "in_bounds_ratio",
@@ -743,6 +745,13 @@ def run_coordinate_contract_audit(
                 canonical_template,
             )
             mapped = mapped or {}
+            mapping_source_row = aligned_row if method == "aligned_redetection" else raw_row
+            mapping_source_confidence = (
+                mapping_source_row.get("confidence") if mapping_source_row is not None else None
+            )
+            mapping_source_success = (
+                mapping_source_row.get("success") if mapping_source_row is not None else None
+            )
             residual = (
                 landmark_rmse(mapped, aligned_landmarks)
                 if mapped and aligned_landmarks and method != "aligned_redetection"
@@ -754,6 +763,7 @@ def run_coordinate_contract_audit(
                 and matrix is not None
                 and len(mapped) >= 3
                 and bounds_ratio >= float(min_in_bounds_ratio)
+                and mapping_source_success == 1
             )
             frame_issue_names = []
             if raw_row is None:
@@ -766,6 +776,10 @@ def run_coordinate_contract_audit(
                 frame_issue_names.append("mapping_unavailable")
             elif bounds_ratio < float(min_in_bounds_ratio):
                 frame_issue_names.append("low_landmark_in_bounds_ratio")
+            if mapping_source_success is None:
+                frame_issue_names.append("mapping_source_success_missing")
+            elif mapping_source_success != 1:
+                frame_issue_names.append("mapping_source_detection_failed")
 
             if mapped:
                 mapped_count += 1
@@ -806,6 +820,8 @@ def run_coordinate_contract_audit(
                 "roll": roll,
                 "mapping_method": method or "",
                 "source_coordinate_system": source_system,
+                "mapping_source_confidence": mapping_source_confidence,
+                "mapping_source_success": mapping_source_success,
                 "transform_available": matrix is not None,
                 "landmark_count": len(mapped),
                 "in_bounds_ratio": bounds_ratio if mapped else None,

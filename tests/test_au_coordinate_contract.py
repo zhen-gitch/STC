@@ -27,7 +27,7 @@ def _write_csv(path, fieldnames, rows):
     return path
 
 
-def _write_landmark_csv(path, point_rows):
+def _write_landmark_csv(path, point_rows, success_values=None):
     fieldnames = [
         "frame",
         "timestamp",
@@ -46,12 +46,13 @@ def _write_landmark_csv(path, point_rows):
         "y_3",
     ]
     rows = []
-    for frame_id, points in enumerate(point_rows, start=1):
+    success_values = success_values or [1] * len(point_rows)
+    for frame_id, (points, success) in enumerate(zip(point_rows, success_values), start=1):
         row = {
             "frame": frame_id,
             "timestamp": (frame_id - 1) / 30.0,
             "confidence": 0.95 - 0.05 * (frame_id - 1),
-            "success": 1,
+            "success": success,
             "pose_Rx": 0.01 * frame_id,
             "pose_Ry": 0.02 * frame_id,
             "pose_Rz": 0.0,
@@ -238,6 +239,47 @@ def test_coordinate_audit_uses_aligned_redetection_without_raw_scaling(tmp_path)
     transforms = _read_rows(tmp_path / "audit/tables/coordinate_transforms.csv")
     assert all(float(row["m00"]) == 1.0 for row in transforms)
     assert all(float(row["m02"]) == 0.0 for row in transforms)
+
+
+def test_coordinate_audit_rejects_failed_aligned_redetection_rows(tmp_path):
+    image_root = tmp_path / "images"
+    openface_root = tmp_path / "openface"
+    aligned_root = tmp_path / "aligned_openface"
+    summary_path, mapping_path, split_path = _write_contract_inputs(tmp_path, image_root)
+    detection_points = [
+        [(300, 200), (340, 200), (300, 240), (340, 240)],
+        [(302, 200), (342, 200), (302, 240), (342, 240)],
+    ]
+    aligned_points = [
+        [(30, 35), (70, 35), (30, 75), (70, 75)],
+        [(31, 35), (71, 35), (31, 75), (71, 75)],
+    ]
+    _write_landmark_csv(openface_root / f"{VIDEO_ID}.csv", detection_points)
+    _write_landmark_csv(
+        aligned_root / f"{VIDEO_ID}_aligned.csv",
+        aligned_points,
+        success_values=[1, 0],
+    )
+
+    run_coordinate_contract_audit(
+        image_root=image_root,
+        openface_root=openface_root,
+        frame_contract_summary=summary_path,
+        selected_frame_mapping=mapping_path,
+        dataset_split_file=split_path,
+        output_dir=tmp_path / "audit",
+        mapping_method="aligned_redetection",
+        aligned_openface_root=aligned_root,
+        max_overlays=2,
+    )
+
+    manifest = _read_rows(tmp_path / "audit/tables/coordinate_mapping_manifest.csv")[0]
+    assert manifest["status"] == "FAIL"
+    assert float(manifest["mapping_valid_frame_ratio"]) == 0.5
+    frame_rows = _read_rows(tmp_path / "audit/tables/coordinate_frame_summary.csv")
+    assert frame_rows[1]["mapping_source_success"] == "0"
+    assert frame_rows[1]["mapping_valid"] == "0"
+    assert "mapping_source_detection_failed" in frame_rows[1]["issues"]
 
 
 def test_coordinate_audit_fits_caller_supplied_canonical_template(tmp_path):

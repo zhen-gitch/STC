@@ -428,7 +428,7 @@ python scripts/audit_au_region_tracking.py \
 
 ### 4.2.2 Aligned JPG server/local integrity gate
 
-在本地重新运行 OpenFace 前，服务器和本地必须分别对训练实际可见的全部 JPG 生成清单。正式检查建议同时启用文件 SHA-256、完整图片解码、`112x112` 尺寸检查和 decoded-RGB pixel SHA-256。
+在本地重新运行 OpenFace 前，服务器和本地必须分别对训练实际可见的全部 JPG 生成清单。第一轮只运行文件 SHA-256、完整图片解码和 `112x112` 尺寸检查；若得到 `EXACT_PASS`，逐字节一致已经成立，不需要额外计算 decoded-RGB pixel SHA-256。只有出现文件哈希不同时，才在两端附加 `--pixel-hash` 重跑以区分 JPEG 重编码与真实像素变化。
 
 服务器运行：
 
@@ -437,35 +437,106 @@ python scripts/audit_image_integrity.py inventory \
   --image-root /usr/local/conda/zhen/dataset/AVEC2014/face_images \
   --output-dir logs/au_region_tracking_audit/image_integrity/server \
   --label server \
-  --workers 16 \
-  --pixel-hash
+  --workers 16
 ```
 
-将 `logs/au_region_tracking_audit/image_integrity/server/` 复制到本地后，本地 WSL 运行：
+将 `logs/au_region_tracking_audit/image_integrity/server/` 复制到 Windows 磁盘后，本地 inventory 推荐直接使用 Windows Python + PowerShell。这样 JPG 读取和 Pillow 解码都发生在 NTFS 本地路径，不经过 WSL 文件系统桥接。
 
-```bash
-/home/zhen/miniconda3/bin/conda run -n light \
-python scripts/audit_image_integrity.py inventory \
-  --image-root /home/zhen/dataset/depression/avec/2014/face_images \
-  --output-dir logs/au_region_tracking_audit/image_integrity/local \
-  --label local_wsl \
-  --workers 16 \
-  --pixel-hash
+先设置实际路径。`$Repo` 优先使用 Windows 本地 git checkout；如果代码只存在 WSL，也可使用后面的 UNC 示例：
+
+```powershell
+$Repo = "D:\Project\stc"
+# 若没有 Windows checkout：
+# $Repo = "\\wsl.localhost\Ubuntu\home\zhen\code\stc"
+
+$ImageRoot = "D:\Dataset\AVEC2014\face_images"
+$AuditRoot = "D:\Dataset\AVEC2014\audits\image_integrity"
+$Python = "python"  # 也可替换为 Windows conda 环境中的 python.exe 绝对路径
+
+& $Python -c "from PIL import Image; print(Image.__version__)"
+
+& $Python "$Repo\scripts\audit_image_integrity.py" inventory `
+  --image-root "$ImageRoot" `
+  --output-dir "$AuditRoot\local" `
+  --label windows_local `
+  --workers 16
 ```
 
-比较两份排序 manifest：
+如果使用 Python launcher，可将 `& $Python` 替换为 `py -3`。Windows 环境只需要 Python 和 Pillow；若 Pillow 尚未安装，应先在同一 Python 环境中安装并重新运行上面的 import 检查。
 
-```bash
-/home/zhen/miniconda3/bin/conda run -n light \
-python scripts/audit_image_integrity.py compare \
-  --reference-manifest logs/au_region_tracking_audit/image_integrity/server/tables/image_manifest.csv \
-  --candidate-manifest logs/au_region_tracking_audit/image_integrity/local/tables/image_manifest.csv \
-  --output-dir logs/au_region_tracking_audit/image_integrity/comparison
+把服务器清单放到 `$AuditRoot\server` 后，在同一 PowerShell 中比较两份排序 manifest：
+
+```powershell
+& $Python "$Repo\scripts\audit_image_integrity.py" compare `
+  --reference-manifest "$AuditRoot\server\tables\image_manifest.csv" `
+  --candidate-manifest "$AuditRoot\local\tables\image_manifest.csv" `
+  --output-dir "$AuditRoot\comparison"
 ```
 
 最终门槛为 `EXACT_PASS`：所有训练可见 JPG 的相对路径、文件数量、完整解码、`112x112` 尺寸和文件 SHA-256 均一致。`PIXEL_EQUIVALENT` 表示 decoded RGB 相同但 JPEG 文件字节不同，只能作为可解释的重编码情况，不能声明原始文件逐字节一致。`FAIL` 时先依据 `image_comparison_issues.csv` 修复缺失、额外、损坏或像素不同文件。调试可附加 `--max-videos 2`，正式清单必须删除该参数。
 
-### 4.2.3 AU-T0b aligned-coordinate contract
+若首次比较只出现 `BINARY_MISMATCH_PIXEL_UNKNOWN`，服务器和 Windows 本地分别在新的输出目录中附加 `--pixel-hash` 重跑 inventory，再比较新 manifest。不要默认对约 49 万张图片计算像素哈希，以减少 RGB 转换和约数十 GB decoded-pixel hashing 开销。
+
+### 4.2.3 OpenFace 2.2.0 aligned-space landmark extraction
+
+当前冻结工具位于 `D:\Tools\OpenFace`，版本为 `OpenFace 2.2.0`。本阶段只需要在已经通过完整性门禁的 aligned JPG 完整序列上重新检测 68 点二维 landmark，不需要 AU、gaze、HOG、tracked video 或再次生成 aligned image。冻结的两个关键哈希为：
+
+```text
+FeatureExtraction.exe:
+5995ae5cce749c4969ac4dd7e62d3f740cc9f702961f9573be7e14c4ca5b7f86
+
+model/main_ceclm_general.txt:
+52f38548cffab1731f80e9e71f22a8b29373a2750eb6dc718069d56e82997543
+```
+
+批处理脚本会在运行前强制检查 `EXACT_PASS`、OpenFace 版本、上述两个哈希和输入/输出目录；随后按视频目录名排序，逐个执行：
+
+```text
+FeatureExtraction.exe -fdir <complete_video_aligned_dir> -out_dir <output_root> -2Dfp -mloc <main_ceclm_general.txt>
+```
+
+OpenFace 2.2.0 会按文件名词典序读取 `-fdir`。当前零填充 JPG 文件名能保持帧顺序。显式指定 `-2Dfp` 后不会触发 OpenFace 的“无输出参数时输出全部特征”默认行为。不要自行附加 `-aus`、`-gaze`、`-hogalign`、`-simalign`、`-tracked`、`-verbose`、`-wild` 或 `-multi_view`。
+
+先在 Windows PowerShell 中运行两个视频的门禁。`$ImageRoot` 应指向直接包含 300 个 `*_video_aligned` 目录的根目录；不得指向原始视频目录：
+
+```powershell
+$Repo = "D:\Project\stc"
+$ImageRoot = "D:\Project\dataset\AVEC2014"
+$OutputRoot = "D:\Project\dataset\AVEC2014\openface_aligned_landmarks_debug"
+$IntegritySummary = "D:\Project\dataset\AVEC2014\audits\image_integrity\comparison\comparison_summary.json"
+
+& "$Repo\scripts\run_openface_aligned_landmarks.ps1" `
+  -OpenFaceRoot "D:\Tools\OpenFace" `
+  -ImageRoot "$ImageRoot" `
+  -OutputRoot "$OutputRoot" `
+  -IntegrityComparisonSummary "$IntegritySummary" `
+  -MaxVideos 2
+```
+
+debug 必须满足：`video_count=2`、`pass_count=2`、`fail_count=0`、`total_images=total_csv_rows`、`success_ratio>=0.995`、`status=PASS`。审计入口是：
+
+```text
+<OutputRoot>\_audit\extraction_summary.json
+<OutputRoot>\_audit\video_run_summary.csv
+<OutputRoot>\_audit\run_manifest.json
+<OutputRoot>\_audit\logs\*.log
+```
+
+每个输入目录产生一个同名 CSV，例如 `203_1_Freeform_video_aligned.csv`，以及 OpenFace 自带的文本元数据；不会生成新的裁剪图或修改原 JPG。脚本逐视频验证 CSV 行数、`frame=1..N` 连续性、必要列、OpenFace `success` 比例，并记录 PowerShell/OpenFace/script/git/模型哈希。debug 通过后必须使用新的正式输出目录，删除 `-MaxVideos 2` 后运行全量 300 个视频：
+
+```powershell
+$OutputRoot = "D:\Project\dataset\AVEC2014\openface_aligned_landmarks"
+
+& "$Repo\scripts\run_openface_aligned_landmarks.ps1" `
+  -OpenFaceRoot "D:\Tools\OpenFace" `
+  -ImageRoot "$ImageRoot" `
+  -OutputRoot "$OutputRoot" `
+  -IntegrityComparisonSummary "$IntegritySummary"
+```
+
+正式输出目录不得复用历史 `openface_features`，输出文件也不得写进任何 `*_video_aligned` JPG 子目录。进程中断后可以对同一正式目录附加 `-Resume`；脚本只跳过已经通过完整 CSV 契约的视频，缺失或不合格 CSV 会重新生成。暂不并行启动多个 OpenFace 进程，以避免 CPU/内存竞争和输出审计混乱。
+
+### 4.2.4 AU-T0b aligned-coordinate contract
 
 T0b 必须读取已经通过的 T0a summary/mapping 和冻结的 split 文件。推荐优先在 aligned JPG 上使用固定 OpenFace 版本重新检测 landmark，并将对应 CSV root 传给：
 
@@ -477,7 +548,7 @@ python scripts/audit_au_coordinate_contract.py \
   --frame-contract-summary logs/au_region_tracking_audit/t0a_frame_contract/tables/frame_contract_summary.csv \
   --selected-frame-mapping logs/au_region_tracking_audit/t0a_frame_contract/tables/selected_frame_mapping.csv \
   --dataset-split-file /usr/local/conda/zhen/dataset/AVEC2014/dataset_split.json \
-  --aligned-openface-root /path/to/openface_rerun_on_aligned_jpg \
+  --aligned-openface-root /path/to/openface_aligned_landmarks \
   --mapping-method aligned_redetection \
   --output-dir logs/au_region_tracking_audit/t0b_coordinate_contract \
   --min-mapping-valid-ratio 0.995 \
