@@ -442,15 +442,15 @@ python scripts/audit_image_integrity.py inventory \
 
 将 `logs/au_region_tracking_audit/image_integrity/server/` 复制到 Windows 磁盘后，本地 inventory 推荐直接使用 Windows Python + PowerShell。这样 JPG 读取和 Pillow 解码都发生在 NTFS 本地路径，不经过 WSL 文件系统桥接。
 
-先设置实际路径。`$Repo` 优先使用 Windows 本地 git checkout；如果代码只存在 WSL，也可使用后面的 UNC 示例：
+先设置实际路径。当前 `$Repo` 是位于 NTFS 的 Windows 代码副本，不包含 `.git`；权威版本仍由 WSL checkout 提供：
 
 ```powershell
 $Repo = "D:\Project\stc"
-# 若没有 Windows checkout：
+# 也可直接读取 WSL 中的脚本，但大量 JPG 仍必须使用 Windows 本地路径：
 # $Repo = "\\wsl.localhost\Ubuntu\home\zhen\code\stc"
 
-$ImageRoot = "D:\Dataset\AVEC2014\face_images"
-$AuditRoot = "D:\Dataset\AVEC2014\audits\image_integrity"
+$ImageRoot = "D:\Project\dataset\AVEC2014\face_images"
+$AuditRoot = "D:\Project\dataset\AVEC2014\audits\image_integrity"
 $Python = "python"  # 也可替换为 Windows conda 环境中的 python.exe 绝对路径
 
 & $Python -c "from PIL import Image; print(Image.__version__)"
@@ -497,23 +497,39 @@ FeatureExtraction.exe -fdir <complete_video_aligned_dir> -out_dir <output_root> 
 
 OpenFace 2.2.0 会按文件名词典序读取 `-fdir`。当前零填充 JPG 文件名能保持帧顺序。显式指定 `-2Dfp` 后不会触发 OpenFace 的“无输出参数时输出全部特征”默认行为。不要自行附加 `-aus`、`-gaze`、`-hogalign`、`-simalign`、`-tracked`、`-verbose`、`-wild` 或 `-multi_view`。
 
-先在 Windows PowerShell 中运行两个视频的门禁。`$ImageRoot` 应指向直接包含 300 个 `*_video_aligned` 目录的根目录；不得指向原始视频目录：
+先在 Windows PowerShell 中运行两个视频的门禁。当前 `D:\Project\stc` 是不含 `.git` 的 Windows 代码副本，因此必须从 WSL 权威 checkout 读取 commit/branch，并通过显式参数写入 manifest。脚本在两者缺失时会直接拒绝运行，不能再产生空 git provenance。
+
+先同步最新脚本并设置实际路径。`$ImageRoot` 必须直接包含 300 个 `*_video_aligned` 目录：
 
 ```powershell
 $Repo = "D:\Project\stc"
-$ImageRoot = "D:\Project\dataset\AVEC2014"
-$OutputRoot = "D:\Project\dataset\AVEC2014\openface_aligned_landmarks_debug"
+$WslRepo = "/home/zhen/code/stc"
+
+Copy-Item `
+  "\\wsl.localhost\Ubuntu\home\zhen\code\stc\scripts\run_openface_aligned_landmarks.ps1" `
+  "$Repo\scripts\run_openface_aligned_landmarks.ps1" `
+  -Force
+
+$SourceGitCommit = (wsl.exe -d Ubuntu -- git -C $WslRepo rev-parse HEAD).Trim()
+$SourceGitBranch = (wsl.exe -d Ubuntu -- git -C $WslRepo branch --show-current).Trim()
+$ImageRoot = "D:\Project\dataset\AVEC2014\face_images"
+$OutputRoot = "D:\Project\dataset\AVEC2014\openface_aligned_landmarks_debug_v2"
 $IntegritySummary = "D:\Project\dataset\AVEC2014\audits\image_integrity\comparison\comparison_summary.json"
+
+$SourceGitCommit
+$SourceGitBranch
 
 & "$Repo\scripts\run_openface_aligned_landmarks.ps1" `
   -OpenFaceRoot "D:\Tools\OpenFace" `
   -ImageRoot "$ImageRoot" `
   -OutputRoot "$OutputRoot" `
   -IntegrityComparisonSummary "$IntegritySummary" `
+  -SourceGitCommit "$SourceGitCommit" `
+  -SourceGitBranch "$SourceGitBranch" `
   -MaxVideos 2
 ```
 
-debug 必须满足：`video_count=2`、`pass_count=2`、`fail_count=0`、`total_images=total_csv_rows`、`success_ratio>=0.995`、`status=PASS`。审计入口是：
+debug-v2 必须满足：`video_count=2`、`pass_count=2`、`fail_count=0`、`total_images=total_csv_rows`、`success_ratio>=0.995`、`status=PASS`；`run_manifest.json` 中还必须有非空 `git_commit/git_branch`，且 `git_provenance_mode=explicit`。审计入口是：
 
 ```text
 <OutputRoot>\_audit\extraction_summary.json
@@ -531,7 +547,9 @@ $OutputRoot = "D:\Project\dataset\AVEC2014\openface_aligned_landmarks"
   -OpenFaceRoot "D:\Tools\OpenFace" `
   -ImageRoot "$ImageRoot" `
   -OutputRoot "$OutputRoot" `
-  -IntegrityComparisonSummary "$IntegritySummary"
+  -IntegrityComparisonSummary "$IntegritySummary" `
+  -SourceGitCommit "$SourceGitCommit" `
+  -SourceGitBranch "$SourceGitBranch"
 ```
 
 正式输出目录不得复用历史 `openface_features`，输出文件也不得写进任何 `*_video_aligned` JPG 子目录。进程中断后可以对同一正式目录附加 `-Resume`；脚本只跳过已经通过完整 CSV 契约的视频，缺失或不合格 CSV 会重新生成。暂不并行启动多个 OpenFace 进程，以避免 CPU/内存竞争和输出审计混乱。

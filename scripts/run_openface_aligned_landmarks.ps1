@@ -11,6 +11,8 @@ param(
     [double]$MinSuccessRatio = 0.995,
     [string]$ExpectedFeatureExtractionSha256 = "5995ae5cce749c4969ac4dd7e62d3f740cc9f702961f9573be7e14c4ca5b7f86",
     [string]$ExpectedModelSha256 = "52f38548cffab1731f80e9e71f22a8b29373a2750eb6dc718069d56e82997543",
+    [string]$SourceGitCommit = "",
+    [string]$SourceGitBranch = "",
     [int]$MaxVideos = 0,
     [switch]$Resume
 )
@@ -231,6 +233,40 @@ if ($expectedModelSha256Normalized -and $modelSha256 -ne $expectedModelSha256Nor
     throw "OpenFace model SHA-256 mismatch: $modelSha256"
 }
 
+$scriptPath = $MyInvocation.MyCommand.Path
+$repositoryRoot = Split-Path -Parent $PSScriptRoot
+$detectedGitCommit = Get-GitOutput -RepositoryRoot $repositoryRoot -GitArguments @("rev-parse", "HEAD")
+$detectedGitBranch = Get-GitOutput -RepositoryRoot $repositoryRoot -GitArguments @("branch", "--show-current")
+$detectedGitStatus = Get-GitOutput -RepositoryRoot $repositoryRoot -GitArguments @("status", "--short")
+$hasExplicitCommit = -not [string]::IsNullOrWhiteSpace($SourceGitCommit)
+$hasExplicitBranch = -not [string]::IsNullOrWhiteSpace($SourceGitBranch)
+if ($hasExplicitCommit -xor $hasExplicitBranch) {
+    throw "SourceGitCommit and SourceGitBranch must be provided together."
+}
+
+if ($hasExplicitCommit) {
+    $resolvedGitCommit = $SourceGitCommit.Trim().ToLowerInvariant()
+    $resolvedGitBranch = $SourceGitBranch.Trim()
+    if ($resolvedGitCommit -notmatch "^[0-9a-f]{7,40}$") {
+        throw "SourceGitCommit must be a 7-40 character hexadecimal git commit: $resolvedGitCommit"
+    }
+    if ($detectedGitCommit -and -not $detectedGitCommit.ToLowerInvariant().StartsWith($resolvedGitCommit)) {
+        throw "Explicit SourceGitCommit does not match the detected checkout: $resolvedGitCommit != $detectedGitCommit"
+    }
+    if ($detectedGitBranch -and $detectedGitBranch -ne $resolvedGitBranch) {
+        throw "Explicit SourceGitBranch does not match the detected checkout: $resolvedGitBranch != $detectedGitBranch"
+    }
+    $gitProvenanceMode = "explicit"
+}
+else {
+    $resolvedGitCommit = $(if ($detectedGitCommit) { $detectedGitCommit.ToLowerInvariant() } else { "" })
+    $resolvedGitBranch = $detectedGitBranch
+    $gitProvenanceMode = "detected_checkout"
+}
+if ([string]::IsNullOrWhiteSpace($resolvedGitCommit) -or [string]::IsNullOrWhiteSpace($resolvedGitBranch)) {
+    throw "Git provenance is unavailable. Pass both -SourceGitCommit and -SourceGitBranch when running from a non-git code copy."
+}
+
 $videoDirs = @(
     Get-ChildItem -LiteralPath $ImageRoot -Directory |
         Where-Object { $_.Name -like "*_video_aligned" } |
@@ -286,8 +322,6 @@ foreach ($file in @(Get-ChildItem -LiteralPath $modelRoot -File -Recurse | Sort-
 }
 $modelManifest | Export-Csv -LiteralPath (Join-Path $auditRoot "model_manifest.csv") -NoTypeInformation -Encoding UTF8
 
-$scriptPath = $MyInvocation.MyCommand.Path
-$repositoryRoot = Split-Path -Parent $PSScriptRoot
 $provenance = [ordered]@{
     audit = "OpenFace aligned-image landmark extraction"
     created_utc = [DateTime]::UtcNow.ToString("o")
@@ -295,9 +329,12 @@ $provenance = [ordered]@{
     powershell_version = $PSVersionTable.PSVersion.ToString()
     script_path = $scriptPath
     script_sha256 = (Get-FileHash -LiteralPath $scriptPath -Algorithm SHA256).Hash.ToLowerInvariant()
-    git_commit = Get-GitOutput -RepositoryRoot $repositoryRoot -GitArguments @("rev-parse", "HEAD")
-    git_branch = Get-GitOutput -RepositoryRoot $repositoryRoot -GitArguments @("branch", "--show-current")
-    git_status_short = Get-GitOutput -RepositoryRoot $repositoryRoot -GitArguments @("status", "--short")
+    git_commit = $resolvedGitCommit
+    git_branch = $resolvedGitBranch
+    git_status_short = $detectedGitStatus
+    git_status_available = [bool]$detectedGitCommit
+    git_provenance_mode = $gitProvenanceMode
+    git_repository_root = $repositoryRoot
     invocation_line = $MyInvocation.Line
     openface_root = $OpenFaceRoot
     openface_readme_title = $readmeTitle

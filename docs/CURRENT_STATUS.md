@@ -22,7 +22,7 @@
 | 第一版 latent | `z_dep`、`z_nuisance` |
 | 可选 latent | `z_id` 不进入第一版；基础方案通过 C3 后才重新论证 |
 | 不做 | 不显式建 `z_art/z_ctx/z_pose/z_quality`，不做多级 RPDF |
-| 下一步 | aligned JPG 已通过跨机一致性门禁；先运行 OpenFace 2.2.0 两视频 debug 与全量 aligned-landmark 生成，再运行 `AU-T0b` 并人工审阅 train overlay |
+| 下一步 | debug-v1 数据/overlay 已通过；先以显式 git provenance 运行 debug-v2，再做 300 视频全量 aligned-landmark 与正式 `AU-T0b` |
 | 审计判据 | BDI metrics、identity risk、nuisance/BDI leakage、shortcut probe risk、severity bias、task consistency、train-val gap |
 | 主张边界 | reconstruction/decorrelation 收敛或单一 attacker 下降不等于语义解耦成功 |
 | 反证条件 | 不优于 paired-seed `C-REF`、multi-seed 不稳定或风险改善伴随 utility/group robustness 恶化时停止增加复杂度 |
@@ -64,7 +64,11 @@ AU-T0a 已在 300 个视频上正确运行：`300 PASS / 0 FAIL / 0 BLOCKED`，�
 
 完整性门禁现已在真实全量数据上通过：服务器与 Windows 均为 `300` 个视频目录、`493,141` 张 `112x112 RGB JPEG`，全部完整解码；`493,141/493,141` 为 `EXACT_MATCH`，两端 manifest SHA-256 均为 `07bc830c452a8faab1d58935d7f58d807313c218b3c4af8db053777c759daabb`，最终状态为 `EXACT_PASS`。因此本地 JPG 与服务器训练输入已建立逐字节同一性，可进入冻结版本重检测，不需要再做默认 pixel-hash 全量重算。
 
-Windows OpenFace 已冻结为 `D:\Tools\OpenFace` 下的 `OpenFace 2.2.0`。`FeatureExtraction.exe` SHA-256 为 `5995ae5cce749c4969ac4dd7e62d3f740cc9f702961f9573be7e14c4ca5b7f86`，`model/main_ceclm_general.txt` SHA-256 为 `52f38548cffab1731f80e9e71f22a8b29373a2750eb6dc718069d56e82997543`。新增 `scripts/run_openface_aligned_landmarks.ps1`，只执行完整序列 `-fdir + -2Dfp + -mloc`，输出独立 aligned-space landmark CSV；脚本检查版本/哈希/图像门禁、帧行数与连续性、必要列和 `success>=0.995`，并写入二进制、模型、git、命令和逐视频审计清单。当前下一门禁是两视频 debug；通过后在新目录完成 300 视频全量生成，再把该目录作为 `--aligned-openface-root` 运行 T0b。原始 `face_images` 和历史 `openface_features` 继续冻结且不得覆盖。
+Windows OpenFace 已冻结为 `D:\Tools\OpenFace` 下的 `OpenFace 2.2.0`。`FeatureExtraction.exe` SHA-256 为 `5995ae5cce749c4969ac4dd7e62d3f740cc9f702961f9573be7e14c4ca5b7f86`，`model/main_ceclm_general.txt` SHA-256 为 `52f38548cffab1731f80e9e71f22a8b29373a2750eb6dc718069d56e82997543`。新增 `scripts/run_openface_aligned_landmarks.ps1`，只执行完整序列 `-fdir + -2Dfp + -mloc`，输出独立 aligned-space landmark CSV；脚本检查版本/哈希/图像门禁、帧行数与连续性、必要列和 `success>=0.995`，并写入二进制、模型、git、命令和逐视频审计清单。原始 `face_images` 和历史 `openface_features` 继续冻结且不得覆盖。
+
+两视频 debug-v1 已完成并通过数据门禁：Freeform `930/930`、Northwind `990/990`，总计 `1920/1920` 行与检测成功，两个进程均正常关闭。独立坐标统计没有缺失或非有限值；总体 landmark in-bounds 比例分别为 `0.99973/0.99893`，单帧最低 `0.9853/0.9559`，少量越界仅涉及贴近图像边界的 jaw points。临时 T0b 检查为 `2 REVIEW_REQUIRED / 0 FAIL / 0 BLOCKED`，192 个模型选中帧全部有效，7 张 train overlay 人工审阅均正确贴合。
+
+debug-v1 的唯一阻塞项是 `git_commit/git_branch/git_status_short` 为空。根因不是提取失败，而是 `D:\Project\stc` 不含 `.git`；其脚本 SHA-256 `c7e89b39da16a9dc11e5624606586db2cf98c1eb8d8af209def916e277421df7` 已独立映射到提交 `1433a06`。脚本现新增成对的 `-SourceGitCommit/-SourceGitBranch`：非 git 代码副本缺少显式 provenance 时立即失败；若真实 checkout 可检测且与显式值不一致也立即失败。下一步使用实际 `ImageRoot=D:\Project\dataset\AVEC2014\face_images` 运行约 24 秒 debug-v2，确认 manifest 的 git 字段非空后才授权 300 视频全量生成。
 
 ### 2026-07-14 AU-T0a frame-contract implementation
 
