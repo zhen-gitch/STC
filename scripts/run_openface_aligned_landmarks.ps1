@@ -347,6 +347,7 @@ $provenance = [ordered]@{
     invocation_line = $MyInvocation.Line
     openface_root = $OpenFaceRoot
     openface_package_root = $releaseRoot
+    openface_working_directory = $releaseRoot
     openface_package_directory = $releaseDirectoryName
     expected_openface_package_directory = $expectedPackageDirectory
     openface_readme = $readmePath
@@ -401,7 +402,10 @@ foreach ($videoDir in $videoDirs) {
 
     if (-not $skipped) {
         $previousErrorActionPreference = $ErrorActionPreference
+        $previousLocation = Get-Location
         try {
+            # OpenFace model manifests contain relative paths; resolve them from the release package.
+            Set-Location -LiteralPath $releaseRoot
             $ErrorActionPreference = "Continue"
             & $featureExtraction `
                 -fdir $videoDir.FullName `
@@ -412,6 +416,7 @@ foreach ($videoDir in $videoDirs) {
             $exitCode = $LASTEXITCODE
         }
         finally {
+            Set-Location -LiteralPath $previousLocation
             $ErrorActionPreference = $previousErrorActionPreference
         }
     }

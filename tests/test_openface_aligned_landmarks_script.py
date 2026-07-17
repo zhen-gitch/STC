@@ -44,3 +44,5 @@ def test_openface_script_uses_the_frozen_release_package_layout():
     assert '$modelPath = Join-Path $releaseRoot "model\\main_ceclm_general.txt"' in text
     assert '$readmePath = Join-Path $releaseRoot "readme.txt"' in text
     assert "OpenFace readme SHA-256 mismatch" in text
+    assert "Set-Location -LiteralPath $releaseRoot" in text
+    assert "openface_working_directory = $releaseRoot" in text
