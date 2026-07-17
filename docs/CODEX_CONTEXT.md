@@ -42,9 +42,11 @@ Stage D: falsification and robustness validation
 
 截至 2026-07-14，Stage C 的 `C-REF/C-BN/C-REC/C-FULL` 已在 seed 42 被 utility gate 否证并停止进入 C3。后续 capacity audit、identity-gradient、显式 L1/L2、continuous severity weighting 和 split sensitivity 也已收口：维度变化没有稳定恢复 utility；GRL candidate 短期改善 BDI，但 external identity leakage 与末期过拟合恶化；全局参数正则无实质收益；连续权重不及四档 E2；checkpoint 选择对验证 subject composition 敏感。因此不继续 dimension/lambda/regularization sweep，也不重新打开 Stage C。
 
-当前活动路线是单模型 AU/FACS 语义局部输入正则：训练时同一 backbone、时序编码器和 BDI head 同时处理 global face 与四个整体 AU 区域，视图沿 batch 维展开并完全共享参数；validation/test/inference 只使用 global face。四区为 brow、eye-cheek、nose-upper-lip、mouth-jaw。左右 landmark 只作为 tracking components 计算可见性并合成整体 mask，不形成左右语义分支。区域外 blur + feather，禁止硬黑背景。必须设置四个 equal-area arbitrary grid 对照；AU 不优于 grid 时只能主张一般局部正则。
+当前活动路线是`face-valid`时间片段挖掘与AU语义保持的landmark局部/全脸共享模型增强。正式训练不再从每个视频均匀随机一个窗口，而是在完整帧率排除人物缺席、纯黑、不可解码、大幅遮挡/偏转/出界和landmark不可信帧，从全部连续可用run确定性生成clip。clip增加的是同一video的数据视图，不是独立subject；loss必须按`1/N_clips(video)`归一或先用同一模型聚合为video prediction再计算BDI loss。
 
-任何训练实现前先完成只读 `AU-T0a/T0b/T1/T2`：先确认 aligned JPG 与 OpenFace `frame/timestamp` 的 join，再确认约 `640x480` 检测坐标到实际 `112x112` aligned 输入的合法变换，最后比较 static/raw/stabilized dynamic masks并审查 high-yaw、rapid-turn、low-confidence overlay。初始门槛为 frame join `>=0.995`、median adjacent-mask IoU `>=0.75`、valid-frame ratio `>=0.80`、jump rate `<=0.05` 且无系统性 high-yaw 错位。完整任务见 `TODO.md`，机制解释见 `RGB_OVERFITTING_AUDIT_PLAN.md`，字段规格见 `SHORTCUT_AUDIT_DESIGN.md`。
+本项目保留AU/FACS作为局部RGB裁切的语义边界，但不直接引入AU intensity/presence数值、AU序列、AU特征、AU辅助损失或AU预测任务。验证后的aligned-space 68点landmark逐帧定位brow（AU1/2/4）、eye-cheek（AU5/6/7/45）、nose-upper-lip（AU9/10）和mouth-jaw（AU12/14/15/17/20/23/24/25/26）四个完整区域；模型只读取局部RGB crop和global face，完全共享backbone、时序编码器和BDI head。equal-area grid是任意裁切控制。`FACE-* / LM-*`任务命名不取消AU语义分区，历史`AU-T*`输出继续提供frame/coordinate/failure/exposure/tracking证据。
+
+provenance-final已以`300/6501/221`和实现/输出SHA-256完成；3帧真实raw-frame warp smoke得到3个`AUTO_PASS_REVIEW_REQUIRED`和1个无合法raw锚点的fail-closed。`FACE-S1 phase-1 v2`也已完成300视频/493,141帧全量分布审计：486,640帧仍为`pending_threshold_review`，6,501帧保持2,365 raw-warp pending、2,295 visible low-quality、1,841 person-absent硬状态；没有生成`face_usable`。132个train contact条目已去重为124帧v2模板，分别等待`global_face/local_geometry/temporal_boundary`人工标签；local geometry通过只授权后续区域overlay审计，不批准具体AU语义crop。jump、blur或单一PnP量不能独立删帧。现有WSL只读副本包括`/home/zhen/dataset/depression/avec/2014/face_images`和`/home/zhen/dataset/depression/avec/2014/openface_features`；使用后者前仍需明确所需字段和版本一致性门禁。aligned邻帧合成禁用，3帧smoke不授权全量materialize或训练。曝光协议使用train-normal q20/q80安全带=`49.018/142.171`、q25/q75目标=`53.740/135.769`，22视频最终为17欠曝log、2过曝tone-only、3`keep_raw`，共24个reviewed segment。`raw_detail_recoverable=0`，tone normalization不能声明恢复剪切细节。输入派生方案冻结后统一版本整体重跑landmark；AU数值列不进入模型数据路径，但AU/FACS语义映射必须进入crop规范。原始`face_images`永不覆盖。
 
 ### 机制证据背景：RGB 过拟合多因素审计
 
@@ -230,7 +232,7 @@ src/diagnostics/
 11. 在服务器运行 MTL-Lite debug smoke。
 12. 在服务器运行 MTL-Lite 离线诊断脚本。
 13. 对比 regression-only 与 MTL-Lite。
-14. 先完成 OpenFace 质量相关性、输入消融、landmark/AU/pose/gaze 行为 baseline。
+14. 历史OpenFace行为baseline已完成；当前先完成FACE-S1人脸可用性、全部合格clip和四个AU语义保持的landmark局部RGB crop。AU数值、序列和监督不进入模型，AU/FACS语义边界保留。
 15. 在行为表征 baseline 稳定后，再重新设计 MTL 辅助任务，并逐项加入 CCC、LDS、`loss_dist` 或任务权重消融。
 16. Shortcut Audit 的最小可行版本应先实现 OpenFace quality summary、预测残差相关性、相关性热力图和 markdown 报告，再考虑输入消融与 behavior-only baseline。
 
@@ -293,7 +295,7 @@ Shortcut Audit 输出中，`Matched samples: 100`，且样本均通过完整 `vi
 - `shortcut_predictor_results.csv` 的 in-sample predictor 结果过拟合风险很高，不能当作泛化性能；
 - Shortcut Audit 已支持按 `subject_id` 分组的 shortcut-only predictor 交叉验证，并会额外输出
   `shortcut_predictor_grouped_cv.csv`；
-- 下一步应在服务器复跑 Shortcut Audit，读取正式 grouped-CV 结果，并建立 AU/pose/gaze/landmark-only behavior baseline。
+- 上述AU/pose/gaze shortcut结果作为历史审计证据保留；provenance-final/raw-warp smoke已完成，当前下一步是FACE-S1，不再扩展AU behavior baseline。
 
 后续 Codex 在解释 Shortcut Audit 时，仍必须先确认 `Matched samples` 达到预期样本数；
 若匹配数为 0 或明显偏低，只能判定为对齐失败，不能解释风险等级。

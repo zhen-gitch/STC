@@ -1516,16 +1516,18 @@ A0   [ ] 服务器对 RGB baseline 运行 A1-A4，写入结论，关闭 Stage A
 
 所有新增诊断脚本遵循既有约定：只读 checkpoint + 数据，不污染 val/test，不改训练超参，输出到 `<run_dir>/diagnostics/<audit_name>/`。
 
-## 14. Dynamic AU-semantic Region Tracking Audit
+## 14. Dynamic AU-semantic Region Tracking and Crop-integrity Audit
 
-本节定义单模型 AU 语义局部正则在训练前必须通过的只读几何审计。该审计不读取 BDI prediction 来调 mask，不修改 aligned frame、OpenFace CSV、split 或 checkpoint，也不进入训练 forward。
+> 2026-07-17输入边界：AU/FACS在本节只定义四个局部RGB裁切的语义边界；68点landmark负责逐帧定位。模型不读取AU intensity/presence数值、AU序列、AU特征、landmark坐标或内部mask，也不增加AU预测任务与AU监督loss。FACE-S1/temporal clip规格见下方第15节。
+
+本节定义单模型AU语义完整局部RGB裁切在训练前必须通过的只读几何审计。该审计不读取AU数值或BDI prediction来调整区域，不修改aligned frame、OpenFace CSV、split或checkpoint，也不进入训练forward。
 
 ### 14.1 审计目标与坐标契约
 
 目标是回答两个独立问题：
 
 1. OpenFace landmark 如何合法映射到模型实际读取的 `112x112` aligned face；
-2. 映射后的逐帧 AU 区域是否在大 yaw、快速转头和低 confidence 条件下仍能稳定跟踪。
+2. 映射后的逐帧AU语义区域是否在大yaw、快速转头和低confidence条件下仍能稳定跟踪且不被crop截断。
 
 当前已知 OpenFace CSV 的 `x_* / y_*` 范围约对应 `640x480` 检测坐标系，不能直接覆盖到 aligned frame。合法映射只接受以下来源之一：
 
@@ -1548,21 +1550,21 @@ nose_upper_lip: AU9, AU10
 mouth_jaw: AU12, AU14, AU15, AU17, AU20, AU23, AU24, AU25, AU26
 ```
 
-标准 OpenFace AU 输出不提供左右独立监督，因此 `brow` 和 `eye_cheek` 只产生一个整体语义视图。mask 由对应 landmark polygon、局部尺度 margin 和 feather radius 生成。左右 landmark polygon 可在 tracker 内部作为 `left_component/right_component` 分别计算 `pose_visibility` 和 tracking quality，然后按质量加权并集合成为一个整体 mask：
+AU编号在这里是固定的FACS语义映射，不读取逐帧OpenFace AU列。每组只产生一个整体语义RGB视图。内部support mask由对应landmark polygon和局部尺度margin生成，只用于计算完整性、coverage和矩形crop envelope。左右landmark polygon可在tracker内部作为`left_component/right_component`分别计算`pose_visibility`和tracking quality，然后集合为一个整体语义support：
 
 ```text
 M_region = max(q_left * M_left, q_right * M_right)
 ```
 
-左右 component 不进入模型输出，不产生独立 BDI prediction 或 loss，也不能在论文中解释为左右 AU 表征。区域外只在未来训练视图中使用 blur；跟踪审计 overlay 同时显示 component polygon、合成 soft-mask contour、landmark 和整体 region validity。
+左右component不进入模型输入或输出，不产生独立BDI prediction或loss，也不能在论文中解释为左右AU表征。最终局部view是覆盖整体support及冻结margin的矩形RGB crop后resize，不把support mask或区域外blur图送入模型。跟踪审计overlay同时显示component polygon、整体support contour、crop box、landmark和region validity。
 
 ### 14.3 三组跟踪对照
 
 每个视频必须生成以下三组结果：
 
 ```text
-static_canonical     # 固定在 aligned 坐标中的 canonical 区域
-raw_dynamic          # 映射后的逐帧 landmark 直接生成区域
+static_canonical     # 固定在 aligned 坐标中的 canonical support/crop
+raw_dynamic          # 映射后的逐帧 landmark 直接生成 support/crop
 stabilized_dynamic   # 保留真实姿态轨迹，只抑制检测跳变和局部抖动
 ```
 
@@ -1580,10 +1582,10 @@ local residual: brow/eye/nose/mouth landmark deformation
 每个 frame-region 计算：
 
 ```text
-q_t,r = confidence * tracking_validity * pose_visibility * mask_coverage
+q_t,r = confidence * tracking_validity * pose_visibility * semantic_crop_coverage
 ```
 
-其中左右 component 的 `pose_visibility` 根据 yaw/pitch 和区域朝向分别估计；隐藏侧不镜像、不复制可见侧、不合成区域。整体 region quality 由可见 component 的面积和质量聚合得到。
+其中左右component的`pose_visibility`根据yaw/pitch和区域朝向分别估计；隐藏侧不镜像、不复制可见侧、不合成区域。`semantic_crop_coverage`衡量裁边后的矩形crop是否仍完整包含合法可见support和冻结margin。整体region quality由可见component的面积和质量聚合得到。
 
 首版训练保持现有 MTL-Lite boolean temporal mask 语义：`q_t,r` 用于生成 frame/region validity、跳过低质量区域并记录诊断，不直接作为连续 temporal pooling 权重。这样避免在现有 `encode_temporal_features` 与 `masked_mean_pool` 中重复乘权。连续质量加权 pooling 只有在首版通过后才可作为独立消融。未来若显式实现加权 pooling，可使用：
 
@@ -1622,8 +1624,9 @@ logs/au_region_tracking_audit/
 split, video_id, frame_index, timestamp, method, region,
 confidence, success, yaw, pitch, roll,
 transform_available, mapping_residual,
-tracking_valid, interpolated, pose_visibility, mask_coverage,
-mask_area, centroid_x, centroid_y, centroid_velocity,
+tracking_valid, interpolated, pose_visibility, semantic_polygon_coverage,
+crop_box_x1, crop_box_y1, crop_box_x2, crop_box_y2, crop_clipped,
+support_area, centroid_x, centroid_y, centroid_velocity,
 adjacent_mask_iou, landmark_jump, quality_weight
 ```
 
@@ -1634,7 +1637,7 @@ split, video_id, method, region, frame_count,
 valid_frame_ratio, interpolated_frame_ratio,
 median_adjacent_mask_iou, p10_adjacent_mask_iou,
 median_centroid_velocity, p95_centroid_velocity,
-landmark_jump_rate, low_coverage_rate,
+landmark_jump_rate, low_coverage_rate, crop_clipped_rate,
 mean_quality_weight, high_yaw_frame_ratio
 ```
 
@@ -1645,9 +1648,10 @@ overlay 必须覆盖：
 - 最大 absolute yaw/pitch 的视频和帧；
 - centroid velocity / landmark jump 最高的快速转头区间；
 - confidence 最低、`success=0` 或短缺失插值区间；
+- crop边界最接近或截到语义polygon的低coverage案例；
 - 正常 frontal、稳定 tracking 的低风险对照。
 
-阈值和 stabilizer 参数只在 train split 的无标签几何样本上冻结。validation/test 只报告，不依据其结果回调阈值。人工审查记录 `correct / shifted / wrong_region / hidden_side_hallucination / invalid_should_skip`，并在报告中按 yaw/pitch/confidence 分组统计。
+阈值和stabilizer参数只在train split的无标签几何样本上冻结。validation/test只报告，不依据其结果回调阈值。人工审查记录`correct / shifted / wrong_region / semantic_region_truncated / hidden_side_hallucination / invalid_should_skip`，并在报告中按yaw/pitch/confidence分组统计。
 
 ### 14.7 初始通过门槛与停止条件
 
@@ -1659,6 +1663,7 @@ median adjacent-mask IoU >= 0.75
 valid-frame ratio >= 0.80
 landmark jump rate <= 0.05
 no systematic high-yaw region misalignment
+semantic-region truncation rate = 0 in accepted overlays
 ```
 
 此外，`stabilized_dynamic` 应在不显著降低 high-yaw/rapid-turn 轨迹幅度的前提下优于 `raw_dynamic` 的 IoU 和 jump rate；否则判定为过度平滑。若 coordinate transform 无法恢复、关键区域长期低 coverage、或隐藏侧频繁产生虚假 mask，停止训练实现，先解决数据几何问题。
@@ -1670,10 +1675,10 @@ no systematic high-yaw region misalignment
 ```text
 G0 global-only baseline
 G1 global + equal-area arbitrary grid views
-G2 global + AU-semantic dynamic views
+G2 global + four AU-semantic landmark-guided RGB crops
 ```
 
-三组使用同一模型、split、seed、optimizer、训练预算和 global-only validation/test/inference。G1 固定为四个 grid views，G2 固定为四个整体 AU semantic views；二者必须匹配局部区域总面积和 loss scale。只有 G2 稳定优于 G1，才能支持 AU/FACS 语义贡献；若 G1≈G2，则只支持一般局部正则；若 global-only inference 无改善或 identity/pose/artifact group risk 恶化，则停止增加区域分支、对齐损失和推理融合。
+三组使用同一模型、split、seed、optimizer、训练预算和global-only validation/test/inference。G1固定为四个grid RGB views，G2固定为四个整体AU-semantic RGB crops；二者必须匹配局部view数量、总面积和loss scale。只有G2稳定优于G1，才能支持“保持AU/FACS语义边界的裁切优于任意局部裁切”；若G1≈G2，则只支持一般局部正则。该结论不等于模型读取了AU数据或学会AU识别。若global-only inference无改善或identity/pose/artifact group risk恶化，则停止增加区域分支、对齐损失和推理融合。
 
 ### 14.9 实施路线与代码边界
 
@@ -1692,9 +1697,69 @@ tests/test_audit_au_region_tracking.py
 
 第一阶段只完成 frame join inventory、图像原始尺寸、OpenFace 行对齐、坐标来源和 mapping overlay。坐标恢复优先级固定为：已有 alignment transform；固定版本 OpenFace 在 aligned JPG 上重新输出 aligned-space landmark；canonical template + similarity transform 且 overlay 通过。禁止未经验证的独立比例缩放。
 
-#### AU-T1 Dynamic Tracking
+#### AU-T0c Frame Failure / Exposure Recovery
 
-tracking 在完整原始帧率上运行，完成跳变检测、短缺失插值和稳定化后，再应用训练的 `SAMPLE_STEP`。轨迹拆为 global face transform 与 local residual；global 只轻量平滑，local residual 可使用短窗 robust smoothing。输出 static/raw/stabilized 三组对照和 high-yaw/rapid-turn/low-confidence/frontal overlays。
+若 aligned-space 重新检测未达到 `success>=0.995`，不得降低 coordinate gate，也不得把所有缺失直接交给 landmark interpolation。先运行：
+
+```text
+src/diagnostics/frame_recovery.py
+scripts/audit_frame_recovery.py
+tests/test_frame_recovery.py
+```
+
+逐帧失败表至少包含：
+
+```text
+split, video_id, subject_id, task_name,
+frame_id, frame_index, image_path, relative_path, original_sha256,
+openface_timestamp, openface_confidence, openface_success,
+global_mean_luma, global_std_luma, nonblack_ratio, visible_ratio,
+luma_q05, luma_q10, luma_median, luma_q90, luma_q95,
+failure_type, failure_block_id, block_start, block_end, block_length,
+previous_valid_frame, next_valid_frame,
+repair_eligible, proposed_action, fallback_action, eligibility_reason
+```
+
+连续块表和视频 summary 必须另外记录最长块、曝光抽样统计、train-only 目标亮度、`planned_exposure_curve/planned_exposure_parameter` 和 remaining-invalid 数量；`planned_gamma` 只作历史字段保留为空。纯黑 aligned JPG 只能视为预处理占位，必须通过原视频 `train/dev/test -> Freeform/Northwind -> video_id.mp4` 回连后再判断。source-presence audit 至少输出原视频帧数/尺寸/FPS 契约、pure-black run、contact sheet、人工 segment template、逐帧 gate 和视频 summary。合法标签为 `person_absent/person_present_detection_failure/mixed/ambiguous`；前者及 mixed/ambiguous 必须 keep invalid，人物仍在的失败帧最多只能进入未来 `raw_frame_warp_only`。aligned 邻帧光流合成和复制上一张脸均禁用。
+
+T0c source-presence 人工 gate 必须对每个 pure-black 帧做到非重叠、全覆盖、`REVIEWED`；长 run 需要 dense/all-frame 复核或进一步分段。当前全量结果为38视频/231 run/4,206帧，其中2,365帧人物仍在、1,841帧人物缺席，只有 `247_3_Freeform` 含缺席段。曝光 gate 独立使用 `exposure_review_manifest`，字段至少包含 `video_id, segment_start/end, exposure_status, review_status, review_decision, exposure_curve, observed_luma_median, observed_luma_source, target_luma, curve_parameter, reviewer, notes`。每个候选视频必须由无间隙、无重叠的 `REVIEWED` segment 全覆盖；所有获批片段必须用片段内全部可见帧计算中位亮度。train-normal q20/q80 定义处理后安全验收带，q25/q75 定义带内目标；目标不得落在安全带边界。预览和 gate 同时检查 q90-q10 span retention 与两端剪切，增强只转移剪切时必须 `keep_raw`。欠曝合法决定为 `stable_log/keep_raw`，过曝为 `tone_only_overexposed/keep_raw`；逐帧参数拟合禁止。
+
+raw-vs-aligned recoverability audit 使用已有两套68点坐标做 RANSAC similarity transform，只把 raw frame 映射到当前 aligned 几何，不解释 OpenFace 表征差异。所有纹理指标先在同一侵蚀 face hull 内做 robust luma normalization，再比较 gradient、Laplacian、entropy 与相关剪切尾。阈值只由 train-normal q95 校准，并要求至少1个百分点绝对剪切优势，防止把 JPEG/插值微差误判为可恢复细节。正式 v2 得到 `raw_detail_recoverable=0`，因此关闭 raw-space exposure correction；后续统一版本 OpenFace 重跑发生在输入派生方案冻结之后。
+
+#### DATA-S0 Validity-aware Temporal Slicing Audit
+
+只读模块固定为：
+
+```text
+src/diagnostics/validity_aware_slicing.py
+scripts/audit_validity_aware_slicing.py
+tests/test_validity_aware_slicing.py
+```
+
+输入必须包含冻结的 `dataset_split.json`、`video_failure_summary.csv`、`frame_failure_manifest.csv` 和全覆盖 `source_presence_frame_gate.csv`。presence gate缺帧、重复、非`REVIEWED`或非法permission时fail closed。审计不得读取label/prediction，不得运行OpenFace，不得修改source tree。
+
+输出固定为：
+
+```text
+tables/validity_run_manifest.csv
+tables/candidate_clip_manifest.csv
+tables/slicing_video_summary.csv
+tables/slicing_aggregate_summary.csv
+reports/validity_aware_slicing_report.md
+run_manifest.json
+```
+
+当前输出策略口径为 `legacy_all_frames/global_rgb_ready_now/global_rgb_after_approved_raw_warp/landmark_local_ready_now`；旧名`au_landmark_ready_now`只保留为历史报告术语。`global_rgb_after_approved_raw_warp`必须显式标记为hypothetical，不能在raw-warp完成前用于训练。该S0报告未审计大姿态/遮挡/出界，只作容量下界。
+
+#### FACE-T0d Raw-frame Warp Smoke
+
+provenance-final已在`frame_failure_recovery_safe_v1`以`300 videos / 6501 failures / 221 blocks`通过。独立`raw-warp-smoke`只从train、全覆盖source-presence gate和短锚点间隔中选择最多3帧；它从前后合法raw/aligned landmark对恢复similarity transform，在真实原视频相邻帧上用forward-backward LK传播landmark，并warp目标时刻的真实raw像素。aligned邻帧不参与像素生成。
+
+v3得到3个`AUTO_PASS_REVIEW_REQUIRED`和1个`previous_raw_anchor_invalid`拒绝案例。该smoke只验证短单帧缺失的几何可行性，未重跑landmark、未建立全2,365帧策略、未接入materialize；因此`global_rgb_after_approved_raw_warp`继续保持hypothetical。
+
+#### AU-T1 Dynamic Semantic-support/Crop Tracking
+
+tracking在完整原始帧率上运行，完成跳变检测、短缺失插值和稳定化后，再应用训练的`SAMPLE_STEP`。轨迹拆为global face transform与local residual；global只轻量平滑，local residual可使用短窗robust smoothing。输出static/raw/stabilized三组support、crop box和high-yaw/rapid-turn/low-confidence/frontal overlays；accepted crop不得截断冻结的语义polygon。
 
 #### AU-T2 Tracking Gate
 
@@ -1705,12 +1770,12 @@ tracking 在完整原始帧率上运行，完成跳变检测、短缺失插值�
 训练 dataset 返回：
 
 ```text
-views:          [B, 5, T, C, H, W]  # global + 4 semantic regions
+views:          [B, 5, T, C, H, W]  # global + 4 semantic RGB crops
 temporal_masks: [B, 5, T]
 region_valid:   [B, 4]
 ```
 
-进入模型前展开为 `[B*5,T,C,H,W]`。RGB 与 mask/局部视图必须复用同一组 resize、flip 和 affine 参数；默认关闭时现有 dataset 返回格式完全不变。metrics、checkpoint monitor 和 validation/test predictions 只读取 global view。
+进入模型前展开为`[B*5,T,C,H,W]`。global RGB与局部RGB crop必须复用同一组flip、color和几何增强参数，增强后的landmark/crop坐标必须同步变换；内部support mask不进入模型。默认关闭时现有dataset返回格式完全不变。metrics、checkpoint monitor和validation/test predictions只读取global view。
 
 首版只允许 regression-only + 四档 E2 severity weighting，禁止同时打开 identity adversary、TaskNuisanceBlock、ordinal、区域专属 head 或 global-local alignment loss。总损失固定为：
 
@@ -1720,8 +1785,117 @@ L_total = L_global + 0.5 * mean(valid L_brow,L_eye,L_nose,L_mouth)
 
 #### AU-M1 100-step Gradient Calibration
 
-正式 full-40 前，在 train-only seed 42 上记录每区 loss、最后可训练 backbone block/projection 的 gradient norm、aggregate local/global norm ratio、cosine、conflict、cancellation 和单区贡献率。同步运行 equal-area grid calibration。若局部梯度主导全局梯度、出现非有限值、AU 比 grid 冲突更严重，或 step-100 external identity risk 上升超过 `0.02`，停止 full training，不追加 teacher、区域权重或 consistency loss。
+正式full-40前，在train-only seed 42上记录每区loss、最后可训练backbone block/projection的gradient norm、aggregate local/global norm ratio、cosine、conflict、cancellation和单区贡献率。同步运行view数、总面积和loss scale匹配的equal-area grid calibration。若局部梯度主导全局梯度、出现非有限值、AU-semantic crop比grid冲突更严重，或step-100 external identity risk上升超过`0.02`，停止full training，不追加teacher、区域权重或consistency loss。
 
 #### AU-M2/M3 Validation Matrix
 
 seed 42 固定比较 G0/G1/G2；通过 utility、risk 和 AU-vs-grid gate 后才运行 seeds 43/44。沿用 Stage C utility failure 条件：`delta_CCC < -0.05` 或 `delta_MAE > +0.50` 的任一 seed 立即停止。论文中的 AU 语义主张还要求 G2 在 multi-seed 和 paired subject bootstrap 下稳定优于 G1；final test 在协议冻结前保持关闭。
+
+## 15. Current Face-valid Segment and AU-semantic Landmark-crop Audit
+
+### 15.1 FACE-S1逐帧可用性
+
+输入为冻结split、source-presence逐帧gate、frame-failure manifest、aligned JPG、统一版本aligned-space 68点landmark。禁止读取AU intensity/presence列，禁止使用BDI/prediction/validation/test utility生成阈值。
+
+逐帧输出至少包含：
+
+```text
+split, subject_id, video_id, task_name, frame_id, timestamp
+decode_status, source_presence_status, aligned_failure_status
+nonblack_ratio, visible_ratio, blur_score, clipping_low, clipping_high
+landmark_success, confidence, landmark_in_frame_ratio
+face_hull_coverage, bbox_area, center_offset_x, center_offset_y
+landmark_pose_yaw, landmark_pose_pitch, landmark_pose_roll
+transform_residual, landmark_jump
+face_usability_status, exclusion_reasons, review_status
+```
+
+合法状态固定为：
+
+```text
+face_usable
+face_present_low_quality
+aligned_failure_pending_raw_warp
+person_absent
+unreadable_or_missing
+```
+
+`face_present_low_quality`必须可多原因标记，例如`major_occlusion/extreme_pose/face_out_of_frame/too_small/blurred/landmark_unreliable`。阈值先由train-only分布和contact sheet冻结；validation/test只应用并报告。
+
+### 15.2 Overlay与人工复核
+
+contact sheet必须覆盖：
+
+- yaw/pitch绝对值最大分层；
+- face hull coverage最低分层；
+- landmark in-frame ratio和confidence最低分层；
+- blur/transform residual/jump最高分层；
+- 手、耳机、麦克风、头发遮挡案例；
+- frontal/轻中度转头正常对照。
+
+人工标签至少为`usable / unusable_major_occlusion / unusable_extreme_pose / unusable_out_of_frame / unusable_other / uncertain`。阈值冻结后必须报告train、val、test以及Freeform/Northwind、subject、severity分组排除比例；severity只用于事后审计，不得回调阈值。
+
+2026-07-17 phase-1实现状态：`face_usability_phase1_v2`已覆盖300视频/493,141帧，只生成分布和PENDING复核项。PnP必须记录solver、正深度和重投影RMSE；负深度迭代解回退到SQPnP/EPnP。jump是相邻帧量，contact review必须显示精确`t-1/t`帧对并重算主表值，单帧overlay不足以批准该指标。当前12个train最高jump帧对多为真实运动/表情/模糊变化，因此jump只能触发邻域复核，不能独立判`face_present_low_quality`。blur同样必须与luma、gradient和clipping联合。major occlusion是语义标签，当前几何proxy不能声称已自动互斥计数。
+
+阈值复核采用双通道契约：`global_face_label`决定global时间输入是否保留，`local_geometry_label`只决定landmark几何是否可进入后续四区overlay审计，`temporal_boundary_label`决定是否切断连续run。允许`global_usable + local_geometry_ineligible + no_boundary`；禁止用单一`face_usable`字段把局部坐标问题升级成global数据删除。当前阶段尚未冻结四区polygon/margin/coverage，因此不得使用`local_crop_eligible`或`semantic_truncation`最终标签。132个contact条目去重为124个train帧，三栏必须全部人工`REVIEWED`后才能冻结global/geometry threshold manifest。
+
+### 15.3 FACE-S2 run与clip manifest
+
+只从连续`face_usable`帧生成run。`person_absent/unreadable`为永久硬边界，严格主协议中`face_present_low_quality`也形成质量边界。不得删除无效帧后把两侧序列拼接为连续行为。
+
+候选clip审计固定比较：
+
+```text
+window_frames = 300, 600, 1200, 2000
+overlap = 0.0, 0.25, 0.50
+```
+
+输出至少包含：
+
+```text
+face_usability_frame_manifest.csv
+face_usable_run_manifest.csv
+face_clip_candidate_manifest.csv
+face_clip_distribution_by_video_subject_task.csv
+face_quality_exclusion_summary.csv
+face_usability_report.md
+run_manifest.json
+```
+
+每个clip记录`run_id/start/end/window/stride/overlap/raw_frame_count/sampled_frame_count/exposure_segment_id/source_presence_segment_id/landmark_version`。报告原始video数、独立subject数、clip数、每video clip分布和重叠帧比例，禁止把clip数写成独立样本量。
+
+### 15.4 FACE-M0监督与权重
+
+首版比较：
+
+```text
+S0 historical stride_head
+S1 all face-valid clips + per-video normalized clip loss
+S2 all face-valid clips + shared-model video-bag loss
+```
+
+S1中同一video的clip权重和必须为1；S2先按有效时长聚合为一个video prediction再计算一次BDI loss。validation/test始终先聚合为video prediction。clip不进入subject bootstrap或主MAE/RMSE/CCC样本数。
+
+### 15.5 LM-M0 AU语义保持的landmark局部裁切
+
+本项目局部view固定为AU语义保持的RGB crop。AU/FACS定义语义分区，landmark逐帧定位，内部polygon/mask只用于coverage和crop envelope；模型不读取AU数值、landmark坐标或mask：
+
+```text
+global_face
+brow = AU1/2/4 semantic region
+eye_cheek = AU5/6/7/45 semantic region
+nose_upper_lip = AU9/10 semantic region
+mouth_jaw = AU12/14/15/17/20/23/24/25/26 semantic region
+```
+
+每区对应point集合、polygon、margin、最小coverage和最小resize后尺度通过aligned-space overlay冻结。accepted crop必须完整覆盖语义polygon和margin；裁边导致语义截断、mapping无效、关键landmark缺失或有效面积不足时跳过对应local view并记录原因。global/local必须来自相同frame和时间clip，共享flip/affine/color参数及同一backbone/temporal encoder/BDI head。左右landmark只用于定位和可见性；不镜像隐藏侧，不读取AU值，不增加AU loss、左右loss或区域head。
+
+反证矩阵：
+
+```text
+L0 global-only
+L1 global + four equal-area grid RGB crops
+L2 global + four AU-semantic landmark-guided RGB crops
+```
+
+L1/L2必须匹配局部view数、总面积、loss scale、模型和训练预算。只有L2稳定优于L1才能支持AU语义保持的区域布局贡献；否则只保留一般crop augmentation结论。L2获胜也不能表述为AU数值输入、AU强度恢复或逐AU识别。

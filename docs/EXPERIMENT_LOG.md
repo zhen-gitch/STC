@@ -5,6 +5,328 @@
 This log records completed project maintenance, smoke validation, and experiment
 workflow milestones. Keep entries concise and reproducible.
 
+## 2026-07-17
+
+### Frozen OpenFace 2.2.0 release-package path correction
+
+- Changed the Windows extraction root to
+  `D:\Tools\Openface_2.2.0_win_x64`. The actual executable package is the
+  nested `OpenFace_2.2.0_win_x64` directory rather than the old
+  `x64\Release` source-build layout.
+- Froze the new package hashes: `FeatureExtraction.exe=a29ba49c...96ae`,
+  `main_ceclm_general.txt=7efbef33...3598`, and
+  `readme.txt=4ccdd65f...1d93`. These differ from the historical package and
+  must not be mixed in one landmark version.
+- Updated the PowerShell script to validate the package-directory name and all
+  three hashes before extraction. Output examples now use a new versioned
+  directory and never overwrite historical aligned-landmark CSVs.
+
+### FACE-S1 phase-1 full distribution and paired temporal review
+
+- Added the read-only `face_usability.py` audit and completed
+  `face_usability_phase1_v2` on all 300 videos and 493,141 WSL-local JPGs.
+  It read no BDI labels, predictions, or AU values and generated no
+  `face_usable` approval.
+- Preserved 6,501 provenance-backed hard statuses: 2,365 pending raw-frame
+  warp, 2,295 visible landmark failures, and 1,841 person-absent frames. The
+  remaining 486,640 frames are explicitly `pending_threshold_review`.
+- Fixed two debug-discovered pose defects before the full run: a 180-degree
+  model/image coordinate convention mismatch and negative-depth iterative PnP
+  solutions. The full run used 483,415 positive-depth ITERATIVE, 3,101 SQPnP,
+  and 124 EPnP solutions; all output hashes were independently verified.
+- Generated 11 train-only contact-sheet strata with 132 PENDING frames.
+  Visual review supports pose/coverage/out-of-frame semantics but shows that
+  blur is exposure/contrast-confounded and residual overlaps pose.
+- Added `face_usability_temporal_review.py` and its CLI because a jump metric
+  cannot be audited from one frame. The 12 exact `t-1/t` pairs recomputed the
+  source metric within 1e-5 and showed mostly real motion/expression/blur, not
+  systematic landmark teleport. Jump remains a review trigger, not an
+  independent exclusion rule.
+- Validation: focused tests `18 passed`; compileall and both CLI help checks
+  passed. FACE-S2, threshold application, full warp/materialize, and training
+  remain blocked pending train-only human labels and a hashed threshold
+  manifest.
+- Added a fail-closed dual-lane threshold-review preparation step. It
+  deduplicated 132 contact rows into 124 train frames and separated global-face
+  usability, landmark-geometry candidacy, and temporal-boundary decisions. The
+  first local-crop wording was superseded before review because region polygons
+  and margins are not frozen; v2 cannot approve any concrete crop. All 372
+  decision cells remain PENDING; no threshold manifest was generated.
+
+### Provenance-final frame audit and real raw-frame warp smoke
+
+- Completed `frame_failure_recovery_safe_v1` on all 300 videos. It reproduced
+  6,501 failed frames and 221 failure blocks, froze the q20/q80 safety band and
+  q25/q75 targets, and recorded SHA-256 for the implementation and every output.
+- Added `src/diagnostics/raw_frame_warp.py` and the fail-closed
+  `audit_frame_recovery.py raw-warp-smoke` subcommand. Selection is train-only,
+  requires exact source-presence coverage, and is limited to one to three frames.
+- The smoke recovers raw-to-aligned transforms from valid landmark anchors,
+  propagates landmarks through adjacent real raw-video frames with
+  forward-backward LK checks, and warps pixels from the actual target frame.
+  It never blends or copies aligned neighbor faces.
+- Final v3 produced three deterministic `AUTO_PASS_REVIEW_REQUIRED` frames and
+  rejected one candidate with an invalid previous raw anchor. Tracking validity
+  was 0.98-1.00, target transform RMSE 0.98-1.25 px, and transform disagreement
+  0.85-2.46 px. v1/v2/v3 derived JPEG hashes were identical.
+- Contact-sheet inspection preserved subject identity, pose, glasses/headsets,
+  microphone occlusion, and expression. The formal review field remains PENDING;
+  no full repaired dataset, landmark rerun, materialize integration, or training
+  authorization is implied. The next read-only task is FACE-S1.
+
+### Route revision: face-valid clips and AU-semantic landmark local/global augmentation
+
+- Replaced the proposed video-first random crop with deterministic mining of
+  every qualified face-visible segment. The next audit must explicitly reject
+  person absence, black/unreadable frames, major occlusion, extreme pose,
+  severe out-of-frame faces, and unreliable landmarks.
+- Clarified that more clips add training views but not independent subjects.
+  Formal training must either normalize clip losses to unit weight per source
+  video or aggregate clips with the same model before one video-level BDI loss.
+- Removed AU intensity/presence values, AU sequences/features, auxiliary AU
+  prediction, and AU supervision from the model data path. Retained AU/FACS as
+  the semantic partition for four local RGB views: brow, eye-cheek,
+  nose-upper-lip, and mouth-jaw. Validated aligned-space 68-point landmarks
+  locate the complete regions frame by frame; neither AU values nor landmark
+  coordinates are model inputs.
+- Added `AVEC2014_SOURCE_DATA_QUALITY.md` to distinguish raw-video problems
+  from aligned-placeholder and landmark/OpenFace derivation failures. It
+  records presence, exposure, clipping, duration, versioning, and paper
+  disclosure requirements.
+- Existing AU-prefixed logs/scripts remain frame/coordinate/data-quality and
+  region-tracking evidence. Current task names use `FACE-*` and `LM-*`, without
+  removing the AU-semantic crop contract.
+
+## 2026-07-16
+
+### Validity-aware temporal slicing feasibility audit
+
+- Added a read-only audit joining the frozen split, 300-video failure summary,
+  6,501-frame failure manifest, and the fully reviewed 4,206-frame source-
+  presence gate. No labels, predictions, images, or OpenFace processes are used.
+- Confirmed that the historical `stride_head` contract reaches at most raw
+  frame 1991 for `MAX_SEQ_LEN=2000,SAMPLE_STEP=10`; under the post-warp global
+  capacity contract it leaves 83,840 valid frames (17.06%) unseen.
+- Reject immediate slicing at current pure-black placeholders: it creates 527
+  valid runs and 232 runs shorter than 600 frames. After approved raw-warp, the
+  capacity estimate is 301 runs and 380 balanced non-overlap clips at a
+  2000-frame ceiling; 66/300 videos require more than one clip.
+- Froze the design direction as video-first stochastic training crop and
+  deterministic video-level multi-clip aggregation. Training code remains
+  blocked until provenance-final audit, raw-warp validation, and a rerun of the
+  validity manifest.
+- Validation: `pytest tests/test_validity_aware_slicing.py
+  tests/test_temporal_sampling.py` -> 9 passed.
+
+### AU-T0c log-family exposure recovery and fail-closed segment gate
+
+- Replaced the formal gamma recovery route with two endpoint-preserving luma
+  curves: underexposure uses `log(1+a*x)/log(1+a)` and overexposure uses
+  `(exp(b*x)-1)/(exp(b)-1)`. The old gamma function and CSV columns remain only
+  for historical reproducibility and are not called by formal materialization.
+- Added monotone parameter fitting so one reviewed video/segment median maps to
+  the frozen train-normal target. Per-frame fitting is prohibited.
+- Rejected the first q10/q90 edge targets (`44.873/173.274`). The revised
+  train-only protocol uses q20/q80 (`49.018/142.171`) as the post-transform
+  acceptance band and places the fitted targets strictly inside it at q25/q75
+  (`53.740/135.769`). Preview tables now report q90-q10 span retention and both
+  clipping tails; stronger mapping is rejected when it only moves clipping to
+  the opposite tail.
+- Full-frame temporary review of all 22 candidates identified stable
+  overexposure in `211_1_Freeform` and `242_1_Northwind`, but rejected a single
+  whole-video inverse-log curve for `212_1_Freeform` (luma IQR `31.15`) and
+  `223_1_Freeform` (`10.57`). Four underexposed videos also require priority
+  segment review: `310_2`, `219_1`, `232_1`, and `250_1` Freeform.
+- The audit now emits `tables/exposure_review_template.csv` with PENDING rows.
+  Materialization fails closed unless every selected exposure candidate has
+  complete, non-overlapping `REVIEWED` coverage. Allowed decisions are
+  `stable_log`, `tone_only_overexposed`, and `keep_raw`.
+- Added `scripts/preview_exposure_recovery.py` to write non-authorizing
+  BEFORE/AFTER contact sheets from deterministic audit samples and sampled
+  luma extrema. It also writes frame-level luma/clipping comparisons and never
+  writes a formal derived dataset.
+- Added optional all-frame preview evaluation. A real q25/q75 full scan over
+  `225_2_Freeform` (450 visible frames) moved the frame-median center from
+  `32.193` to `53.191`; `211_1_Freeform` (1,230 frames) moved from `224.308`
+  to `136.316`. Both entered the q20/q80 safety band. For `211_1`, high-tail
+  clipping fell from `0.1141` to `0.0442`, while low-tail clipping rose from
+  `0.0152` to `0.0371`; remaining clipped highlights are irreversible and must
+  stay visible in the report rather than be described as recovered detail.
+- Added fail-closed relocated-root authorization for preview. The WSL copy at
+  `/home/zhen/dataset/depression/avec/2014/face_images` is accepted only through
+  the existing `EXACT_PASS` comparison: `493141/493141 EXACT_MATCH`, candidate
+  manifest SHA-256 `07bc830c...59daabb`, PASS inventory, and an exact inventory
+  root match. A real two-video relocated-root smoke passed and recorded all
+  evidence hashes in `preview_manifest.json`.
+- Every changed frame records curve type/parameter and reviewed segment bounds.
+  Source images remain read-only, black padding is preserved, and overexposure
+  is described only as tone normalization rather than clipped-detail recovery.
+- Local validation: frame-recovery/source-presence tests `9 passed`; focused
+  Python compilation and `git diff --check` passed. No formal repaired dataset
+  or FaceLandmark rerun was produced.
+
+### AU-T0c review of the six raw-detail-inconclusive videos
+
+- Reviewed `218_1_Freeform`, `219_1_Northwind`, `219_3_Northwind`,
+  `225_2_Northwind`, `310_2_Freeform`, and `328_1_Northwind` using full-frame
+  luma series, extrema/boundary contact sheets, raw ROI/raw warp/aligned
+  comparisons, and exact full-frame application of candidate fixed curves.
+  No BDI label or validation/test metric was read.
+- Approved whole-video `stable_log` for `218_1` (`a=2.053613`), `219_1`
+  (`a=1.724186`), `225_2` (`a=1.712135`), and `328_1` (`a=2.135340`).
+  Their visible-frame safety-band coverage was `94.91%`, `90.61%`, `98.11%`,
+  and `100%`, respectively.
+- Split `219_3_Northwind` into `1-65` (`a=4.810923`) and `66-1170`
+  (`a=2.425732`); both segments reached `100%` visible-frame safety-band
+  coverage under one fixed parameter per segment.
+- Routed `310_2_Freeform` to `keep_raw`. Its luma IQR is `14.76` and the camera
+  rises into and falls out of a bright plateau through gradual transitions;
+  several different segmentations fit the series, so no unique coarse boundary
+  is defensible without content-dependent preprocessing.
+- Rejected extra segmentation for `219_1`: its darker intervals track continuous
+  head-pose/shading changes. Rejected the apparent `225_2` dark segment at
+  frames `110-137`: it is caused by a hand occluding the face. Brightening either
+  case with a separate fitted curve would normalize behavior or occlusion rather
+  than acquisition exposure.
+- Wrote the partial reviewed manifest and full numeric report to
+  `logs/au_region_tracking_audit/exposure_uncertain_six_review/`. At this
+  checkpoint only the six automated-inconclusive routes were resolved; the
+  immediately following entry records completion of the remaining 16 and the
+  train-normal threshold. No source or derived image was written and OpenFace
+  was not rerun.
+
+### AU-T0c train-only temporal threshold and complete 22-video exposure gate
+
+- Added `src/diagnostics/exposure_temporal_stability.py`,
+  `scripts/audit_exposure_temporal_stability.py`, and focused tests. The command
+  scans aligned JPGs read-only and does not read BDI labels, predictions,
+  validation metrics, or test metrics.
+- Full scan covered 92 train-normal reference videos plus all 22 exposure
+  candidates. Train-normal luma-IQR quantiles were q50 `3.688544`, q75
+  `6.000996`, q80 `6.717774`, q90 `10.243687`, and q95 `12.024606`.
+  The preregistered whole-video eligibility threshold is q90; q95 is only an
+  extreme-priority stratum and cannot relax q90.
+- Candidate triage was 18 below q90, two q90-q95 (`223_1_Freeform`,
+  `219_1_Freeform`), and two above q95 (`212_1_Freeform`, `310_2_Freeform`).
+  Global IQR missed the short initial state in `219_3_Northwind`, confirming
+  that representative/extreme/boundary review remains mandatory.
+- Completed a 24-row reviewed manifest covering all 22 candidates. Seventeen
+  underexposed videos use log curves; `219_1_Freeform` uses objective boundary
+  `1494/1495` and `219_3_Northwind` uses `1-65/66-1170`. Stable overexposed
+  `211_1_Freeform` and `242_1_Northwind` use tone-only inverse-log. `212_1`,
+  `223_1`, and `310_2` stay raw.
+- The `219_1_Freeform` boundary was selected by a label-free one-change
+  least-squares scan with a 300-frame minimum segment; relative within-segment
+  SSE reduction was `0.885674`. Content-driven changes such as head shading,
+  face distance, and hand occlusion were not assigned separate parameters.
+- Exact full-frame transform evaluation confirmed every approved non-identity
+  segment median lies inside `[49.018280,142.171405]`. Visible-frame safety-band
+  coverage ranges `75.29%-100%`; this is diagnostic and does not authorize
+  per-frame adaptive normalization.
+- Outputs are in `logs/au_region_tracking_audit/exposure_temporal_stability_q90_v1/`
+  and `logs/au_region_tracking_audit/exposure_review_full_q90_v1/`. Related
+  exposure/frame-recovery tests: `14 passed`. No source image was modified,
+  no repaired dataset was materialized, and OpenFace was not rerun.
+
+### AU-T0c raw-video versus aligned-JPG detail recoverability audit
+
+- Added `src/diagnostics/raw_detail_recoverability.py`,
+  `scripts/audit_raw_detail_recoverability.py`, and focused tests.
+- Existing raw/aligned 68-point CSVs are used only for same-frame geometry via
+  RANSAC similarity transforms; AU/pose/embedding values are not compared.
+  OpenFace will be rerun with one frozen version after the input variant is
+  finalized.
+- Train-only calibration used 92 normal-exposure videos and 365 valid reference
+  frames. Candidate evaluation covered 22 videos, 701 sampled frames, and 685
+  valid comparisons; median transform inlier ratio/RMSE were `0.941/0.687 px`.
+- A provisional q95-only pass marked 21 frames, but every apparent clipping
+  advantage was below one percentage point. V2 therefore froze a `0.01`
+  absolute practical-effect gate and retained the q95 train-normal thresholds.
+- V2 result: 499 `raw_also_clipped`, 185 no raw recoverability evidence, one
+  less-clipped but texture-inconclusive frame, 16 invalid comparisons, and zero
+  `raw_detail_recoverable` frames. Video routing is 16
+  `tone_only_or_keep_raw` plus six `inconclusive_keep_raw_until_review`; no
+  `raw_space_tone_then_warp_candidate` exists.
+- Formal outputs are in
+  `logs/au_region_tracking_audit/raw_detail_recoverability_v2/`. Source data
+  were not modified, OpenFace was not run, and output hash verification passed.
+
+### Full original-video presence review and black-frame recovery gate correction
+
+- Added `src/diagnostics/source_presence.py`, `scripts/audit_source_presence.py`,
+  `scripts/summarize_source_presence_review.py`, and focused synthetic tests.
+- Froze the original-video root as
+  `D:\Project\dataset\AVEC2014\{train,dev,test}\{Freeform,Northwind}` and
+  mapped it in WSL as `/mnt/d/Project/dataset/AVEC2014`.
+- Full source contract passed for all 300 videos: every raw video is
+  `640x480 @ 30 FPS`, and every raw frame count exactly matches the aligned-JPG
+  count. No source video, aligned image, split, or label was modified.
+- Split 4,206 pure-black aligned placeholders into 231 source-video runs over
+  38 videos and generated one review contact sheet per run. Runs of length
+  `>=10` outside `247_3` received an additional dense/all-frame review over
+  1,605 decoded source frames; all 2,136 frames of the `247_3` mixed run were
+  also reviewed in consecutive all-frame pages.
+- Completed a non-overlapping, full-coverage human review manifest and expanded
+  it to a 4,206-row frame gate:
+  - 2,365 frames: `person_present_detection_failure -> raw_frame_warp_only`;
+  - 1,841 frames: `person_absent -> keep_invalid`;
+  - 0 mixed/ambiguous frames after segmentation.
+- Only `247_3_Freeform` contains confirmed absence. Its long run is split as
+  `2078-2143` person present, `2144-3984` empty room, and `3985-4213` person
+  re-entering. The remaining 230 runs retain a visible person throughout.
+- Corrected the previous aligned-neighbor recovery proposal: bidirectional
+  aligned optical flow and previous-aligned-frame copy are now disabled for
+  every pure-black frame because they can invent a face or erase real
+  occlusion/pose/absence evidence. A future recovery smoke may only warp the
+  actual raw frame using audited transform propagation.
+- Formal outputs:
+  `logs/au_region_tracking_audit/source_video_presence/` and
+  `logs/au_region_tracking_audit/source_video_presence/full_review/`.
+- Validation: source/recovery focused tests `8 passed`; Python compilation,
+  report coverage/count checks, and `git diff --check` passed at this stage.
+
+### AU-T0c initial frame-failure inventory and provisional recovery implementation
+
+> Superseded recovery decision: the source-video review above disables all
+> aligned-neighbor black-frame synthesis. The counts and exposure inventory in
+> this historical entry remain valid; its optical-flow permission does not.
+
+- Added `src/diagnostics/frame_recovery.py`, `scripts/audit_frame_recovery.py`,
+  and focused synthetic tests.
+- The `audit` command consumes existing aligned-image OpenFace CSV/JPG files
+  and explicitly records `face_landmark_rerun_performed=false`; it does not
+  launch OpenFace or modify source images.
+- Formal full-data output was written to
+  `logs/au_region_tracking_audit/frame_failure_recovery/`:
+  - 300 videos, 6,501 failed frames, and 221 consecutive failure blocks;
+  - 4,206 pure-black failures, 460 underexposed detection failures, 333
+    overexposed detection failures, and 1,502 other visible failures;
+  - 41 short pure-black blocks / 59 frames were initially proposed as
+    optical-flow candidates; this permission was later revoked;
+  - 18 videos are underexposed, 4 are overexposed, and 278 are normal.
+- Exposure detection uses 32 deterministic samples per video.  Targets are
+  frozen from train normal-video luma q10/q90 only: `44.873/173.274`.
+- Materialization is non-destructive and supports a sparse changed-frame
+  overlay or a complete hardlink/symlink/copy mirror.  Every repaired frame
+  records raw/derived SHA-256 and all recovery parameters.
+- Historical real-data materialization smoke (not authorized for formal data):
+  - `207_2_Freeform` frames 52-53 were synthesized from frames 51/54 with
+    median flow magnitude `2.4806 px` and median forward-backward error
+    `0.4148 px`;
+  - `225_2_Freeform` frame-median distribution center changed from `32.193`
+    to `44.953` under one gamma;
+  - `211_1_Freeform` changed from `224.308` to `173.926`.
+- Only temporary `/tmp` derived samples were generated.  Full repaired data,
+  a FaceLandmark rerun, AU-T1, and training remain blocked on manual review.
+- Validation completed: focused pytest, Python compilation, real two-video
+  audit smoke, short-black optical-flow smoke, and under/overexposure video
+  materialization smoke.
+- Provenance caveat: the first successful full run predates the final
+  implementation/output SHA-256 manifest fields.  Three later full reruns
+  (8/4/1 workers) were externally terminated by the desktop sandbox; the
+  existing complete tables were not overwritten.  Re-run after commit in the
+  stable local/server environment before paper-level freezing.
+
 ## 2026-07-14
 
 ### P0/P1/P2 video-level photometric normalization implementation
@@ -1075,7 +1397,7 @@ Coordinate scale correction:
   - validation/test role swapping showed checkpoint-selection sensitivity, not a different training trajectory, and is exploratory because the original test split selected the swapped checkpoint.
 - Did not authorize further representation-dimension or lambda sweeps. Dimension changes are not interpreted as feature separation without an independently verified semantic gradient or leakage reduction.
 - Registered a new input-side intervention: one shared MTL-Lite model processes the global face and all valid AU/FACS semantic local views during training; validation, test, and inference remain global-only.
-- Corrected the semantic granularity to four whole AU-related regions: brow, eye-cheek, nose-upper-lip, and mouth-jaw. Standard OpenFace AU outputs do not provide left/right supervision. Left/right landmarks remain internal tracking components for pose visibility and mask composition, not separate views, predictions, or losses. Local regions use blurred context and feathered masks rather than hard-black occlusion.
+- Corrected the semantic granularity to four whole AU-related regions: brow, eye-cheek, nose-upper-lip, and mouth-jaw. Left/right landmarks remain internal tracking components for pose visibility and semantic-support composition, not separate views, predictions, or losses. The later 2026-07-17 contract supersedes the provisional blurred-mask input: masks are internal crop/coverage tools and the shared model receives rectangular local RGB crops.
 - Added the required read-only tracking gate before training:
   - recover the coordinate mapping from OpenFace detection landmarks to the actual `112x112` aligned input;
   - compare static canonical, raw per-frame, and temporally stabilized dynamic masks;

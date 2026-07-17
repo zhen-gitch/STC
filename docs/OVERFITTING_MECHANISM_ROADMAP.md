@@ -31,8 +31,8 @@ Stage C: Coarse task-nuisance information separation
 Stage D: Falsification and robustness validation
         multi-attacker / leakage matrix / severity-balanced loss / group-wise robustness
         ↓
-Current intervention: AU-guided local-view regularization
-        read-only dynamic tracking audit -> one shared model -> global-only inference
+Current intervention: face-valid segment mining + landmark local/global augmentation
+        face usability audit -> all qualified clips -> one shared model -> video-level evaluation
 ```
 
 当前机制分工：
@@ -44,7 +44,7 @@ Current intervention: AU-guided local-view regularization
 | severity label imbalance / middle-score collapse | severity bias、calibration summary、pred_std compression | severity-balanced regression 作为对照或支线 |
 | input artifact / black boundary / OpenFace quality | black artifact、alignment geometry、confidence、bbox、valid ratio | 审计变量、post-hoc probes、case study 和 group-wise evaluation；不默认建 `z_art` |
 | temporal/task context | temporal sampling、task consistency | 混杂监控和 task consistency evaluation；不显式建 `z_ctx` |
-| dynamic facial behavior | literature / behavior baseline / AU semantics | 当前作为输入侧局部归纳偏置；先审计动态跟踪，不建立独立动态模型 |
+| dynamic facial behavior | literature / landmark dynamics / local crops | 当前以AU/FACS定义四个局部RGB语义区、landmark逐帧定位；AU数值/序列/监督不进入模型，不建立独立动态模型 |
 
 读本文档时，应把前面 Layer 0-6 理解为证据地图，把“当前推进路线”理解为当前模型路线。若旧段落中的“下一步”与本总览冲突，以本总览和 `RGB_OVERFITTING_AUDIT_PLAN.md` 的最新 task-nuisance Stage A-D 为准。
 
@@ -52,11 +52,11 @@ Current intervention: AU-guided local-view regularization
 
 Stage C 结构、identity-gradient、显式参数正则和连续 severity weighting 的结果已经把当前失败进一步定位：过拟合不是单靠全局权重衰减、连续长尾重加权或一个可持续学习的身份 attacker 就能解除；表示维度变化在缺少有效语义梯度时只是在改变容量，不能证明信息被分离。split sensitivity 还说明 checkpoint 选择对小样本 subject-disjoint 验证集较敏感，后续论文级结论需要 repeated group folds，而不能继续把单次验证改进解释为稳定机制。
 
-当前路线因此转向“保留全局、强化局部”的输入侧干预：训练阶段把全脸和全部有效 AU/FACS 语义区域交给同一个共享模型，推理阶段仍只使用全脸。该路线不是重新打开 `z_dep/z_nuisance` Stage C，也不是新增多区域模型；它测试的是局部语义归纳偏置能否改变同一模型对全脸的特征选择。
+当前路线因此转向两层输入干预。第一层在完整帧率上识别所有`face_usable`连续片段，排除人物缺席、纯黑、大幅遮挡/偏转/出界和landmark不可信片段，再确定性生成全部合格clip；第二层把完整global face与brow、eye-cheek、nose-upper-lip、mouth-jaw四个AU语义完整的landmark定位RGB crop交给同一个共享模型互为增强。AU/FACS只定义裁切语义；AU intensity/presence数值、AU序列和AU监督不进入模型。
 
-执行门禁为：先证明区域在实际 aligned 输入坐标中可被逐帧稳定追踪，再训练。若 static/raw/stabilized mask 审计不能通过 IoU、valid ratio、jump rate 和 high-yaw 人工检查，则停止在数据几何层修复；若 AU 语义区域不优于 equal-area grid，则只保留“一般局部正则”结论；若 global-only inference 不改善，则停止模型扩展。
+provenance-final与3帧raw-warp smoke已完成；下一门禁是用`FACE-S1`量化大姿态、遮挡、face coverage和landmark可信度。smoke不授权全量materialize。所有clip增加的是同一video的数据视图，不是独立subject；训练必须按source video归一或使用同模型video-bag loss。四个AU语义保持的landmark局部crop只有在匹配view数、面积和loss scale后稳定优于equal-area grid，才支持语义区域布局贡献。
 
-正式实施链固定为：`T0a frame join -> T0b coordinate mapping -> T1 dynamic mask -> T2 tracking gate -> M0/M1 shared-model data/loss -> M2 100-step gradient calibration -> M3 seed-42 G0/G1/G2 -> M4 seeds 43/44`。语义层只有 brow、eye-cheek、nose-upper-lip、mouth-jaw 四个整体区域；左右 landmark 仅是 tracker 内部可见性组件。任何阶段失败都停在对应层，不通过新增左右分支、区域 head、consistency loss 或推理融合规避反证。
+正式实施链更新为：`LM-T0 frame/coordinate -> FACE-T0c recovery -> FACE-S1 usability -> FACE-S2 deterministic clips -> FACE-M0 clip/video loss -> LM-M0 local/global path -> LM-M1 gradient calibration -> LM-M2 seed-42 -> LM-M3 seeds 43/44`。任何阶段失败都停在对应层，不通过learned selector、AU分支、区域head、consistency loss或多模型推理规避反证。
 
 ## 1. 研究目标
 
@@ -99,7 +99,7 @@ Shortcut learning 研究指出，深度模型可能学习在标准测试条件�
 
 ### 面部行为表征
 
-抑郁识别更合理的视觉信号应来自稳定面部行为动态，例如 AU、landmark motion、pose/gaze dynamics，而不是冗余 RGB 外观。FacialPulse 和 AU biomarker 相关研究都支持用 temporal facial landmarks / AUs 作为行为对照，而不是只依赖端到端 RGB。
+抑郁识别更合理的视觉信号应来自稳定面部行为动态，而不是冗余RGB外观。本项目用AU/FACS提供可复核的面部动作语义分区，用temporal landmark逐帧定位并保持区域完整；进入模型的仍是局部RGB。AU biomarker数值、AU序列和AU监督不进入本项目模型。
 
 参考：
 

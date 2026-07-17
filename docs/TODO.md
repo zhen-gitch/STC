@@ -25,7 +25,7 @@ Stage A Shortcut 证据收口
 | B. Identity-adversarial baseline | 只抑制可验证身份捷径是否足够？ | 已完成：E2 弱有效，E1/E3 无效，identity 泄漏全局未解，进入 Stage C（结论见 `CURRENT_STATUS.md` 2026-07-10 B5） |
 | C. Coarse task-nuisance 信息分流 | `z_dep / z_nuisance` 是否在等参数条件下优于共享表征和 GRL baseline？ | seed-42 utility gate 已否证当前 96 维 bottleneck/split 家族，停止进入 C3 |
 | D. Falsification / robustness | 信息分流失败来自 bottleneck、泄漏未降还是优化不稳定？ | 已完成 identity-gradient、正则化、连续加权和 split sensitivity 收口；不授权维度 sweep |
-| E. AU-guided local regularization | 同一模型能否在保留全局输入时被 AU 语义局部视图引导，降低全脸捷径摄入？ | 当前先做只读 `AU-T0` 动态跟踪审计，审计通过后才实现训练 |
+| E. Face-valid + AU-semantic local augmentation | 全部可用人脸片段和AU语义完整的landmark局部RGB裁切能否在同一模型内提高输入质量并降低全脸捷径摄入？ | `FACE-S1 phase-1 v2`与124帧复核模板已完成；下一项填写global/local-geometry/boundary标签。逐区local crop必须等待polygon/margin overlay gate |
 
 阅读规则：只执行新任务时读到“暂缓项”为止即可；后续章节主要是历史任务、已完成基础设施和旧阶段记录。
 
@@ -44,7 +44,7 @@ Stage A Shortcut 证据收口
 
 #### 立即可编程任务包
 
-> 状态（2026-07-14）：**C2/C3 已停止；identity-gradient、L1/L2、continuous severity weighting 和 split sensitivity 均已完成审阅**。这些结果没有建立可验证的特征解耦方向，因此不运行新的维度或 lambda sweep，也不重新打开 C3。当前活动任务切换为只读 `AU-T0` 动态区域跟踪审计。
+> 状态（2026-07-17）：**C2/C3 已停止；FACE-S1 phase-1全量分布审计已完成**。当前活动任务是train-only contact/pair人工复核和阈值规格冻结，不生成`face_usable`或clip。时间切片使用全部合格face-valid片段，不以均匀随机为目标；局部增强由AU/FACS定义四个语义完整区域、由landmark逐帧定位并只输出RGB crop。AU数值、AU序列和AU监督不进入模型。
 
 > 正则化审计已完成：四组 best-val RMSE 基本重合且全部继续过拟合，关闭系数 sweep，EarlyStopping 保留为训练策略。
 
@@ -125,15 +125,19 @@ Stage A Shortcut 证据收口
 12. **C3-multi-seed-gate**（停止）：按预注册 severe utility failure 规则，不运行 seeds 43/44，不进入 Stage D final-test 路径。
 13. **Postmortem capacity audit**（训练与 utility 审查已完成）：固定 C-BN `DEP_DIM=96/128/160/192`，seed 42，完整 40 epoch、validation-only。结果呈非单调，160 维仅部分恢复 utility，192 等维投影仍失败；外部 leakage/effective-rank 汇总仍待补，不恢复 C3。
 14. **Identity-gradient audit**（已完成，未通过）：candidate 改善短期 validation utility 和 severe bias，但 external identity pair AUROC、same-subject retrieval 与末期过拟合恶化；冲突率约 `60.2%`。训练内 attacker collapse 不构成 identity invariance，维度实验不获授权。
-15. **AU-T0a frame-contract inventory**（已完成并通过）：300 个视频全部 PASS，最低 join rate `1.0`，41,016 个模型选中帧全部连接，最佳 offset 全部为 `0`。该 gate 只证明 frame identity，不证明空间坐标映射。
-16. **AU-T0b coordinate-contract audit**（debug-v1 数据与 overlay 已通过，等待 provenance debug-v2）：服务器/Windows aligned JPG 完整性门禁已以 `493141/493141 EXACT_MATCH`、`EXACT_PASS` 通过。OpenFace debug-v1 的 `1920/1920` 行、成功率、帧连续性和 7 张 overlay 均通过；唯一缺口是 Windows 代码副本不含 `.git`，导致 manifest git 字段为空。脚本现要求非 git 副本显式传入 `SourceGitCommit/SourceGitBranch`。下一步使用实际 `...\AVEC2014\face_images` 运行 debug-v2，确认 provenance 非空后才完成 300 视频全量生成，再将全量目录作为 `--aligned-openface-root` 运行正式 T0b。禁止直接比例缩放；自动通过只标记 `REVIEW_REQUIRED`，全量 train overlay 未通过前不得进入 T1。
-17. **AU-T1 dynamic-mask tracking audit**：只生成 brow、eye-cheek、nose-upper-lip、mouth-jaw 四个整体语义区域。左右 landmark 仅作为 tracking components 分别计算 pose visibility/quality 后合成整体 mask，不产生左右 view 或 loss。比较 static canonical、raw per-frame、stabilized dynamic，输出 IoU、centroid velocity、jump rate 和 pose/confidence 分组失败率。
-18. **AU-T2 tracking gate**：冻结 `join>=0.995`、median IoU `>=0.75`、valid ratio `>=0.80`、jump rate `<=0.05`、train overlay correct `>=0.95`、hidden-side hallucination `=0`。tracking 必须先在完整帧率稳定化，再应用 `SAMPLE_STEP`；短缺失可插值，长失败保持 invalid。失败时只修数据几何，不进入训练。
-19. **AU-M0 single-model data path**（等待 AU-T2）：dataset train-only 返回 `[B,5,T,C,H,W]`，即 global + 四个整体区域；进入模型前展开到 batch 轴。所有视图共享同一 backbone/temporal encoder/BDI head，RGB 与 mask 复用相同 resize/flip/affine 参数；默认关闭时旧数据格式不变。
-20. **AU-M1 loss/metric contract**：首版只兼容 regression-only + 四档 E2。固定 `L_total=L_global+0.5*mean(valid four local losses)`，四区全有效时每区权重 `0.125`。metrics、checkpoint、validation/test/inference 只读取 global prediction；禁止区域专属 head、左右损失、alignment/consistency loss。
-21. **AU-M2 100-step gradient calibration**：seed 42 train-only 比较 AU 与四个 equal-area grid views，记录每区 loss、last-trainable-block/projection gradient norm、aggregate local/global norm ratio、cosine、conflict、cancellation 和单区贡献率，并运行 step-100 external identity probe。非有限、局部梯度主导、AU 冲突明显劣于 grid 或 identity risk 上升 `>0.02` 时停止 full training。
-22. **AU-M3 validation matrix**：seed 42 固定比较 G0 global-only E2、G1 global+four equal-area grids、G2 global+four stabilized AU regions。若 G2 不优于 G1，只能解释为一般 local regularization；若 global-only inference 不改善，停止该路线。
-23. **AU-M4 multi-seed gate**：G2 通过 seed-42 utility/risk gate 后才运行 seeds 43/44。沿用 severe utility failure：任一 seed `delta_CCC<-0.05` 或 `delta_MAE>+0.50` 立即停止。AU 语义主张要求 G2 在 multi-seed 和 paired subject bootstrap 下稳定优于 G1；协议冻结前 test 关闭。
+15. **LM-T0a frame-contract inventory**（已完成并通过，原任务名AU-T0a）：300个视频全部PASS，最低join rate `1.0`，41,016个模型选中帧全部连接，最佳offset全部为`0`。该gate只证明frame identity，不证明空间坐标映射。
+16. **LM-T0b coordinate-contract audit**（全量aligned-landmark已生成，待失败处理后复核）：300视频、493,141行与JPG数一致；486,640帧`success=1`、6,501帧失败。有效坐标overlay未发现系统错位，但landmark局部crop必须等待统一版本和正式coordinate contract。
+17. **FACE-T0c frame-failure / source-presence / exposure recovery**（provenance-final与3帧raw-warp smoke已完成，正式派生数据继续阻断）：`frame_failure_recovery_safe_v1`精确复现300视频/6,501失败/221块并记录实现与输出SHA-256。`raw_frame_warp_smoke_v3`在train短块中得到3个`AUTO_PASS_REVIEW_REQUIRED`、1个缺少合法raw锚点的fail-closed；未生成全量overlay，未重跑landmark。
+17a. **FACE-S0 temporal capacity audit**（已完成，只作容量下界）：现有审计未量化大遮挡/偏转/出界，不能直接生成训练clip；“2000帧主窗口”和“每视频随机一个窗口”不再冻结。保留17.06% head遗漏和pure-black碎片化结论。
+18. **FACE-T0d raw-vs-repaired paired input ablation**（等待全量raw-warp策略、review gate和正式materialize）：固定同一split/seed/model/40 epoch/precision/checkpoint，对比raw、tone-only、warp-only和完整approved repair；3帧smoke不能作为训练输入。
+19. **FACE-S1 phase-1 face-usability distribution audit**（已完成）：不读取AU列、BDI或prediction；300视频/493,141帧全部记账，6,501帧保持既有硬状态，486,640帧标为`pending_threshold_review`。输出split/task分位数、train-only规范脸、11类contact sheets和完整SHA-256 manifest；没有批准`face_usable`。
+19a. **FACE-S1 train-only dual-lane threshold review**（v2模板已完成，等待填写）：132个contact条目已去重为124帧，其中12帧带精确`t-1/t` jump证据。每帧分别填写`global_face_label`、`local_geometry_label`和`temporal_boundary_label`；可出现global可用但landmark几何不适合进入区域审计。当前不得批准具体local crop，四区最终eligibility必须等待冻结polygon/margin后的overlay gate。124帧三栏全部`REVIEWED`后才允许生成独立、带版本和哈希的threshold manifest。
+20. **FACE-S2 deterministic segment/clip gate**：从全部连续`face_usable` run生成300/600/1200/2000窗口与0/25/50% overlap统计；冻结主window/stride前必须报告clip数、每video/subject/task分布、重叠和未用tail。禁止跨invalid边界或把clip当独立subject。
+21. **FACE-M0 clip training contract**：实现全部合格clip训练，比较`clip loss + 1/N_clips(video)`与同模型video-bag聚合后单次BDI loss；默认关闭时旧dataset行为不变，metrics始终video-level。
+22. **LM-M0 AU语义保持的local/global data path**：train-only返回global + brow/eye-cheek/nose-upper-lip/mouth-jaw四个landmark定位的完整RGB crop；所有视图来自同一frame/clip并共享backbone/temporal encoder/BDI head及空间增强。内部polygon只用于crop与coverage审计；禁止AU数值/序列输入、AU loss、区域专属head和隐藏侧伪造。
+23. **LM-M1 100-step gradient calibration**：seed42比较L0 global、L1 global+four equal-area grids、L2 global+four AU-semantic landmark-guided RGB crops；匹配view数、总面积和loss scale，记录local/global梯度norm、cosine/conflict/cancellation和external identity risk。局部梯度主导或risk上升`>0.02`时停止。
+24. **LM-M2 validation matrix**：先运行S0/S1/S2，再在冻结的最佳时间协议上比较L0/L1/L2。L2不优于L1时只能解释为一般crop augmentation，不继续增加AU语义裁切复杂度；L2获胜也不能声称使用了AU数值或学会逐AU识别。
+25. **LM-M3 multi-seed gate**：seed42通过后才运行43/44。任一seed `delta_CCC<-0.05`或`delta_MAE>+0.50`立即停止；协议冻结前test关闭。
 
 #### 实施验收命令
 
@@ -147,7 +151,7 @@ git diff --check -- README.md configs/README.md docs
 
 ```bash
 python -m compileall src scripts tests
-python -m pytest tests/test_mtl_lite_training_policy.py tests/test_stage_c_config_contract.py
+python -m pytest tests/test_frame_recovery.py tests/test_au_region_tracking.py tests/test_audit_au_coordinate_contract.py
 python -m pytest tests/test_mtl_lite_forward.py tests/test_mtl_lite_loss_backward.py
 python scripts/train_mtl_lite.py --override configs/mtl_lite_debug_smoke.yaml
 ```
@@ -236,7 +240,21 @@ python -m pytest tests/test_error_identity_coupling.py tests/test_artifact_weakl
 - [x] C3 seeds 42/43/44 gate：按停止规则取消，不运行 seed 43/44。
 - [x] 运行 C-BN full-40 capacity audit：`DEP_DIM=96/128/160/192` 的训练与 best-val utility 审查已完成；只读 leakage/effective-rank 汇总保持待补。
 - [x] 运行 identity-gradient audit 配对矩阵：短期 utility 改善，但 external identity leakage 与末期过拟合恶化；作为负机制消融收口，不授权维度实验。
-- [ ] `AU-T0a/T0b` frame + coordinate contract：T0a 已在完整 300 视频上通过；T0b core/CLI/合成测试已完成，待服务器提供合法 mapping source、运行并完成人工 train overlay 审阅。
+- [ ] `AU-T0a/T0b` frame + coordinate contract：T0a 已通过；全量 aligned-landmark provenance/行数完整，但 `success=0.986817<0.995`，保持未通过，不降低门槛。
+- [x] `AU-T0c` 逐帧失败/曝光审计：正式清单、连续块、视频 summary、train-only 曝光目标、run manifest 和报告均已生成；未启动 FaceLandmark。
+- [x] `AU-T0c` provenance-final：`frame_failure_recovery_safe_v1`完整运行，精确复现`300 videos / 6501 failures / 221 blocks`；run manifest包含core/CLI及全部输出SHA-256，q20/q80与q25/q75协议正确冻结。
+- [x] `AU-T0c` 原视频 source contract：300/300 视频 PASS；纯黑 aligned 帧映射为 231 个原视频 run，并生成逐 run contact sheet 与 `source_presence_review_template.csv`；未重跑 FaceLandmark。
+- [x] `AU-T0c` `247_3_Freeform` 精确分段：`2078-2143` 人物仍在、`2144-3984` 人物缺席、`3985-4213` 人物重新进入；全视频纯黑帧 gate 为 346 个 `raw_frame_warp_only`、1,841 个 `keep_invalid`。
+- [x] `AU-T0c` 全量结构化人工 gate：38 视频/231 run/4,206 帧均被非重叠 REVIEWED segments 完整覆盖；2,365 帧 `raw_frame_warp_only`，1,841 帧 `keep_invalid`，无 mixed/ambiguous 残留。
+- [x] `AU-T0c` raw-frame warp smoke：新增`raw-warp-smoke`子命令，只在train且source-presence全覆盖gate下选择最多3帧；v2对3帧自动通过并保留1个无合法raw锚点的拒绝案例。所有输出仍为review-required，不授权全量materialize或训练。
+- [x] `AU-T0c` exposure curve family：欠曝冻结为 `log(1+a*x)/log(1+a)`，过曝冻结为 `(exp(b*x)-1)/(exp(b)-1)`；保留旧 gamma 函数仅作历史复现，正式物化不再调用。
+- [x] `AU-T0c` exposure safety margin：否决 q10/q90 边缘目标；冻结 train-normal q20/q80=`49.018/142.171` 为处理后安全验收带，q25/q75=`53.740/135.769` 为内部拟合目标。
+- [x] `AU-T0c` train-normal temporal threshold：92个train-normal视频全帧扫描完成；冻结luma-IQR q90=`10.243687`为整视频曲线资格上界，q95=`12.024606`仅作极端分层。18候选低于q90、2个q90-q95、2个超过q95；全局IQR不能替代短阶段边界复核。
+- [x] `AU-T0c` raw-vs-aligned detail recoverability：92个 train-normal 视频/365个有效参考帧校准，22候选701帧中685帧有效；加入1个百分点最小实际剪切优势后 `raw_detail_recoverable=0`。16视频路由为 `tone_only_or_keep_raw`，6视频为 `inconclusive_keep_raw_until_review`，关闭 raw-space exposure correction 分支。现有 OpenFace 仅用于几何对应，派生输入冻结后统一版本重跑。
+- [x] `AU-T0c` 6个 raw-detail 不确定视频复核：`218_1`、`219_1`、`225_2`、`328_1` 整视频 `stable_log`；`219_3` 按 `1-65/66-1170` 两段固定 log；`310_2` 因连续自动曝光变化且无唯一粗粒度切点而 `keep_raw`。拒绝为 `219_1` 的姿态阴影和 `225_2` 的手遮挡建立内容条件分段。
+- [x] `AU-T0c` exposure gate：全22视频已由24个无间隙、无重叠REVIEWED segment覆盖。19个`stable_log` segment、2个`tone_only_overexposed`、3个`keep_raw`；`212_1`、`223_1`、`310_2`保持raw。完整manifest位于`logs/au_region_tracking_audit/exposure_review_full_q90_v1/`。
+- [x] `AU-T0c` log contact sheets/full-frame checks：全部22候选已按q25/q75目标完成全帧只读评估；所有获批非identity segment中位亮度进入安全带，报告同时保留span retention与暗/亮剪切变化。过曝只声明tone normalization，不声明细节恢复。
+- [ ] `AU-T0d` raw/repaired 配对输入消融：同协议比较，不允许把数据恢复与模型/损失改动混在同一实验。
 - [ ] `AU-T1/T2` 四整体区域动态 mask 审计：左右只作 tracking components；比较 static/raw/stabilized，满足 join/IoU/valid/jump/人工 overlay 门槛。
 - [ ] `AU-M0/M1` 单模型数据与损失接口：global + 四区域，共享全部参数，global-only metrics/inference，默认配置兼容。
 - [ ] `AU-M2` 100-step AU-vs-grid 梯度校准和 external identity probe；未通过不运行 full-40。
@@ -553,7 +571,7 @@ src/diagnostics/        # 独立诊断与可视化系统
 ### P2：后续优化
 
 - [ ] 在存在稳定可泛化 behavior 特征子集后，再设计 RGB + behavior late fusion。
-- [ ] 在 behavior 特征子集稳定后，再设计 AU、landmark motion、pose/gaze 辅助任务的 MTL-Lite。
+- [ ] 历史暂缓：AU、landmark motion、pose/gaze辅助任务MTL不属于当前路线；当前只使用AU语义保持的RGB crop。
 - [ ] 在辅助任务稳定后，再考虑 GradNorm、PCGrad、uncertainty weighting、LDS 或 `loss_dist` 消融。
 
 ## 2026-06-15 RGB 黑填充伪迹任务队列
@@ -609,7 +627,7 @@ src/diagnostics/        # 独立诊断与可视化系统
 ### P2：暂缓
 
 - [ ] RGB + behavior late fusion。
-- [ ] AU / landmark / pose / gaze 辅助任务 MTL。
+- [ ] 历史暂缓：AU / landmark / pose / gaze辅助任务MTL，未获当前路线授权。
 - [ ] 动态任务权重、PCGrad、GradNorm、LDS 或 `loss_dist`。
 
 ## 2026-06-15 RGB 过拟合多因素审计队列

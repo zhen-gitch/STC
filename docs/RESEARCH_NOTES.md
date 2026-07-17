@@ -13,6 +13,10 @@ optional: H0 -> z_dep, z_id, z_nuisance
 
 artifact、context、pose、quality 等因素只作为审计变量、post-hoc probe、case study 和 group-wise evaluation，不作为第一版显式 latent。
 
+## 2026-07-17 输入路线说明
+
+本项目当前不直接引入AU intensity/presence数值、AU序列、AU特征、AU辅助任务或AU监督loss，但保留AU/FACS作为局部RGB裁切的语义分区先验。当前输入侧路线为：从全部`face_usable`连续片段生成确定性clip，并用验证后的68点landmark逐帧定位brow、eye-cheek、nose-upper-lip和mouth-jaw四个完整AU语义区域，与完整aligned face共享同一个模型互为增强。模型只读取RGB；AU数值数据和AU监督研究可放入另一项目，不能据此删除本项目的AU语义裁切标准。
+
 ## 当前问题判断
 
 当前项目使用的是经过 OpenFace 裁剪和对齐后的人脸视频帧序列。因此，模型失效风险不应简单理解为“原始背景过拟合”，而应更准确地表述为：
@@ -24,7 +28,7 @@ artifact、context、pose、quality 等因素只作为审计变量、post-hoc pr
 - regression-only baseline 在训练集上可以持续拟合，但验证集和测试集泛化不稳定；
 - 冻结 backbone 底层、只微调最后 1 或 2 个 transformer blocks 后，并未明显改善 test 表现；
 - last1/last2 结果提示问题不只是 backbone 可训练层数，而更可能是输入表征和监督信号没有充分约束模型关注抑郁相关面部行为；
-- 当前 ordinal BDI 辅助任务本质上仍来自同一个 BDI 标签，可能不足以强迫模型学习 AU、landmark motion、gaze、pose 等行为线索。
+- 当前 ordinal BDI 辅助任务本质上仍来自同一个 BDI 标签，可能不足以约束模型关注稳定的landmark局部几何与面部行为；本项目先通过face-valid片段和landmark crop提供输入归纳偏置，不增加AU监督。
 
 ## 当前主线：Task-Nuisance 理论支撑与研究定位
 
@@ -39,7 +43,7 @@ artifact、context、pose、quality 等因素只作为审计变量、post-hoc pr
 | Domain-adversarial / privacy-preserving representation | 对抗分支可降低表征中 subject identity 的可用性，但可能误伤有效行为线索 | subject-adversarial GRL 作为 Stage B 必要对照 |
 | Privacy-utility trade-off | 完全去身份可能损失年龄、表情基线、面部活动幅度等与抑郁相关的交叠信息 | 不显式建 `z_m`，通过 BDI utility、identity risk 和 nuisance leakage 联合评估 |
 | Imbalanced regression / long-tail severity | BDI 分数段不均会使多数分段主导梯度，造成 minimal/severe 系统偏置 | severity-balanced regression 作为对照或支线 |
-| Facial behavior depression literature | 抑郁线索更多体现在表情活动、AU、landmark motion、pose/gaze 等行为模式中 | dynamic / behavior features 暂列 Stage D |
+| Facial behavior depression literature | 抑郁线索更多体现在表情活动、landmark motion、pose/gaze等行为模式中 | AU/FACS定义完整局部RGB语义区，landmark负责逐帧定位；AU数值与监督不进入模型 |
 | OpenFace artifact and occlusion literature | aligned crop、黑边、麦克风、眼镜、胡须、追踪失败和几何尺度都会产生稳定非抑郁线索 | artifact/context/quality 仅作为 audit、probe 和 group-wise evaluation |
 
 当前实验推进逻辑：
@@ -158,7 +162,7 @@ BDI 是连续分数，且 minimal/mild/moderate/severe 分段通常不均衡。D
 
 对 RPDF-Net 的含义：severity-balanced regression 的目标是缓解 score-bin / severity-bin 不均衡，而不是人为提高预测值方差。它应作为 RPDF-Net 的支线验证：若它改善 minimal/severe bias 且不恶化 identity risk、CCC 和 task consistency，则说明 severity imbalance 是独立机制；否则不能把它并入主模型。
 
-### 6. OpenFace/LibreFace 与面部行为研究支持 artifact weak labels 与后续 dynamic 支线
+### 6. OpenFace/LibreFace 与面部行为研究支持 artifact weak labels（AU仅作跨项目背景）
 
 OpenFace/LibreFace/OpenFace 3.0 说明 landmark、AU、pose、gaze、confidence、success 本身就是可量化的面部行为与质量变量。抑郁识别相关研究也强调 AU、landmark temporal dynamics 和面部行为模式的重要性。
 
@@ -275,9 +279,21 @@ Stage C 假设 `H_k = Phi([z_dep^k, alpha_k·z_m^k])` 后 identity risk 随 k �
 
 ### 多尺度时序与抑郁相关特征增强
 
-- Two-stage Temporal Modelling Framework, 2021: https://arxiv.org/abs/2111.15266
+- Two-stage Temporal Modelling Framework：2021预印本，最终发表于 IEEE Transactions on Affective Computing, 2025：https://arxiv.org/abs/2111.15266
 - 该方向强调短时行为片段、多尺度时序建模和 Depression Feature Enhancement，用于增强抑郁相关线索并抑制非抑郁噪声。
 - 对本项目启发：后续可从简单的 clip-level temporal pooling、keyframe weighting、temporal occlusion 开始，不必一开始复现复杂图结构。
+
+### 长视频分段采样与video-level监督
+
+- Temporal Segment Networks, ECCV 2016：DOI `10.1007/978-3-319-46484-8_2`，https://arxiv.org/abs/1608.00859
+- TSN通过时间分段和video-level consensus覆盖长视频，支持“从全时域采样优于固定head截断”的一般原则；但它不处理人物缺席/坏帧，也不能直接证明BDI可作为每个短clip的精确标签。
+- 对本项目启发：切片边界必须先由标签无关的validity gate产生，再在video级聚合；不直接照搬动作分类snippet监督。
+
+### Multiple Instance Learning 与弱视频标签
+
+- Attention-based Deep Multiple Instance Learning, ICML 2018, PMLR 80：https://arxiv.org/abs/1802.04712
+- MIL把视频视为bag、clip视为instance，只提供video/bag标签，适合表述BDI属于整段视频而不是每个局部片段。
+- 对本项目启发：先使用同一模型和duration-weighted mean建立可审计bag baseline；不立即加入learned attention selector，避免selector重新选择身份、曝光或背景捷径。
 
 ### Action Units 与面部行为 biomarker
 
@@ -308,7 +324,7 @@ Stage C 假设 `H_k = Phi([z_dep^k, alpha_k·z_m^k])` 后 identity risk 随 k �
 - GradNorm: https://arxiv.org/abs/1711.02257
 - Uncertainty Weighting: https://arxiv.org/abs/1705.07115
 - PCGrad: https://arxiv.org/abs/2001.06782
-- 这些方法不是当前 task-nuisance 主线的第一优先级，但在引入 AU、landmark、pose、gaze 等辅助任务后，可作为负迁移控制和任务权重消融。
+- 这些方法不是当前task-nuisance主线的第一优先级。AU、landmark、pose、gaze辅助监督属于历史候选且当前未授权；若未来另行重开，才考虑把它们作为负迁移控制和任务权重消融。
 
 ## 历史阶段：早期 behavior / shortcut 实验方向（已被当前证据层继承）
 
@@ -855,11 +871,13 @@ task_diff_mean 不恶化
 
 ## 2026-07-14 AU-guided Single-model Local-view Regularization
 
+> 2026-07-17边界澄清：本节的AU/FACS语义分区仍属于当前路线；转移到另一项目的是AU数值输入、AU序列建模和AU监督，不是语义保持的RGB裁切。当前时间片段设计见后续新节。
+
 近期实验进一步限定了方法选择。identity-adversarial gradient 能改善短期 BDI utility，却没有降低 fresh external identity leakage；显式 L1/L2 没有缓解主要过拟合；连续标签密度权重不及四档 severity weighting；单独改变 representation dimension 也不能提供语义分离方向。这些结果支持把下一次干预放在可观察、可审计的输入归纳偏置，而不是继续增加 latent 或 loss 组合。
 
 AU/FACS 区域适合作为局部视图语义来源，原因不是 AU 标签可以直接等同于抑郁，而是 FACS 提供了比任意网格更明确、可复核的面部运动解剖分区。多视图/多裁剪训练的一般作用是迫使共享参数在不同局部观测下保持任务能力；本项目进一步要求全脸始终保留、所有视图共享同一个模型、推理只用全脸，从而把实验问题收紧为：局部语义训练是否改变了同一模型对全脸证据的选择。
 
-首版语义粒度必须与可用监督一致：标准 OpenFace AU 输出描述整体动作单元强度，不提供左右独立强度，因此模型只使用 brow、eye-cheek、nose-upper-lip、mouth-jaw 四个整体区域。左右 landmark 可以分别追踪以处理大 yaw 和遮挡，但它们只是几何质量组件，最终合成为一个整体区域 mask，不能解释为左右 AU 表征或建立左右独立损失。
+首版语义粒度固定为brow、eye-cheek、nose-upper-lip、mouth-jaw四个整体区域，不拆成左右AU语义。左右landmark可以分别追踪以处理大yaw和遮挡，但它们只是定位与可见性组件；内部support mask合成后只用于生成完整crop与coverage审计，不能解释为左右AU表征或建立左右独立输入、预测和损失。
 
 该设计不能预设 AU 语义一定有效。必须加入 equal-area arbitrary grid 控制：
 
@@ -872,3 +890,13 @@ global + AU/FACS semantic local views
 若 AU 与 grid 相当，只能说明局部多视图具有一般正则作用；只有 AU 在相同面积、loss scale 和训练预算下稳定更好，才支持语义分区贡献。若改善只存在于多区域推理而 global-only inference 不改善，则不能说明全局表示被纠正。
 
 视频场景还要求区域逐帧动态跟踪。FACS 语义可以固定，但 mask 几何不能固定。OpenFace 检测坐标与 aligned 输入坐标之间必须有合法的 alignment transform；真实大幅转头应保留，检测抖动才应被平滑。大 yaw 下隐藏侧不能通过镜像或复制生成，低有效率区域应跳过 local loss。由此，动态 tracking audit 是方法成立的前置实验，而不是工程细节。
+
+## 2026-07-17 Face-valid Segment Mining and AU-semantic Landmark Local Crops
+
+当前项目把“增加时间样本”和“提高输入质量”合并为可审计的数据构造问题：先在完整帧率判断是否存在可用人脸，再从全部连续高质量run生成确定性clip。该路线不同于TSN式均匀随机snippet；它优先避免人物缺席、纯黑、大遮挡、大偏转、严重出界和landmark无效片段，同时尽量保留所有合格人脸时间段。
+
+需要保持统计边界：更多clip只增加同一video的输入视图，不增加独立subject。若每个clip继承video BDI并等权训练，会使长视频和clip多的subject主导loss。更严谨的方式是每video clip权重和为1，或同一共享模型先聚合clip预测/特征再计算一次video-level BDI loss。后者与multiple-instance/video-bag监督更一致。
+
+局部增强不读取AU数值列。AU/FACS先定义四个不可被任意切碎的整体区域：brow（AU1/2/4）、eye-cheek（AU5/6/7/45）、nose-upper-lip（AU9/10）和mouth-jaw（AU12/14/15/17/20/23/24/25/26）；68点landmark逐帧定位能覆盖完整区域polygon和margin的RGB crop。局部与完整aligned face来自相同frame和时间clip，所有视图共享同一个backbone、时序编码器和BDI head；validation/test以global face为主。equal-area grid保留为控制，只有AU语义保持crop在匹配view数、面积、loss scale和预算后稳定优于grid，才能支持语义分区贡献。
+
+质量筛选本身也可能产生偏差：低头、转头、目光变化和自然遮挡可能是抑郁行为，而不只是坏数据。因此阈值必须只排除明确无有效脸的极端状态，并在冻结后审计subject、severity和Freeform/Northwind排除比例。AU biomarker文献只用于论证语义分区先验；没有AU数值输入或监督时，论文不得声称模型估计了AU强度或学习了逐AU动态。

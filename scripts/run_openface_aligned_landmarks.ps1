@@ -1,6 +1,6 @@
 [CmdletBinding()]
 param(
-    [string]$OpenFaceRoot = "D:\Tools\OpenFace",
+    [string]$OpenFaceRoot = "D:\Tools\Openface_2.2.0_win_x64",
     [Parameter(Mandatory = $true)]
     [string]$ImageRoot,
     [Parameter(Mandatory = $true)]
@@ -9,8 +9,9 @@ param(
     [string]$IntegrityComparisonSummary,
     [ValidateRange(0.0, 1.0)]
     [double]$MinSuccessRatio = 0.995,
-    [string]$ExpectedFeatureExtractionSha256 = "5995ae5cce749c4969ac4dd7e62d3f740cc9f702961f9573be7e14c4ca5b7f86",
-    [string]$ExpectedModelSha256 = "52f38548cffab1731f80e9e71f22a8b29373a2750eb6dc718069d56e82997543",
+    [string]$ExpectedFeatureExtractionSha256 = "a29ba49cfc59039bfe5e2f141898b2a110da420f6f520d6a923a86ac78cd96ae",
+    [string]$ExpectedModelSha256 = "7efbef33dbc3e54197960300827657f9fe7a42c0953ef52c2af054a6fdbc3598",
+    [string]$ExpectedReadmeSha256 = "4ccdd65f992124db8127688a545a9344b537bdeb2d97371cfddfd65fc68a1d93",
     [string]$SourceGitCommit = "",
     [string]$SourceGitBranch = "",
     [int]$MaxVideos = 0,
@@ -198,10 +199,11 @@ function Get-GitOutput {
     }
 }
 
-$releaseRoot = Join-Path $OpenFaceRoot "x64\Release"
+$expectedPackageDirectory = "OpenFace_2.2.0_win_x64"
+$releaseRoot = Join-Path $OpenFaceRoot $expectedPackageDirectory
 $featureExtraction = Join-Path $releaseRoot "FeatureExtraction.exe"
 $modelPath = Join-Path $releaseRoot "model\main_ceclm_general.txt"
-$readmePath = Join-Path $OpenFaceRoot "README.md"
+$readmePath = Join-Path $releaseRoot "readme.txt"
 
 foreach ($requiredPath in @($featureExtraction, $modelPath, $readmePath, $ImageRoot, $IntegrityComparisonSummary)) {
     if (-not (Test-Path -LiteralPath $requiredPath)) {
@@ -214,23 +216,30 @@ if ($integrity.status -ne "EXACT_PASS") {
     throw "Image integrity gate is not EXACT_PASS: $($integrity.status)"
 }
 
-$readmeTitle = (Get-Content -LiteralPath $readmePath -TotalCount 1).Trim()
-if ($readmeTitle -notlike "# OpenFace 2.2.0:*") {
-    throw "Frozen OpenFace version mismatch. Expected OpenFace 2.2.0, found: $readmeTitle"
+$releaseDirectoryName = Split-Path -Leaf $releaseRoot
+if ($releaseDirectoryName -ne $expectedPackageDirectory) {
+    throw "Frozen OpenFace package directory mismatch: $releaseDirectoryName"
 }
 $featureExtractionSha256 = (Get-FileHash -LiteralPath $featureExtraction -Algorithm SHA256).Hash.ToLowerInvariant()
 $modelSha256 = (Get-FileHash -LiteralPath $modelPath -Algorithm SHA256).Hash.ToLowerInvariant()
+$readmeSha256 = (Get-FileHash -LiteralPath $readmePath -Algorithm SHA256).Hash.ToLowerInvariant()
 $expectedFeatureExtractionSha256Normalized = $(
     if ($ExpectedFeatureExtractionSha256) { $ExpectedFeatureExtractionSha256.ToLowerInvariant() } else { "" }
 )
 $expectedModelSha256Normalized = $(
     if ($ExpectedModelSha256) { $ExpectedModelSha256.ToLowerInvariant() } else { "" }
 )
+$expectedReadmeSha256Normalized = $(
+    if ($ExpectedReadmeSha256) { $ExpectedReadmeSha256.ToLowerInvariant() } else { "" }
+)
 if ($expectedFeatureExtractionSha256Normalized -and $featureExtractionSha256 -ne $expectedFeatureExtractionSha256Normalized) {
     throw "FeatureExtraction.exe SHA-256 mismatch: $featureExtractionSha256"
 }
 if ($expectedModelSha256Normalized -and $modelSha256 -ne $expectedModelSha256Normalized) {
     throw "OpenFace model SHA-256 mismatch: $modelSha256"
+}
+if ($expectedReadmeSha256Normalized -and $readmeSha256 -ne $expectedReadmeSha256Normalized) {
+    throw "OpenFace readme SHA-256 mismatch: $readmeSha256"
 }
 
 $scriptPath = $MyInvocation.MyCommand.Path
@@ -337,7 +346,12 @@ $provenance = [ordered]@{
     git_repository_root = $repositoryRoot
     invocation_line = $MyInvocation.Line
     openface_root = $OpenFaceRoot
-    openface_readme_title = $readmeTitle
+    openface_package_root = $releaseRoot
+    openface_package_directory = $releaseDirectoryName
+    expected_openface_package_directory = $expectedPackageDirectory
+    openface_readme = $readmePath
+    openface_readme_sha256 = $readmeSha256
+    expected_openface_readme_sha256 = $expectedReadmeSha256Normalized
     feature_extraction = $featureExtraction
     feature_extraction_sha256 = $featureExtractionSha256
     expected_feature_extraction_sha256 = $expectedFeatureExtractionSha256Normalized

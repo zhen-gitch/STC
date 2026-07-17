@@ -66,6 +66,20 @@ aligned RGB frames
 
 非抑郁捷径验证的具体实施方案见 `docs/SHORTCUT_AUDIT_DESIGN.md`。该框架应作为模型改动前的离线诊断层，优先验证 OpenFace 质量、姿态、gaze、裁剪伪影和预测误差之间的关系。
 
+### 2.2 当前输入增强边界（2026-07-17）
+
+当前项目不把AU intensity/presence数值、AU序列或AU特征作为MTL辅助任务或输入分支，也不增加AU监督loss。AU/FACS只定义局部RGB裁切的语义边界；OpenFace在数据侧提供验证后的68点landmark坐标和检测质量证据，用于逐帧定位完整区域。训练增强候选为：
+
+```text
+all deterministic face-valid temporal clips
+global aligned face
++ brow / eye-cheek / nose-upper-lip / mouth-jaw RGB crops
+  located by aligned-space landmarks
+-> one shared MTL-Lite backbone / temporal encoder / BDI head
+```
+
+clip数增加不改变独立subject数；dataset/trainer必须支持每video clip loss归一或video-bag聚合。local/global来自相同frame和clip并共享空间增强；landmark polygon/mask只用于crop envelope与coverage gate，不作为模型输入；默认关闭时现有dataset和forward行为不变。完整规格见`VALIDITY_AWARE_TEMPORAL_SLICING_PLAN.md`。
+
 ## 3. 推荐目录结构
 
 目标结构：

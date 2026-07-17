@@ -24,10 +24,23 @@ def test_openface_script_requires_explicit_provenance_for_non_git_copies():
 def test_openface_script_keeps_the_frozen_2d_only_contract():
     text = _script_text()
 
-    assert "5995ae5cce749c4969ac4dd7e62d3f740cc9f702961f9573be7e14c4ca5b7f86" in text
-    assert "52f38548cffab1731f80e9e71f22a8b29373a2750eb6dc718069d56e82997543" in text
+    assert "a29ba49cfc59039bfe5e2f141898b2a110da420f6f520d6a923a86ac78cd96ae" in text
+    assert "7efbef33dbc3e54197960300827657f9fe7a42c0953ef52c2af054a6fdbc3598" in text
+    assert "4ccdd65f992124db8127688a545a9344b537bdeb2d97371cfddfd65fc68a1d93" in text
     assert "-fdir $videoDir.FullName" in text
     assert "-2Dfp" in text
     assert "-mloc $modelPath" in text
     for forbidden_flag in ("-aus", "-gaze", "-hogalign", "-simalign", "-tracked"):
         assert forbidden_flag not in text
+
+
+def test_openface_script_uses_the_frozen_release_package_layout():
+    text = _script_text()
+
+    assert '[string]$OpenFaceRoot = "D:\\Tools\\Openface_2.2.0_win_x64"' in text
+    assert '$expectedPackageDirectory = "OpenFace_2.2.0_win_x64"' in text
+    assert '$releaseRoot = Join-Path $OpenFaceRoot $expectedPackageDirectory' in text
+    assert '$featureExtraction = Join-Path $releaseRoot "FeatureExtraction.exe"' in text
+    assert '$modelPath = Join-Path $releaseRoot "model\\main_ceclm_general.txt"' in text
+    assert '$readmePath = Join-Path $releaseRoot "readme.txt"' in text
+    assert "OpenFace readme SHA-256 mismatch" in text

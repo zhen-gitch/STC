@@ -4,7 +4,7 @@
 
 ## 当前权威路线
 
-截至 2026-07-10，项目目标正式设定为 **Auditable and Falsifiable Coarse-Grained Task-Nuisance Information Separation**，中文为 **可审计、可证伪的粗粒度任务-干扰信息分流**。该目标继承此前 Shortcut-aware Task-Nuisance 路线，但把“语义解耦”从预设结论降为待检验假设。
+截至 2026-07-17，项目目标正式设定为 **Auditable and Falsifiable Coarse-Grained Task-Nuisance Information Separation**，中文为 **可审计、可证伪的粗粒度任务-干扰信息分流**。该目标继承此前 Shortcut-aware Task-Nuisance 路线，但把“语义解耦”从预设结论降为待检验假设。
 
 当前主线不再尝试显式枚举并分解所有潜在因子，例如 `ctx`、`art`、`pose`、`quality` 等。新的原则是：以 `H0 -> z_dep, z_nuisance` 作为粗粒度信息分流假设，只对可验证捷径变量进行弱监督或对抗约束，并通过外部 probe、multi-attacker、leakage matrix、group-wise evaluation 和多 seed 对照审计其效果。reconstruction、decorrelation、训练内 adversary 变弱或单一指标改善，都不能单独证明语义解耦成功。
 
@@ -24,8 +24,8 @@ Stage C: Coarse task-nuisance information separation
 Stage D: Falsification and robustness validation
         multi-attacker / leakage matrix / severity-balanced loss / group-wise robustness / task consistency
         ↓
-当前主动干预：单模型 AU 语义局部输入正则
-        dynamic tracking read-only audit -> shared-model training -> global-only inference
+当前主动干预：face-valid片段挖掘 + AU语义保持的landmark局部/全脸共享模型增强
+        face usability audit -> deterministic clip mining -> four AU-semantic RGB crops + global shared-model training
 ```
 
 旧的 RPDF-Net、`z_art`、`z_m`、递进分解和多级门控方案保留为历史设计背景或可选远期支线，不再作为当前主线。input artifact、boundary smoothing、temporal sampling、identity retrieval 和 Shortcut-Regularized MTL 方案现在主要作为问题证据、对照基线和审计工具。需要决定“接下来做什么”时，优先看 `TODO.md` 的“当前立即执行任务（权威入口）”。
@@ -40,9 +40,10 @@ Stage D: Falsification and robustness validation
 | 不显式划分 | `z_art`、`z_ctx`、`z_pose`、`z_quality` 等难以穷尽的因素 |
 | 训练监督 | 只对 subject identity 等可验证 shortcut 使用弱监督或对抗约束 |
 | artifact / context / quality | 用于 audit、probe、case study 和 group-wise evaluation |
+| AU使用边界 | AU/FACS只定义局部RGB裁切语义；landmark逐帧定位；AU数值、AU序列和AU监督不进入模型 |
 | 主张边界 | 辅助损失收敛不等于语义解耦；结论必须由外部审计支持 |
 | 反证条件 | 不优于 paired-seed `C-REF`、multi-seed 不稳定或风险下降以 utility 恶化为代价时停止扩展 |
-| 当前下一步 | `AU-T0a` 已通过；运行并人工审阅 `AU-T0b` aligned-coordinate contract -> `AU-T1/T2` 四整体区域动态跟踪审计；通过后才实现单模型训练 |
+| 当前下一步 | `FACE-S1 phase-1 v2`与复核模板已完成；下一项填写124个去重train帧的global/local-geometry/boundary人工标签，再生成独立threshold manifest。逐区local crop仍需后续polygon overlay gate |
 | 下一步入口 | `TODO.md` 的“当前立即执行任务（权威入口）” |
 
 ## 快速读取策略
@@ -62,6 +63,15 @@ Stage D: Falsification and robustness validation
 1. `docs/RGB_OVERFITTING_AUDIT_PLAN.md` 的 `读者先看：当前研究路线与下一步`、核心判断和三表联合证据
 2. `docs/OVERFITTING_MECHANISM_ROADMAP.md` 的机制层级与最新机制更新
 3. 必要时读取 `docs/SHORTCUT_AUDIT_DESIGN.md` 的具体脚本/输出规格
+
+### 需要分析视频有效片段、无效片段与长视频切片
+
+读取：
+
+1. `docs/AVEC2014_SOURCE_DATA_QUALITY.md`
+2. `docs/VALIDITY_AWARE_TEMPORAL_SLICING_PLAN.md`
+3. `docs/CURRENT_STATUS.md` 的最新face-valid slicing摘要
+4. 需要运行脚本时再读 `docs/EXPERIMENT_SCRIPT_MANUAL.md`
 
 ### 需要写代码或跑实验
 
@@ -92,6 +102,8 @@ Stage D: Falsification and robustness validation
 | `TODO.md` | 当前执行权威 | 可执行任务清单、完成状态、下一步行动项 | 长篇实验解释、重复粘贴完整表格 |
 | `RGB_OVERFITTING_AUDIT_PLAN.md` | 当前机制主控 | RGB 过拟合研究主控文档，解释实验优先级和论文叙事 | 低层代码接口细节、所有历史命令 |
 | `OVERFITTING_MECHANISM_ROADMAP.md` | 当前机制地图 | 上层机制地图、层级模型、决策树、停止规则 | 每次实验的完整数值表、脚本参数 |
+| `AVEC2014_SOURCE_DATA_QUALITY.md` | 当前数据问题权威 | 原视频/aligned/landmark问题、曝光与片段选择依据、数据版本边界 | 模型结构、训练结果历史 |
+| `VALIDITY_AWARE_TEMPORAL_SLICING_PLAN.md` | 当前输入切片设计 | face-valid片段定义、全片段利用、video-level聚合、AU语义保持的landmark局部增强 | 原始问题长表、完整运行历史 |
 | `SHORTCUT_AUDIT_DESIGN.md` | 当前诊断规格 | 诊断脚本、输出字段、audit 设计规格 | 当前状态总结、论文长篇叙事 |
 | `STAGE_C_RUNBOOK.md` | 当前 Stage C 实施权威 | 信息分流接口、配置矩阵、seed、审计协议、停止条件和实施命令 | Stage B 历史结果、长篇文献论证 |
 | `EXPERIMENT_SCRIPT_MANUAL.md` | 当前命令手册 | 常用运行命令和脚本调用模板 | 实验结果解释、机制判断 |
@@ -134,6 +146,8 @@ Stage D: Falsification and robustness validation
 DOCS_GUIDE.md
 -> TODO.md 当前立即执行任务
 -> CURRENT_STATUS.md 最新段落
+-> AVEC2014_SOURCE_DATA_QUALITY.md 原始/派生数据问题
+-> VALIDITY_AWARE_TEMPORAL_SLICING_PLAN.md face-valid片段与AU语义保持的landmark局部增强
 -> RGB_OVERFITTING_AUDIT_PLAN.md task-nuisance 主线
 -> OVERFITTING_MECHANISM_ROADMAP.md 机制地图
 ```

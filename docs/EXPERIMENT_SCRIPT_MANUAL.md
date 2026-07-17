@@ -397,6 +397,8 @@ python scripts/audit_split_integrity.py \
 
 ### 4.2 Temporal sampling audit
 
+> 2026-07-17命名说明：下方`AU-T0*`是既有脚本/输出名。当前项目不读取AU intensity/presence数值、AU序列或AU特征；这些命令用于frame、landmark coordinate、failure、presence、exposure和区域定位审计。当前任务名使用`LM-T0 / FACE-S*`，但局部RGB crop仍按AU/FACS语义分区。
+
 ```bash
 python scripts/audit_temporal_sampling.py \
   --predictions <LOG_DIR>/default/mtl_lite/version_0/diagnostics/regression/test_predictions.csv \
@@ -409,7 +411,7 @@ python scripts/audit_temporal_sampling.py \
 
 `--sample-step` / `--max-seq-len` / `--sampling-strategy` 必须与对应实验的 `resolved_config.yaml` 一致。
 
-### 4.2.1 AU-T0a frame-contract inventory
+### 4.2.1 LM-T0a frame-contract inventory（历史脚本名AU-T0a）
 
 该命令只核对 aligned JPG 与 OpenFace CSV 帧，不生成裁剪图或修改训练数据：
 
@@ -479,14 +481,17 @@ $Python = "python"  # 也可替换为 Windows conda 环境中的 python.exe 绝�
 
 ### 4.2.3 OpenFace 2.2.0 aligned-space landmark extraction
 
-当前冻结工具位于 `D:\Tools\OpenFace`，版本为 `OpenFace 2.2.0`。本阶段只需要在已经通过完整性门禁的 aligned JPG 完整序列上重新检测 68 点二维 landmark，不需要 AU、gaze、HOG、tracked video 或再次生成 aligned image。冻结的两个关键哈希为：
+当前冻结工具根目录为 `D:\Tools\Openface_2.2.0_win_x64`，实际发布包位于其下的 `OpenFace_2.2.0_win_x64` 子目录。本阶段只需要在已经通过完整性门禁的 aligned JPG 完整序列上重新检测68点二维landmark，不需要AU、gaze、HOG、tracked video或再次生成aligned image。冻结哈希为：
 
 ```text
 FeatureExtraction.exe:
-5995ae5cce749c4969ac4dd7e62d3f740cc9f702961f9573be7e14c4ca5b7f86
+a29ba49cfc59039bfe5e2f141898b2a110da420f6f520d6a923a86ac78cd96ae
 
 model/main_ceclm_general.txt:
-52f38548cffab1731f80e9e71f22a8b29373a2750eb6dc718069d56e82997543
+7efbef33dbc3e54197960300827657f9fe7a42c0953ef52c2af054a6fdbc3598
+
+readme.txt:
+4ccdd65f992124db8127688a545a9344b537bdeb2d97371cfddfd65fc68a1d93
 ```
 
 批处理脚本会在运行前强制检查 `EXACT_PASS`、OpenFace 版本、上述两个哈希和输入/输出目录；随后按视频目录名排序，逐个执行：
@@ -497,30 +502,29 @@ FeatureExtraction.exe -fdir <complete_video_aligned_dir> -out_dir <output_root> 
 
 OpenFace 2.2.0 会按文件名词典序读取 `-fdir`。当前零填充 JPG 文件名能保持帧顺序。显式指定 `-2Dfp` 后不会触发 OpenFace 的“无输出参数时输出全部特征”默认行为。不要自行附加 `-aus`、`-gaze`、`-hogalign`、`-simalign`、`-tracked`、`-verbose`、`-wild` 或 `-multi_view`。
 
-先在 Windows PowerShell 中运行两个视频的门禁。当前 `D:\Project\stc` 是不含 `.git` 的 Windows 代码副本，因此必须从 WSL 权威 checkout 读取 commit/branch，并通过显式参数写入 manifest。脚本在两者缺失时会直接拒绝运行，不能再产生空 git provenance。
+先在Windows PowerShell中运行两个视频的门禁。`D:\Project\stc`应是从远程拉取的只读git checkout；先拉取包含本脚本修改的提交，禁止从WSL复制未提交脚本后运行正式审计。脚本会检测checkout，并核对显式commit/branch，不能产生空git provenance。
 
-先同步最新脚本并设置实际路径。`$ImageRoot` 必须直接包含 300 个 `*_video_aligned` 目录：
+`$ImageRoot`必须直接包含300个`*_video_aligned`目录：
 
 ```powershell
 $Repo = "D:\Project\stc"
-$WslRepo = "/home/zhen/code/stc"
+Set-Location $Repo
+git pull origin dev
+if ($LASTEXITCODE -ne 0) { throw "git pull failed" }
+if ((git status --short)) { throw "Windows checkout must be clean" }
 
-Copy-Item `
-  "\\wsl.localhost\Ubuntu\home\zhen\code\stc\scripts\run_openface_aligned_landmarks.ps1" `
-  "$Repo\scripts\run_openface_aligned_landmarks.ps1" `
-  -Force
-
-$SourceGitCommit = (wsl.exe -d Ubuntu -- git -C $WslRepo rev-parse HEAD).Trim()
-$SourceGitBranch = (wsl.exe -d Ubuntu -- git -C $WslRepo branch --show-current).Trim()
+$SourceGitCommit = (git rev-parse HEAD).Trim()
+$SourceGitBranch = (git branch --show-current).Trim()
+$OpenFaceRoot = "D:\Tools\Openface_2.2.0_win_x64"
 $ImageRoot = "D:\Project\dataset\AVEC2014\face_images"
-$OutputRoot = "D:\Project\dataset\AVEC2014\openface_aligned_landmarks_debug_v2"
+$OutputRoot = "D:\Project\dataset\AVEC2014\openface_aligned_landmarks_of220_a29ba49c_debug"
 $IntegritySummary = "D:\Project\dataset\AVEC2014\audits\image_integrity\comparison\comparison_summary.json"
 
 $SourceGitCommit
 $SourceGitBranch
 
 & "$Repo\scripts\run_openface_aligned_landmarks.ps1" `
-  -OpenFaceRoot "D:\Tools\OpenFace" `
+  -OpenFaceRoot "$OpenFaceRoot" `
   -ImageRoot "$ImageRoot" `
   -OutputRoot "$OutputRoot" `
   -IntegrityComparisonSummary "$IntegritySummary" `
@@ -541,10 +545,10 @@ debug-v2 必须满足：`video_count=2`、`pass_count=2`、`fail_count=0`、`tot
 每个输入目录产生一个同名 CSV，例如 `203_1_Freeform_video_aligned.csv`，以及 OpenFace 自带的文本元数据；不会生成新的裁剪图或修改原 JPG。脚本逐视频验证 CSV 行数、`frame=1..N` 连续性、必要列、OpenFace `success` 比例，并记录 PowerShell/OpenFace/script/git/模型哈希。debug 通过后必须使用新的正式输出目录，删除 `-MaxVideos 2` 后运行全量 300 个视频：
 
 ```powershell
-$OutputRoot = "D:\Project\dataset\AVEC2014\openface_aligned_landmarks"
+$OutputRoot = "D:\Project\dataset\AVEC2014\openface_aligned_landmarks_of220_a29ba49c"
 
 & "$Repo\scripts\run_openface_aligned_landmarks.ps1" `
-  -OpenFaceRoot "D:\Tools\OpenFace" `
+  -OpenFaceRoot "$OpenFaceRoot" `
   -ImageRoot "$ImageRoot" `
   -OutputRoot "$OutputRoot" `
   -IntegrityComparisonSummary "$IntegritySummary" `
@@ -577,6 +581,271 @@ python scripts/audit_au_coordinate_contract.py \
 若预处理阶段保存了逐帧 2x3 变换，使用 `--mapping-method explicit_affine --transform-root /path/to/transform_csv_root`；每个视频 CSV 必须包含 `frame,m00,m01,m02,m10,m11,m12`。只有存在经过确认的 aligned-space canonical template 时才使用 `--mapping-method canonical_similarity --canonical-template /path/to/template.csv`，template 格式为 `landmark_id,x,y`。
 
 不提供上述任何合法来源时，`auto` 会输出 `BLOCKED`，不会执行检测坐标到 `112x112` 的独立比例缩放。自动检查成功仍只输出 `REVIEW_REQUIRED`；必须填写 `overlay_manifest.csv` 的 `review_status/review_notes` 并人工确认 train overlays，才能判定 T0b PASS。validation/test 不用于修改 mapping、阈值或 template。
+
+### 4.2.5 AU-T0c 逐帧失败、原视频 presence 与曝光审计
+
+第一步只读取已经生成的 aligned JPG 和 aligned-image OpenFace CSV，不启动 `FeatureExtraction.exe`、FaceLandmark 或任何重新检测：
+
+```bash
+/home/zhen/miniconda3/envs/light/bin/python scripts/audit_frame_recovery.py audit \
+  --image-root /mnt/d/Project/dataset/AVEC2014/face_images \
+  --openface-root logs/au_region_tracking_audit/openface_aligned_landmarks \
+  --dataset-split-file /mnt/d/Project/dataset/AVEC2014/dataset_split.json \
+  --output-dir logs/au_region_tracking_audit/frame_failure_recovery_safe_v1 \
+  --exposure-safe-low-quantile 0.20 \
+  --exposure-target-low-quantile 0.25 \
+  --exposure-target-high-quantile 0.75 \
+  --exposure-safe-high-quantile 0.80 \
+  --workers 8
+```
+
+不要覆盖旧的 q10/q90 审计目录；新输出使用 `frame_failure_recovery_safe_v1`。其输出为逐帧失败表、OpenFace 连续失败块、曝光样本、视频 summary、`exposure_review_template.csv`、报告和带哈希的 run manifest。默认冻结参数为：`black_threshold=8`；纯黑 nonblack/visible ratio `<=0.01` 或 mean luma `<=1`；欠曝 sampled median `<=35`，过曝 `>=220`，异常样本比例 `>=0.5`；每视频32个等距样本。train-normal q20/q80 是处理后安全验收带，本次为 `49.018/142.171`；实际目标置于带内 q25/q75，本次为 `53.740/135.769`。欠曝计划曲线为 `log`，过曝为 `inverse_log`，曲线参数上限默认 `32`。
+
+第二步必须回到原始视频判断人物是否在场。用户冻结的原视频目录为：
+
+```text
+D:\Project\dataset\AVEC2014\{train,dev,test}\{Freeform,Northwind}
+WSL: /mnt/d/Project/dataset/AVEC2014/{train,dev,test}/{Freeform,Northwind}
+```
+
+运行全量只读 source-presence audit：
+
+```bash
+/home/zhen/miniconda3/envs/light/bin/python scripts/audit_source_presence.py \
+  --dataset-root /mnt/d/Project/dataset/AVEC2014 \
+  --frame-failure-manifest logs/au_region_tracking_audit/frame_failure_recovery/tables/frame_failure_manifest.csv \
+  --video-failure-summary logs/au_region_tracking_audit/frame_failure_recovery/tables/video_failure_summary.csv \
+  --raw-openface-root /mnt/d/Project/dataset/AVEC2014/openface_features \
+  --output-dir logs/au_region_tracking_audit/source_video_presence \
+  --max-run-samples 9 \
+  --contact-sheet-columns 5
+```
+
+正式输出为：
+
+```text
+tables/source_video_contract.csv
+tables/pure_black_source_runs.csv
+tables/source_presence_review_template.csv
+contact_sheets/*.jpg
+reports/source_presence_report.md
+run_manifest.json
+```
+
+`source_presence_review_template.csv` 中每个 pure-black run 初始为 `PENDING`。人工审阅后可把复杂 run 拆成多个不重叠 segment，但必须完整覆盖每个纯黑帧。合法决策只有：
+
+```text
+person_absent                  -> keep_invalid
+person_present_detection_failure -> raw_frame_warp_only 或 keep_invalid
+mixed / ambiguous             -> keep_invalid（优先继续细分）
+```
+
+禁止设置 aligned optical-flow/copy 许可。`247_3_Freeform` 的冻结示例位于 `tables/source_presence_review_247_3.csv`：`2078-2143` 人物仍在，`2144-3984` 人物缺席，`3985-4213` 人物重新进入。
+
+全量人工 review 完成后运行强校验与报告汇总；任何 PENDING、coverage gap、重叠 segment 或非法恢复许可都会 fail closed：
+
+```bash
+/home/zhen/miniconda3/envs/light/bin/python scripts/summarize_source_presence_review.py \
+  --frame-failure-manifest logs/au_region_tracking_audit/frame_failure_recovery/tables/frame_failure_manifest.csv \
+  --source-run-manifest logs/au_region_tracking_audit/source_video_presence/tables/pure_black_source_runs.csv \
+  --review-manifest logs/au_region_tracking_audit/source_video_presence/tables/source_presence_review_full.csv \
+  --output-dir logs/au_region_tracking_audit/source_video_presence/full_review
+```
+
+本次冻结结果为 38 个视频、231 个 run、4,206 帧全部 REVIEWED；2,365 帧 `raw_frame_warp_only`，1,841 帧 `keep_invalid`，无 mixed/ambiguous 残留。报告入口为 `full_review/reports/source_presence_full_review_report.md`，逐帧 gate 为 `full_review/tables/source_presence_frame_gate.csv`。
+
+曝光审阅从下列模板开始：
+
+```text
+logs/au_region_tracking_audit/frame_failure_recovery/tables/exposure_review_template.csv
+```
+
+模板故意写为 `review_status=PENDING, review_decision=segment_review_required`，且 `observed_luma_source=sampled_audit_median_replace_before_review`，不能直接用于物化。每个候选视频必须由无间隙、无重叠的片段完整覆盖；稳定欠曝片段改为 `REVIEWED/stable_log/log`，过曝片段改为 `REVIEWED/tone_only_overexposed/inverse_log`，不恢复的片段改为 `REVIEWED/keep_raw/identity`。每个获批片段（包括整视频片段）都必须使用片段内全部可见帧重新计算 `observed_luma_median`，并把来源改为 `full_segment_visible_luma_median`；随后使用代码中的单调拟合函数冻结一个参数，使 `T(observed)=train-only target`。禁止逐帧拟合，禁止依据 BDI 或 validation/test 指标分段。
+
+在填写人工 gate 前，先生成只读 Before/After 接触表。该命令使用审计中的时间均匀样本及 sampled luma 极值，不写正式派生帧，也不代表批准恢复：
+
+```bash
+/home/zhen/miniconda3/envs/light/bin/python scripts/preview_exposure_recovery.py \
+  --audit-dir logs/au_region_tracking_audit/frame_failure_recovery \
+  --image-root /home/zhen/dataset/depression/avec/2014/face_images \
+  --image-integrity-comparison-summary logs/au_region_tracking_audit/image_integrity/with_wsl_comparison/comparison_summary.json \
+  --output-dir /tmp/avec2014_exposure_log_preview_v1 \
+  --video-id 225_2_Freeform_video_aligned \
+  --video-id 211_1_Freeform_video_aligned \
+  --frames-per-video 12 \
+  --columns 4 \
+  --underexposed-target-luma 53.740102 \
+  --overexposed-target-luma 135.769350 \
+  --safe-low-luma 49.018280 \
+  --safe-high-luma 142.171405 \
+  --scan-all-frames
+```
+
+这里的 target/safe 参数仅用于在旧 q10/q90 审计输出上预览新协议，不会修改旧 manifest。由于旧 audit manifest 记录的是 `/mnt/d/.../face_images`，使用字节一致的 WSL 副本时必须显式提供 `--image-integrity-comparison-summary`。脚本只接受 `EXACT_PASS`、全量 `EXACT_MATCH`、candidate manifest SHA-256 正确且 inventory `image_root` 与当前参数一致的重定位证据。`--scan-all-frames` 对视频内全部非纯黑 aligned 帧计算指标，但接触表仍只显示代表帧。删除两个 `--video-id` 参数即可一次预览全部22个候选。
+
+在填写最终 exposure manifest 前，先用train-only全帧IQR冻结时间稳定性阈值：
+
+```bash
+/home/zhen/miniconda3/envs/light/bin/python scripts/audit_exposure_temporal_stability.py \
+  --audit-dir logs/au_region_tracking_audit/frame_failure_recovery \
+  --image-root /home/zhen/dataset/depression/avec/2014/face_images \
+  --image-integrity-comparison-summary logs/au_region_tracking_audit/image_integrity/with_wsl_comparison/comparison_summary.json \
+  --output-dir logs/au_region_tracking_audit/exposure_temporal_stability_q90_v1 \
+  --workers 8
+```
+
+`--stability-quantile`固定为`0.90`，传入其他值会fail closed。正式结果为92个train-normal参考视频，q90=`10.243687`、q95=`12.024606`；18个候选低于q90、2个处于q90-q95、2个超过q95。该命令只提供whole-video/segment-review triage，不自动生成分段；短曝光阶段仍可能被全局IQR漏掉。
+
+完整reviewed manifest为：
+
+```text
+logs/au_region_tracking_audit/exposure_review_full_q90_v1/tables/exposure_review_manifest.csv
+```
+
+其24行完整覆盖22个候选。当前正式路由为19个`stable_log` segment、2个`tone_only_overexposed`、3个`keep_raw`；全帧变换指标见同目录`tables/exposure_review_segment_metrics.csv`和`reports/exposure_review_full_report.md`。provenance-final现已输出到`frame_failure_recovery_safe_v1`并冻结q20/q80、q25/q75及实现/输出哈希；但3帧raw-warp smoke仍未授权正式全量materialization。
+
+在决定是否转向 raw-space 曝光校正前，运行同帧细节可恢复性审计。现有 raw/aligned OpenFace CSV 只提供68点几何对应，不比较 AU、pose 或 embedding；输入派生方案冻结后再统一版本重跑 OpenFace：
+
+```bash
+/home/zhen/miniconda3/envs/light/bin/python scripts/audit_raw_detail_recoverability.py \
+  --frame-audit-dir logs/au_region_tracking_audit/frame_failure_recovery \
+  --dataset-root /mnt/d/Project/dataset/AVEC2014 \
+  --image-root /home/zhen/dataset/depression/avec/2014/face_images \
+  --image-integrity-comparison-summary logs/au_region_tracking_audit/image_integrity/with_wsl_comparison/comparison_summary.json \
+  --raw-openface-root /home/zhen/dataset/depression/avec/2014/openface_features \
+  --aligned-openface-root logs/au_region_tracking_audit/openface_aligned_landmarks \
+  --output-dir logs/au_region_tracking_audit/raw_detail_recoverability_v2 \
+  --candidate-frames-per-video 32 \
+  --reference-frames-per-video 4 \
+  --contact-frames-per-video 8 \
+  --calibration-quantile 0.95 \
+  --min-practical-clip-advantage 0.01
+```
+
+该审计先把 raw frame 通过 RANSAC similarity transform warp 到当前 aligned 坐标，再在同一侵蚀 face hull 内比较两端剪切、q90-q10 span、robust-normalized gradient/Laplacian/entropy。正式结果为92个 train-normal 视频/365个有效参考帧、22候选701帧/685个有效比较；median transform inlier ratio `0.941`、RMSE `0.687 px`。加入1个百分点最小实际效应后 `raw_detail_recoverable=0`：16视频为 `tone_only_or_keep_raw`，6视频为 `inconclusive_keep_raw_until_review`。因此不实现 raw-space exposure correction；raw-frame warp 只保留给人物在场但 aligned 纯黑的另一类失败帧。
+
+当前`materialize`同时强制要求已完成的source-presence与exposure review manifest。它只会对已批准片段应用固定log-family曲线；3帧smoke尚未接入正式materialize，因此所有纯黑帧仍保持invalid，其中人物仍在的帧记录为`raw_frame_warp_required_but_not_implemented`：
+
+```bash
+/home/zhen/miniconda3/envs/light/bin/python scripts/audit_frame_recovery.py materialize \
+  --audit-dir logs/au_region_tracking_audit/frame_failure_recovery_safe_v1 \
+  --image-root /mnt/d/Project/dataset/AVEC2014/face_images \
+  --source-review-manifest /path/to/completed_source_presence_review.csv \
+  --exposure-review-manifest /path/to/completed_exposure_review.csv \
+  --output-root /tmp/avec2014_exposure_review \
+  --layout sparse_overlay \
+  --video-id 225_2_Freeform_video_aligned \
+  --video-id 211_1_Freeform_video_aligned
+```
+
+`sparse_overlay` 只包含改变帧，不能单独作为当前 dataset 的 `IMAGE_DIR`。只有 source presence、曝光和未来 raw-frame warp overlay 全部通过后，才允许使用独立完整 mirror；命令同样必须提供 review manifest：
+
+```bash
+/home/zhen/miniconda3/envs/light/bin/python scripts/audit_frame_recovery.py materialize \
+  --audit-dir logs/au_region_tracking_audit/frame_failure_recovery_safe_v1 \
+  --image-root /mnt/d/Project/dataset/AVEC2014/face_images \
+  --source-review-manifest /path/to/completed_source_presence_review.csv \
+  --exposure-review-manifest /path/to/completed_exposure_review.csv \
+  --output-root /mnt/d/Project/dataset/AVEC2014/face_images_repaired_v1 \
+  --layout mirror \
+  --link-mode hardlink
+```
+
+`hardlink`要求源和派生目录位于同一文件系统；不满足时显式改为`copy`或`symlink`。正式output root必须不存在或为空，且不能位于原始`face_images`内。当前不要再次运行FaceLandmark。
+
+3帧raw-frame warp smoke使用WSL本地、经`EXACT_PASS`证明与审计根逐字节一致的aligned JPG；只有原始MP4从`/mnt/d`读取：
+
+```bash
+/home/zhen/miniconda3/envs/light/bin/python scripts/audit_frame_recovery.py raw-warp-smoke \
+  --audit-dir logs/au_region_tracking_audit/frame_failure_recovery_safe_v1 \
+  --dataset-root /mnt/d/Project/dataset/AVEC2014 \
+  --image-root /home/zhen/dataset/depression/avec/2014/face_images \
+  --image-integrity-comparison-summary logs/au_region_tracking_audit/image_integrity/with_wsl_comparison/comparison_summary.json \
+  --source-presence-gate logs/au_region_tracking_audit/source_video_presence/full_review/tables/source_presence_frame_gate.csv \
+  --raw-openface-root /home/zhen/dataset/depression/avec/2014/openface_features \
+  --aligned-openface-root logs/au_region_tracking_audit/openface_aligned_landmarks \
+  --output-dir logs/au_region_tracking_audit/raw_frame_warp_smoke_v3 \
+  --max-frames 3 \
+  --split train
+```
+
+默认只接受train、1-3帧、完整source-presence gate、前后锚点距离`<=8`、tracking valid ratio`>=0.60`、transform inlier ratio`>=0.50`、RMSE`<=2.50 px`、tracked-vs-interpolated transform分歧`<=5 px`和warped landmark in-bounds ratio`>=0.80`。输出为`AUTO_PASS_REVIEW_REQUIRED`，只写独立`derived/`、contact sheet、逐帧表、报告和带全部输入/实现/输出哈希的manifest；禁止用前后aligned脸合成目标帧，禁止把smoke目录作为训练`IMAGE_DIR`。
+
+### 4.2.6 Validity-aware temporal slicing 只读审计
+
+该命令只合并既有manifest并生成候选切片，不读取BDI/prediction、不改图片、不运行OpenFace：
+
+```bash
+/home/zhen/miniconda3/envs/light/bin/python scripts/audit_validity_aware_slicing.py \
+  --dataset-split-file /home/zhen/dataset/depression/avec/2014/dataset_split.json \
+  --video-failure-summary logs/au_region_tracking_audit/frame_failure_recovery/tables/video_failure_summary.csv \
+  --frame-failure-manifest logs/au_region_tracking_audit/frame_failure_recovery/tables/frame_failure_manifest.csv \
+  --source-presence-gate logs/au_region_tracking_audit/source_video_presence/full_review/tables/source_presence_frame_gate.csv \
+  --output-dir logs/au_region_tracking_audit/validity_aware_slicing_v1 \
+  --sample-step 10 \
+  --max-seq-len 2000 \
+  --window-frames 600 1200 2000 \
+  --min-clip-frames 600
+```
+
+正式判读优先看 `tables/slicing_aggregate_summary.csv` 和 `reports/validity_aware_slicing_report.md`。当前2000帧结果只表示pure-black/presence/OpenFace-success容量估计；它没有量化大遮挡、大偏转和严重出界，不能直接作为训练clip。`2000`主窗口和“每视频随机一个窗口”均未冻结。完整新协议见 `VALIDITY_AWARE_TEMPORAL_SLICING_PLAN.md`。
+
+### 4.2.7 FACE-S1 人脸可用性phase-1分布审计
+
+优先使用WSL本地JPG，避免跨文件系统访问。该根目录已通过`EXACT_PASS`证明与原审计源逐字节一致：
+
+```bash
+/home/zhen/miniconda3/envs/light/bin/python scripts/audit_face_usability.py \
+  --dataset-split-file /home/zhen/dataset/depression/avec/2014/dataset_split.json \
+  --image-root /home/zhen/dataset/depression/avec/2014/face_images \
+  --aligned-landmark-root logs/au_region_tracking_audit/openface_aligned_landmarks \
+  --frame-audit-dir logs/au_region_tracking_audit/frame_failure_recovery_safe_v1 \
+  --source-presence-gate logs/au_region_tracking_audit/source_video_presence/full_review/tables/source_presence_frame_gate.csv \
+  --exposure-review-manifest logs/au_region_tracking_audit/exposure_review_full_q90_v1/tables/exposure_review_manifest.csv \
+  --image-integrity-comparison-summary logs/au_region_tracking_audit/image_integrity/with_wsl_comparison/comparison_summary.json \
+  --canonical-sample-step 30 \
+  --contact-frames-per-reason 12 \
+  --contact-sheet-columns 4 \
+  --output-dir logs/au_region_tracking_audit/face_usability_phase1_v2
+```
+
+该命令只输出confidence、landmark in-frame、face hull coverage、正深度landmark-derived yaw/pitch/roll、PnP重投影误差、blur、transform residual和jump的train/val/test分布及train-only contact sheets，不自动批准阈值。现有完整运行耗时约26分钟。
+
+jump必须使用相邻帧成对复核：
+
+```bash
+/home/zhen/miniconda3/envs/light/bin/python scripts/audit_face_usability_temporal_review.py \
+  --source-run-dir logs/au_region_tracking_audit/face_usability_phase1_v2 \
+  --aligned-landmark-root logs/au_region_tracking_audit/openface_aligned_landmarks \
+  --output-dir logs/au_region_tracking_audit/face_usability_temporal_review_v1 \
+  --columns 4
+```
+
+随后生成去重的global/local-geometry/boundary双通道人工复核模板：
+
+```bash
+/home/zhen/miniconda3/envs/light/bin/python scripts/prepare_face_usability_threshold_review.py \
+  --source-run-dir logs/au_region_tracking_audit/face_usability_phase1_v2 \
+  --temporal-review-dir logs/au_region_tracking_audit/face_usability_temporal_review_v1 \
+  --output-dir logs/au_region_tracking_audit/face_usability_threshold_review_v2
+```
+
+正式模板为`tables/face_usability_threshold_review_template.csv`。同一帧分别填写global face、local geometry和temporal boundary标签；可见landmark失败允许global可用但local geometry不可用。local geometry通过只表示可进入后续四区polygon/margin overlay审计，不批准具体local crop。三个review-status字段必须全部改为`REVIEWED`，且标签只能使用instructions报告列出的闭集。当前模板124帧全部PENDING，不能直接传给FACE-S2。
+
+WSL本地还存在历史OpenFace特征副本`/home/zhen/dataset/depression/avec/2014/openface_features`。FACE-S1不读取它；后续外部pose/quality/AU弱标签审计如需使用，必须先说明所需CSV字段、工具版本和与当前split/frame contract的一致性门禁。
+
+人工复核后第二轮才允许传入冻结threshold manifest，生成：
+
+```text
+tables/face_usability_frame_manifest.csv
+tables/face_usable_run_manifest.csv
+tables/face_clip_candidate_manifest.csv
+tables/face_quality_exclusion_summary.csv
+reports/face_usability_report.md
+run_manifest.json
+```
+
+候选clip统计必须覆盖`window=300/600/1200/2000`和`overlap=0/25/50%`，报告每video/subject/task clip分布。任何输出都不能把clip数称为独立subject样本数。详细字段见`SHORTCUT_AUDIT_DESIGN.md`第15节，原始视频问题见`AVEC2014_SOURCE_DATA_QUALITY.md`。
 
 ### 4.3 OpenFace alignment geometry audit
 

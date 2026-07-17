@@ -20,56 +20,67 @@
 
 当前不做：不把 artifact、context、pose、quality 逐项建成 latent；它们只作为审计变量、probe、case study 和分组评估维度。
 
-### 当前主动干预：单模型 AU 语义局部正则
+### 当前主动干预：face-valid片段挖掘 + AU语义保持的landmark局部/全脸增强
 
-Stage C 的 `z_dep/z_nuisance` 结构、identity-gradient、显式 L1/L2 和 continuous severity weighting 已经完成反证或收口。现有证据不支持继续做无语义门禁的表示维度 sweep：改变维度只能改变容量和压缩率，不能自动给特征分离提供正确梯度方向。当前主动干预转向输入侧局部归纳偏置，但仍保持项目的可审计与可证伪原则。
+Stage C 的 `z_dep/z_nuisance` 结构、identity-gradient、显式 L1/L2 和 continuous severity weighting 已经完成反证或收口。现有证据不支持继续做无语义门禁的表示维度 sweep。当前输入侧干预分成两个可独立反证的部分：先提高时间输入中有效人脸的比例并充分利用全部合格片段，再用AU语义保持的landmark局部RGB裁切与完整脸互为训练增强。
 
-核心假设是：全脸 RGB 同时包含抑郁相关行为与身份、姿态、边界和局部饰物等捷径；训练时给同一个模型加入 AU/FACS 语义局部视图，可以提高局部行为证据在共享参数更新中的占比，而无需训练多个模型或在推理时融合多个分支。
-
-```text
-train:
-  global face + all valid AU-semantic local views
-        -> flatten on batch axis
-        -> one shared backbone + one temporal encoder + one BDI head
-
-validation / test / inference:
-  global face only
-```
-
-该设计有四个关键边界：
-
-1. **同一模型**：所有视图完全共享参数，不建立区域专属 backbone、GRU 或 prediction head，不增加表示对齐损失。
-2. **全局保留**：global face 始终参与训练和推理；局部视图只作为训练正则，不能替代全脸上下文。
-3. **全部区域参与**：每个 batch 使用全部有效语义区域，不随机只选一个。局部损失先对区域求均值，避免区域数量直接放大总梯度。
-4. **全局单视图推理**：若只在局部多视图推理时改善，则不能证明共享模型学会了更好的全局表示。
-
-首版 AU 组采用四个粗粒度 FACS 语义整体区域，而不是逐 AU 或逐侧建分支：brow（AU1/2/4）、eye-cheek（AU5/6/7/45）、nose-upper-lip（AU9/10）、mouth-jaw（AU12/14/15/17/20/23/24/25/26）。OpenFace 的标准 AU 强度是区域整体输出，不提供左右独立监督；左右 landmark 只在 mask tracker 内部分别估计可见性和质量，然后合成为一个整体语义区域。候选损失冻结为：
+本项目保留AU/FACS作为局部裁切的语义边界，但不读取AU intensity/presence数值，不把AU序列或AU特征送入模型，也不建立AU辅助任务或AU监督loss。68点landmark只负责逐帧定位完整语义区域，模型输入仍是RGB。当前结构为：
 
 ```text
-L_local = mean_r(valid_r * L_bdi(local_r))
-L_total = L_bdi(global) + lambda_AU * L_local
-lambda_AU = 0.5  # first registered setting
+full-rate video
+  -> FACE-S1: presence + pixels + 68-point geometry face-usability audit
+  -> all contiguous face_usable runs
+  -> deterministic clips, source-video normalized or video-bag loss
+
+train views for each accepted clip:
+  global aligned face
+  + brow / eye-cheek / nose-upper-lip / mouth-jaw RGB crops
+    located frame-wise by aligned-space landmarks
+  -> one shared backbone + one temporal encoder + one BDI head
+
+validation / test:
+  aggregate clip predictions to one video prediction
+  global face is the primary inference view
 ```
 
-当四个整体区域均有效时，每个区域对总损失的最终权重为 `0.5 / 4 = 0.125`。训练输入总视图数为五个：一个 global 和四个 local semantic views。
+关键边界：
 
-区域外使用原图模糊背景与 feathered boundary；禁止硬黑遮挡，因为已有审计证明黑边和硬转换本身可能成为 patch shortcut。区域 mask 必须逐帧动态跟踪，AU 语义固定但几何位置不固定。
+1. **非随机主协议**：不再每视频均匀随机一个窗口；所有达到face-usability和最短时长门槛的连续run都生成确定性clip。
+2. **质量优先**：人物缺席、纯黑、不可解码、大幅遮挡、大幅偏转、严重出界和landmark不可信片段不进入严格clip。
+3. **不伪增样本**：clip数增加不等于独立subject增加；clip loss必须按`1/N_clips(video)`归一，或先同模型bag聚合再计算一次video BDI loss。
+4. **同一模型**：global/local完全共享参数，不建立区域backbone、区域head或模型间对齐。
+5. **AU定义语义、landmark负责定位**：首版固定brow（AU1/2/4）、eye-cheek（AU5/6/7/45）、nose-upper-lip（AU9/10）、mouth-jaw（AU12/14/15/17/20/23/24/25/26）四区；point集合、完整polygon、margin、coverage和越界规则由aligned-space overlay冻结。
+6. **控制任意裁切**：比较global-only、global+four equal-area grids、global+four AU-semantic landmark-guided RGB crops；L2不优于grid时只能主张一般多裁切增强。
 
-### 训练前门禁：动态 AU 跟踪必须先被审计
+现有OpenFace landmark约处于640x480检测空间，不能直接覆盖112x112 aligned输入。局部crop必须来自aligned JPG统一版本重跑的landmark、验证过的逐帧transform或overlay通过的similarity mapping。landmark无效时跳过local view，不镜像隐藏侧、不从邻帧伪造区域。
 
-现有 OpenFace landmark 坐标约处于 `640x480` 检测空间，而实际模型读取 `112x112` aligned face。静态 canonical mask 无法覆盖大幅转头，直接把原始坐标叠到 aligned frame 也没有几何依据。因此第一阶段只做只读 mask audit，不修改训练 forward。
+时间窗口和overlap不预先按validation性能冻结。`FACE-S1/S2`先只读统计300/600/1200/2000帧窗口和0/25/50% overlap下的clip数、每video/subject/task分布、短run和重叠率，再冻结S0-S4实验。完整协议见`VALIDITY_AWARE_TEMPORAL_SLICING_PLAN.md`，原始/派生数据问题见`AVEC2014_SOURCE_DATA_QUALITY.md`。
 
-需要比较三类表示：static canonical mask、raw per-frame landmark mask、temporally stabilized dynamic mask。稳定化只消除检测抖动：短缺失允许插值，长缺失保持 invalid；真实的大幅头动必须保留。推荐把轨迹拆成全局 face transform（location/scale/roll/projected yaw-pitch）和局部 landmark residual，后者可更强平滑，前者只做轻量去抖。
+### FACE-T0c 数据质量恢复：先修可验证输入故障，再选择片段
 
-每个 frame-region 的质量权重定义为：
+全量 aligned-image landmark 重新检测发现 6,501 个 `success=0` 帧，其中 4,206 个是纯黑 aligned 占位。原视频回连证明“纯黑 aligned”不等于原始视频损坏：300/300 原视频帧数契约通过，4,206 帧被拆成 38 视频/231 个 run；全量人工 review 得到 2,365 帧人物仍在但检测失败、1,841 帧人物缺席。若直接把这些失败交给 tracking interpolation，会把“人物离场”“真实遮挡/姿态/出界”和“landmark 短缺失”混为一谈。因此 AU-T1 前增加 T0c 数据质量门禁：逐帧分类、原视频 presence 分段、raw-frame warp 候选、视频级曝光异常恢复，并保留 raw/repaired 配对反证。
 
-```text
-q_t,r = confidence * tracking_validity * pose_visibility * mask_coverage
-```
+原 aligned-space 双向 Farneback/复制上一帧方案已被原视频证据否决，即使块长 `<=3` 也不再授权。冻结gate为：`person_absent -> keep_invalid`；`mixed/ambiguous -> keep_invalid`；`person_present_detection_failure -> raw_frame_warp_only`。3帧raw-frame warp smoke现已完成：前后有效raw/aligned landmark恢复锚点transform，在真实原视频相邻帧用forward-backward LK传播landmark，再warp缺失时刻的真实raw像素。3帧自动通过、1帧因raw锚点无效被拒绝；输出仍为review-required，不得跨人物缺席段传播、不得复制aligned脸，也不得据此授权全2,365帧materialize。
 
-大 yaw 时不镜像或合成隐藏侧；区域有效帧不足时跳过该 local loss，global loss 始终保留。初始门槛为 median adjacent-mask IoU `>=0.75`、valid-frame ratio `>=0.80`、landmark jump rate `<=0.05`，并要求 high-yaw overlay 无系统性错位。门槛需由大 yaw、快速转头和低 confidence 样本人工复核后再校准。
+曝光恢复采用异常视频或稳定曝光片段级单一映射，而不是逐帧自适应增强。每视频等距抽取 32 帧，排除轴连通黑色 padding 和纯黑帧；欠曝定义为 sampled median `<=35` 且暗样本比例 `>=0.5`，过曝定义为 sampled median `>=220` 且亮样本比例 `>=0.5`。首次 q10/q90=`44.873/173.274` 只到达正常包络边缘，现仅作为历史预览对照。正式协议从 train-normal 冻结 q20/q80=`49.018/142.171` 为处理后安全验收带，并把实际目标放在其内部的 q25/q75=`53.740/135.769`。欠曝使用 `T_log(x;a)=log(1+a*x)/log(1+a)`，过曝使用 `T_invlog(x;b)=(exp(b*x)-1)/(exp(b)-1)`；新目标下初步参数约为欠曝 `a=1.693-4.624`、过曝 `b=4.824-6.702`。映射只改变 luma，RGB 通道使用同一 gamut-safe delta，黑 padding 原样保留。
 
-最终反证矩阵固定为 global-only、global + equal-area arbitrary grid、global + AU semantic regions。AU 组只有在同等局部面积和相同训练预算下优于 grid，才能主张 FACS 语义带来增益；否则结论只能是一般局部多视图正则。完整脚本与输出字段见 `SHORTCUT_AUDIT_DESIGN.md`，当前执行顺序见 `TODO.md`。
+目标进入安全带不代表细节被恢复。预览与正式 gate 必须同时报告可见区域 q90-q10 luma span retention、暗端剪切比例和亮端剪切比例。若继续增强只增加另一端剪切，或无法减少原异常端的剪切，则将片段标为 `keep_raw`；禁止通过进一步增加曲线强度伪造“曝光正常”。已剪切高光和被量化压扁的阴影在论文中必须明确视为不可逆信息损失。
+
+matched raw-vs-aligned recoverability audit 已完成并否证 raw-space exposure correction 的必要性。92个 train-normal 视频以 q95 校准正常 raw→aligned 差异，另冻结1个百分点绝对剪切优势作为最小实际效应；22候选的685个有效同帧比较中，raw median gradient/entropy 并未呈现可支持恢复的异常优势，499帧的原视频本身已超过相关剪切上界，最终 `raw_detail_recoverable=0`。因此正式路线不在 raw 空间增加曝光增强/warp 分支：16视频只允许 `tone_only_or_keep_raw`，6视频保持 `keep_raw` 直至人工复核。该结论不依赖 OpenFace 表征一致性；现有两套68点只用于几何配准，派生数据冻结后再用统一 OpenFace 版本整体重跑。
+
+长视频切片必须建立在同一质量gate之上。只读容量审计证明，当前直接把4,206个纯黑占位切开会把300视频碎成527个run并制造232个不足600帧的短run；批准raw-warp完成后则只剩301个presence-valid run。当前head采样还漏掉83,840个可用帧（17.06%）。这些结果否定固定head和raw-warp前碎片化训练，但尚未量化大遮挡、大偏转和严重出界，因此下一步是`FACE-S1`而不是随机有效crop。正式训练将使用全部合格clip并做video级归一/聚合。
+
+同一参数只能用于人工确认的稳定视频或稳定时间段，严禁逐帧拟合。22 个候选的全帧临时复核已发现 `212_1_Freeform`（luma IQR `31.15`）和 `223_1_Freeform`（`10.57`）不适合整视频 inverse-log；欠曝中的 `310_2_Freeform`、`219_1_Freeform`、`232_1_Freeform`、`250_1_Freeform` 也需优先分段。正式稳定性阈值必须由 train-normal 全帧 IQR 分布的预注册分位数产生，不能根据 BDI/validation/test 结果调整。该设计与 P1/P2 的关键差异是：P1/P2 对所有视频做固定中心/对比度归一化且验证性能下降；T0c 只处理预注册分布尾部的 22 个异常视频，并把 raw 作为强对照。
+
+正式派生数据必须满足以下论文审计契约：
+
+1. 原始 `face_images` 只读且永久保留；派生帧写入独立 root，禁止原地覆盖。
+2. 每个改变帧记录原始/派生 SHA-256、source-presence segment、exposure segment、raw 帧号、transform 来源/传播误差、曲线类型与参数、代码/输入/环境 provenance。
+3. 默认先生成 sparse overlay 供人工复核；训练前再冻结独立完整 mirror 或显式 overlay resolver，不能临时混用路径。
+4. 暂不重新运行 FaceLandmark；修复图只能标记为 pixel-repaired/unvalidated，不得提前计入 landmark valid ratio。
+5. raw vs repaired 使用完全相同 split、seed、模型、训练预算和 checkpoint policy；若 repaired 只改善 landmark 成功率却恶化 BDI、identity risk、severity/task robustness 或引入 warp 伪影，则该输入恢复假设被否证。
+
+论文方法部分必须公开失败分类阈值、原视频 presence 标签与人工审阅协议、raw→aligned transform/传播参数、曝光抽样/目标来源、log/inverse-log 公式、segment 边界、曲线/JPEG 参数、改变帧和视频数量、人物缺席拒绝规则及软件版本。对于过曝视频只能主张“把可见亮度移回 train 正常包络”的 tone normalization，不能主张恢复了已经剪切丢失的纹理。
 
 ## 路线进一步细化：从证据闭环到可证伪的粗粒度信息分流
 
@@ -352,8 +363,8 @@ reconstruction = Recon([z_dep, z_nuisance]) -> H0
 - Shortcut learning 研究指出，深度模型可能学习在标准测试条件下有效、但不能迁移到更真实或更困难条件的捷径规则：[Shortcut Learning in Deep Neural Networks](https://arxiv.org/abs/2004.07780)。
 - 视觉 Transformer 缺少 CNN 的局部归纳偏置，在小数据集上更依赖数据规模、正则化和辅助约束，因此更需要检查 patch-level shortcut：[Efficient Training of Visual Transformers with Small Datasets](https://arxiv.org/abs/2106.03746)。
 - 面部抑郁识别研究逐渐强调 temporal facial landmarks 和行为动态，而不是直接依赖冗余 RGB 外观：[FacialPulse](https://arxiv.org/abs/2408.03499)。
-- AU 时间序列和表情动态可作为抑郁相关 biomarker 线索，支持后续用 AU/landmark/pose/gaze 做 behavior baseline 和审计：[Exploring Facial Biomarkers for Depression through Temporal Analysis of Action Units](https://arxiv.org/abs/2407.13753)。
-- OpenFace / LibreFace / OpenFace 3.0 这类工具说明 landmark、AU、pose、gaze、confidence、success 本身就是可量化的面部行为与质量变量，应被用作诊断变量，而不仅是 RGB 对齐预处理的副产品：[LibreFace](https://arxiv.org/abs/2308.10713)，[OpenFace 3.0](https://arxiv.org/abs/2506.02891)。
+- AU时间序列可作为抑郁biomarker研究背景，但本项目只借用FACS语义定义局部RGB区域；AU数值、AU序列、AU特征和AU监督不进入当前模型：[Exploring Facial Biomarkers for Depression through Temporal Analysis of Action Units](https://arxiv.org/abs/2407.13753)。
+- OpenFace / LibreFace / OpenFace 3.0说明landmark、pose、confidence、success可用于检测几何与质量审计；本项目当前只读取68点landmark和必要质量字段，不读取AU列：[LibreFace](https://arxiv.org/abs/2308.10713)，[OpenFace 3.0](https://arxiv.org/abs/2506.02891)。
 
 ## 当前输入特点
 
