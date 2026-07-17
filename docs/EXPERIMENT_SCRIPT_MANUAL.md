@@ -494,6 +494,29 @@ readme.txt:
 4ccdd65f992124db8127688a545a9344b537bdeb2d97371cfddfd65fc68a1d93
 ```
 
+该Windows发布包默认不包含CEN patch experts。`main_ceclm_general.txt`必须同时加载以下四个二进制文件，否则会出现`Could not find CEN patch experts`和`ERROR: Could not load the landmark detector`：
+
+```text
+model\patch_experts\cen_patches_0.25_of.dat
+model\patch_experts\cen_patches_0.35_of.dat
+model\patch_experts\cen_patches_0.50_of.dat
+model\patch_experts\cen_patches_1.00_of.dat
+```
+
+首次运行前在PowerShell执行官方下载脚本：
+
+```powershell
+$OpenFacePackage = "D:\Tools\Openface_2.2.0_win_x64\OpenFace_2.2.0_win_x64"
+Set-Location $OpenFacePackage
+Set-ExecutionPolicy -Scope Process Bypass
+.\download_models.ps1
+
+Get-ChildItem ".\model\patch_experts\cen_patches_*_of.dat" |
+  Select-Object Name,Length,FullName
+```
+
+四个文件都存在且大小大于0后，才能重新运行项目脚本。项目脚本现在会在创建输出目录前预检这四个依赖，并在`run_manifest.json`中记录其大小和SHA-256。不要用`ccnf_*`或`svr_*`文本文件替代CEN二进制文件。
+
 批处理脚本会在运行前强制检查 `EXACT_PASS`、OpenFace 版本、上述两个哈希和输入/输出目录；随后按视频目录名排序，逐个执行：
 
 ```text

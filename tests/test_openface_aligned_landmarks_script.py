@@ -46,3 +46,9 @@ def test_openface_script_uses_the_frozen_release_package_layout():
     assert "OpenFace readme SHA-256 mismatch" in text
     assert "Set-Location -LiteralPath $releaseRoot" in text
     assert "openface_working_directory = $releaseRoot" in text
+    assert "cen_patches_0.25_of.dat" in text
+    assert "cen_patches_0.35_of.dat" in text
+    assert "cen_patches_0.50_of.dat" in text
+    assert "cen_patches_1.00_of.dat" in text
+    assert "OpenFace CEN model dependencies are missing" in text
+    assert "Run download_models.ps1" in text

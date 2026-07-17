@@ -20,6 +20,11 @@ workflow milestones. Keep entries concise and reproducible.
 - Updated the PowerShell script to validate the package-directory name and all
   three hashes before extraction. Output examples now use a new versioned
   directory and never overwrite historical aligned-landmark CSVs.
+- The first Windows debug then failed inside OpenFace because the release
+  archive omitted the four binary CEN patch experts required by
+  `main_ceclm_general.txt`. The script now fails before creating an output run
+  when any dependency is missing, and records their size/SHA-256 after the
+  official `download_models.ps1` step supplies them.
 
 ### FACE-S1 phase-1 full distribution and paired temporal review
 

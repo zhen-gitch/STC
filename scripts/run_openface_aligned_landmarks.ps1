@@ -204,11 +204,36 @@ $releaseRoot = Join-Path $OpenFaceRoot $expectedPackageDirectory
 $featureExtraction = Join-Path $releaseRoot "FeatureExtraction.exe"
 $modelPath = Join-Path $releaseRoot "model\main_ceclm_general.txt"
 $readmePath = Join-Path $releaseRoot "readme.txt"
+$requiredModelRelativePaths = @(
+    "model\patch_experts\cen_patches_0.25_of.dat",
+    "model\patch_experts\cen_patches_0.35_of.dat",
+    "model\patch_experts\cen_patches_0.50_of.dat",
+    "model\patch_experts\cen_patches_1.00_of.dat"
+)
 
 foreach ($requiredPath in @($featureExtraction, $modelPath, $readmePath, $ImageRoot, $IntegrityComparisonSummary)) {
     if (-not (Test-Path -LiteralPath $requiredPath)) {
         throw "Required path does not exist: $requiredPath"
     }
+}
+
+$missingModelFiles = @()
+foreach ($relativePath in $requiredModelRelativePaths) {
+    $requiredModelPath = Join-Path $releaseRoot $relativePath
+    if (-not (Test-Path -LiteralPath $requiredModelPath -PathType Leaf)) {
+        $missingModelFiles += $relativePath
+        continue
+    }
+    if ((Get-Item -LiteralPath $requiredModelPath).Length -le 0) {
+        $missingModelFiles += "$relativePath(empty)"
+    }
+}
+if ($missingModelFiles.Count -gt 0) {
+    throw (
+        "OpenFace CEN model dependencies are missing: " +
+        ($missingModelFiles -join ", ") +
+        ". Run download_models.ps1 from $releaseRoot, then retry."
+    )
 }
 
 $integrity = Get-Content -LiteralPath $IntegrityComparisonSummary -Raw | ConvertFrom-Json
@@ -331,6 +356,16 @@ foreach ($file in @(Get-ChildItem -LiteralPath $modelRoot -File -Recurse | Sort-
 }
 $modelManifest | Export-Csv -LiteralPath (Join-Path $auditRoot "model_manifest.csv") -NoTypeInformation -Encoding UTF8
 
+$requiredModelManifest = [System.Collections.Generic.List[object]]::new()
+foreach ($relativePath in $requiredModelRelativePaths) {
+    $requiredModelPath = Join-Path $releaseRoot $relativePath
+    $requiredModelManifest.Add([pscustomobject]@{
+        relative_path = $relativePath
+        size = (Get-Item -LiteralPath $requiredModelPath).Length
+        sha256 = (Get-FileHash -LiteralPath $requiredModelPath -Algorithm SHA256).Hash.ToLowerInvariant()
+    })
+}
+
 $provenance = [ordered]@{
     audit = "OpenFace aligned-image landmark extraction"
     created_utc = [DateTime]::UtcNow.ToString("o")
@@ -359,6 +394,7 @@ $provenance = [ordered]@{
     model_path = $modelPath
     model_sha256 = $modelSha256
     expected_model_sha256 = $expectedModelSha256Normalized
+    required_cen_model_files = $requiredModelManifest
     image_root = $ImageRoot
     output_root = $OutputRoot
     integrity_comparison_summary = $IntegrityComparisonSummary

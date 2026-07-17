@@ -166,6 +166,8 @@ AU-T0a 已在 300 个视频上正确运行：`300 PASS / 0 FAIL / 0 BLOCKED`，�
 
 Windows OpenFace 当前冻结根目录改为 `D:\Tools\Openface_2.2.0_win_x64`，实际发布包为其下的 `OpenFace_2.2.0_win_x64` 子目录。该包的 `FeatureExtraction.exe`、`model/main_ceclm_general.txt`、`readme.txt` SHA-256 分别为 `a29ba49cfc59039bfe5e2f141898b2a110da420f6f520d6a923a86ac78cd96ae`、`7efbef33dbc3e54197960300827657f9fe7a42c0953ef52c2af054a6fdbc3598`、`4ccdd65f992124db8127688a545a9344b537bdeb2d97371cfddfd65fc68a1d93`。`scripts/run_openface_aligned_landmarks.ps1`现按该发布包布局解析路径并同时校验目录名和三项哈希；仍只执行完整序列`-fdir + -2Dfp + -mloc`，输出独立aligned-space landmark CSV。原始`face_images`、历史`openface_features`和现有landmark目录继续冻结且不得覆盖。
 
+当前新包首次debug暴露出四个CEN patch expert二进制未随压缩包提供：`model/patch_experts/cen_patches_0.25_of.dat`、`0.35`、`0.50`、`1.00`缺失，导致OpenFace返回`exit_code=1`且不生成CSV。脚本已增加依赖预检；必须在发布包目录运行官方`download_models.ps1`补齐文件后再重跑。`ccnf_*`/`svr_*`文本模型不能替代CEN二进制，不能把失败结果写入新的landmark版本。
+
 两视频 debug-v1 已完成并通过数据门禁：Freeform `930/930`、Northwind `990/990`，总计 `1920/1920` 行与检测成功，两个进程均正常关闭。独立坐标统计没有缺失或非有限值；总体 landmark in-bounds 比例分别为 `0.99973/0.99893`，单帧最低 `0.9853/0.9559`，少量越界仅涉及贴近图像边界的 jaw points。临时 T0b 检查为 `2 REVIEW_REQUIRED / 0 FAIL / 0 BLOCKED`，192 个模型选中帧全部有效，7 张 train overlay 人工审阅均正确贴合。
 
 debug-v1 的唯一阻塞项是 `git_commit/git_branch/git_status_short` 为空。根因不是提取失败，而是 `D:\Project\stc` 不含 `.git`；其脚本 SHA-256 `c7e89b39da16a9dc11e5624606586db2cf98c1eb8d8af209def916e277421df7` 已独立映射到提交 `1433a06`。脚本现新增成对的 `-SourceGitCommit/-SourceGitBranch`：非 git 代码副本缺少显式 provenance 时立即失败；若真实 checkout 可检测且与显式值不一致也立即失败。下一步使用实际 `ImageRoot=D:\Project\dataset\AVEC2014\face_images` 运行约 24 秒 debug-v2，确认 manifest 的 git 字段非空后才授权 300 视频全量生成。
