@@ -5,6 +5,28 @@
 This log records completed project maintenance, smoke validation, and experiment
 workflow milestones. Keep entries concise and reproducible.
 
+## 2026-07-28
+
+### PB-P0 privileged AU/head contract core frozen at `2685fa4`
+
+- Froze the PB contract core, P0 orchestration, thin audit CLI, no-gaze aligned-JPG extractor, focused tests and the research plan in core commit `2685fa49459d6e79499849c2927fce17a2ddc1f8` (short SHA `2685fa4`).
+- The authorized scope remains PB-P0 source/schema/frame/coverage/provenance and train-only-normalization infrastructure plus the landmark-only blocked audit. It does not include full-rich extraction, dataset/model/runner changes, auxiliary heads, PB-P1/PB-P2 or training.
+- Frozen targets are `AU12_r/AU14_r/AU15_r` and wrapped rotational head dynamics. Gaze is absent from extractor arguments, targets, normalization and loss; historical raw-video rich OpenFace files are excluded.
+- Validation completed with `65 passed`, including the real Windows PowerShell 5 contract tests.
+
+### Authoritative landmark-only v2 and historical debug evidence
+
+- `logs/privileged_behavior_alignment/p0_contract_landmark_only_blocked_v2/` is the authoritative landmark-only audit: 300 videos, 493,141 frames, 300 exact joins, 0 core-audited/rich-schema videos and 301 blockers because all sources lack the six required AU/pose columns. The result is correctly `BLOCKED`, not P0 PASS.
+- Historical `debug2c` produced 2/2 PASS, 1,920/1,920 rows and one 182-column no-gaze schema, but its extractor SHA is `7771c7a6...` rather than the frozen `64375c65...`, and it lacks the current `csv_content_manifest` plus final-summary hash binding. It remains schema/mask evidence only.
+- The same-version aligned-landmark full result has only 259/300 videos at per-video `success_ratio>=0.995`; 41 are below threshold and the first 20 videos include four failure proxies. This evidence supersedes the earlier idea of proceeding directly to a 300-video rich run.
+
+### PB-R0 docs-only follow-up and next gate
+
+- Completed this documentation synchronization as an independent docs-only follow-up on top of `2685fa4`; the core commit was not amended or rewritten.
+- PB-R0 submission-side work is complete. After the named branch is pushed, its sole remaining acceptance item is to sync Windows to the same final tip and verify a non-detached clean checkout, matching commit and frozen extractor SHA.
+- After Windows clean sync, the mandatory order is `fresh debug2 -> pilot20 -> threshold/coverage policy -> conditional full-rich`. Threshold policy cannot be skipped; a pilot failure either stops the strict branch or requires a separately authorized versioned mask-aware contract and a full R0/debug2/pilot rerun.
+- No full-rich extraction, PB-P1/PB-P2 implementation, model change or training was authorized or performed.
+
 ## 2026-07-17
 
 ### Frozen OpenFace 2.2.0 release-package path correction

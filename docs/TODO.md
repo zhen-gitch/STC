@@ -26,8 +26,42 @@ Stage A Shortcut 证据收口
 | C. Coarse task-nuisance 信息分流 | `z_dep / z_nuisance` 是否在等参数条件下优于共享表征和 GRL baseline？ | seed-42 utility gate 已否证当前 96 维 bottleneck/split 家族，停止进入 C3 |
 | D. Falsification / robustness | 信息分流失败来自 bottleneck、泄漏未降还是优化不稳定？ | 已完成 identity-gradient、正则化、连续加权和 split sensitivity 收口；不授权维度 sweep |
 | E. Face-valid + AU-semantic local augmentation | 全部可用人脸片段和AU语义完整的landmark局部RGB裁切能否在同一模型内提高输入质量并降低全脸捷径摄入？ | `FACE-S1 phase-1 v2`与124帧复核模板已完成；下一项填写global/local-geometry/boundary标签。逐区local crop必须等待polygon/margin overlay gate |
+| F. Privileged AU/head supervision（PB-P0数据门禁） | 训练期AU12/14/15与head-motion辅助监督能否引导RGB减少身份/静态捷径？ | 核心提交`2685fa4`与独立docs-only follow-up已完成且未amend；PB-R0只剩push后的Windows clean sync验收，之后依次为fresh debug2、pilot20和必经threshold policy。P1/P2仍未授权 |
 
 阅读规则：只执行新任务时读到“暂缓项”为止即可；后续章节主要是历史任务、已完成基础设施和旧阶段记录。
+
+### PB后续权威路线：先完成Windows clean sync，再证伪full-rich可行性
+
+完整研究、数据和实验规格见 `docs/PRIVILEGED_BEHAVIOR_ALIGNMENT_PLAN.md`。当前任务状态：
+
+- [x] `PB-SPEC`：冻结研究问题、AU/head白名单、gaze排除决定、P0/P1/P2边界、实验矩阵和停止条件。
+- [x] `PB-P0-INFRA`：exact `video_id + task_name + frame_id`合同、no-gaze extractor、strict provenance、coverage和physical-train normalization基础设施完成；65项测试通过。
+- [x] `PB-P0-LANDMARK-V2`：300/300 exact join、493,141帧；因缺六个rich源列而预期`BLOCKED`，不是P0 PASS。
+- [x] `PB-R0-CORE`：PB核心实现、extractor、测试与方案冻结为提交`2685fa4`。
+- [x] `PB-R0-DOCSYNC`：本次文档同步作为`2685fa4`之上的独立docs-only follow-up完成；不得amend或改写核心提交。
+- [ ] `PB-R0-WINDOWS-SYNC`：Windows拉取已推送的最终branch tip；必须非detached、`git status --short`为空、`2685fa4`为祖先，并在同步后重新计算最终commit/branch、extractor SHA与source-contract SHA。此项是PB-R0唯一剩余验收，未通过前不得运行OpenFace。
+- [ ] `PB-P0A0-DEBUG2`：从通过R0验收的Windows clean checkout，用当前脚本和全新目录运行`-MaxVideos 2`。必须2/2 PASS、1,920行、单一182列schema，并完成`csv_content_manifest`与final-summary/run-manifest hash闭环。
+- [ ] `PB-P0A1-PILOT20`：在相同来源运行`-MaxVideos 20`，冻结`input_frame_contract.csv` SHA和`selected_for_run=true`的精确20视频。25,980帧中包含`205_1_Freeform`、`206_1_Freeform`、`207_2_Freeform`、`208_1_Freeform`四个旧失败代理；无论20/20 PASS或出现低于0.995的视频，都保留完整结果并进入A2，FAIL只阻断strict full。
+- [ ] `PB-P0A2-POLICY`：pilot PASS/FAIL后的必经门禁，不得跳过。在不读取BDI/prediction/checkpoint的前提下生成带版本与SHA的`behavior_source_coverage_policy_v1.json`及只读校验器，冻结validity、ratio分母、physical-train coverage阈值、val/test只报告规则、最终强制阶段和失败状态。pilot PASS可冻结strict 0.995并申请full；FAIL时strict路线停止，或单独授权mask-aware改版后重走R0/A0/A1。
+- [ ] `PB-P0A3-FULL-RICH`：仅A0/A1/A2通过并再次授权后，才在全新目录运行300视频full-rich。任一未被pilot覆盖的视频导致full失败时返回A2；partial目录不得进入P0B、不得resume或事后改manifest。
+- [ ] `PB-P0B-CORE+COVERAGE`：对不可变rich root运行现有P0 CLI和A2 coverage校验器；要求CLI `status=PASS`、300/300 core/schema/join、physical-train统计、0 blocker、九项产物及独立coverage decision PASS。现有CLI只报告coverage且默认仅拒绝`std==0`常量列。
+- [ ] `PB-P0C/P0D/P0E`：这些不是现成命令，需分别冻结规格并新增matched raw/aligned物理保真工具、最终描述符与identity/task/exposure/quality风险工具、eligibility聚合器，最终生成`AU/HEAD/JOINT_ELIGIBLE`且`P1_CODE_AUTHORIZED=false`。
+- [ ] `PB-P1-CODE/PB-P1-RUN`：仅P0E通过并再次获得明确授权后实施和训练；当前未授权。
+- [ ] `PB-P2`：仅P1多seed联合条件优于最强单组后再单独授权；当前未授权。
+
+权威顺序固定为：
+
+```text
+core 2685fa4 DONE
+-> independent docs-only follow-up DONE（no amend）
+-> push后的Windows clean sync验收
+-> fresh debug2
+-> pilot20
+-> threshold/coverage policy（必经）
+-> full-rich（条件性）
+-> P0B/P0C/P0D/P0E
+-> P1/P2（再次授权后）
+```
 
 ### 编程实施控制（下一步）
 
@@ -431,7 +465,9 @@ src/diagnostics/        # 独立诊断与可视化系统
 - [ ] 将诊断图表输出组织为论文可用目录结构
 - [ ] 维护 `docs/RESEARCH_NOTES.md`，记录 OpenFace、AVEC2014、面部行为建模、多任务学习和捷径学习相关论文
 
-## OpenFace 行为表征研究路线
+## 历史归档：OpenFace 行为表征研究路线（已由当前E/F路线取代）
+
+以下早期待办只保留历史，不再作为当前执行入口；其中gaze、宽特征behavior-only或late-fusion任务不得覆盖顶部已冻结的no-gaze PB路线，除非重新立项并获得明确授权。
 
 - [x] 建立非抑郁捷径验证框架设计文档 `docs/SHORTCUT_AUDIT_DESIGN.md`
 - [ ] 确认当前数据使用的 OpenFace 版本、命令、输出字段、裁剪尺寸和帧采样方式

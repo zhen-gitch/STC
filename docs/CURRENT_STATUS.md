@@ -4,7 +4,7 @@
 
 ## 状态日期
 
-2026-07-17
+2026-07-28
 
 ## 阅读提示
 
@@ -23,12 +23,44 @@
 | 可选 latent | `z_id` 不进入第一版；基础方案通过 C3 后才重新论证 |
 | 不做 | 不显式建 `z_art/z_ctx/z_pose/z_quality`，不做多级 RPDF |
 | 当前输入路线 | 全部face-valid片段确定性挖掘 + 四个AU语义完整的landmark局部RGB crop/完整脸共享模型增强；AU数值、序列和监督不进入模型 |
-| 下一步 | v2复核模板已将132个contact条目去重为124帧；填写global/local-geometry/boundary人工标签并冻结独立threshold manifest。具体local crop仍等待区域overlay gate |
+| PB研究分支 | AU12/14/15 + 旋转head dynamics的PB-P0基础设施与landmark-only v2已完成；核心提交`2685fa4`和独立docs-only follow-up均已完成且未amend |
+| 当前输入下一步 | v2复核模板已将132个contact条目去重为124帧；填写global/local-geometry/boundary人工标签并冻结独立threshold manifest。具体local crop仍等待区域overlay gate |
+| PB下一步 | Windows clean checkout仍停在`40034f4`；同步已推送的最终tip并完成clean/ancestor/SHA验收，随后严格按`fresh debug2 -> pilot20 -> threshold/coverage policy -> conditional full-rich`推进。P1/P2仍未授权 |
 | 审计判据 | BDI metrics、identity risk、nuisance/BDI leakage、shortcut probe risk、severity bias、task consistency、train-val gap |
 | 主张边界 | reconstruction/decorrelation 收敛或单一 attacker 下降不等于语义解耦成功 |
 | 反证条件 | 不优于 paired-seed `C-REF`、multi-seed 不稳定或风险改善伴随 utility/group robustness 恶化时停止增加复杂度 |
 
 “可审计”要求每个表示出口和训练约束都对应可独立复现的外部测量；“可证伪”要求在编码和运行前冻结强 baseline、统一指标、multi-seed 规则和停止条件。负结果应作为机制结论保留，而不是通过继续堆叠 latent、门控或损失规避。
+
+### 2026-07-28 AU/head训练期特权监督 PB-P0 与 PB-R0 状态
+
+PB分支只使用`AU12_r/AU14_r/AU15_r`与旋转head dynamics作为候选训练期特权目标；gaze完全排除。validation、test和inference保持RGB-only。当前没有创建训练配置、辅助头或PB训练入口，P1/P2均未授权。
+
+PB-P0基础设施、no-gaze aligned-JPG extractor、合同CLI和三组测试已冻结在核心提交`2685fa4`，允许Windows PowerShell 5互操作的完整验证为`65 passed`。本次六份文档同步作为其上的独立docs-only follow-up完成，明确没有amend或改写`2685fa4`。
+
+当前权威landmark-only v2对300/300个物理split视频和493,141帧完成exact structural join，但300个CSV均缺少`AU12_r/AU14_r/AU15_r/pose_Rx/pose_Ry/pose_Rz`，因此`core_audited_video_count=0`、`rich_schema_video_count=0`，最终为预期的`BLOCKED`，共有301个blocker。该结果证明fail-closed合同有效，不是P0 PASS，也不允许回退历史raw-video rich CSV补列。
+
+历史`debug2c`仅保留为schema/mask证据：其extractor SHA为`7771c7a6...`，当前冻结脚本SHA为`64375c65...`，且旧run缺少`csv_content_manifest`和final-summary hash binding，不能作为当前strict-rich preflight。相同OpenFace版本和aligned JPG的旧landmark结果只有259/300视频达到逐视频`success_ratio>=0.995`，41/300未达到；前20视频包含4个旧失败代理，因此直接启动300视频full-rich不是合法下一步。
+
+PB-R0提交侧工作在本次docs-only follow-up中已经完成：`core 2685fa4 DONE -> independent docs-only follow-up DONE`。Windows checkout当前仍停在`40034f4`；唯一剩余验收是获取已推送的最终tip，并确认checkout非detached、`git status --short`为空、`2685fa4`为祖先，同时重新计算最终commit/branch、extractor SHA与source-contract SHA。该验收通过前不得运行fresh debug2。
+
+当前P0机器状态词汇为`PASS/BLOCKED`，不是`CORE_PASS`。现有P0 CLI的coverage表只负责报告，默认train statistics也只拒绝`std==0`的常量目标；因此即使CLI为`PASS`，仍必须由A2冻结的独立coverage policy作最终裁决。`selected_target_manifest.next_gate`是早期通用字段，不是当前执行权威。
+
+验收后的执行顺序固定为：
+
+```text
+fresh debug2
+-> pilot20
+-> threshold/coverage policy（必经）
+-> full-rich（仅条件通过且再次授权）
+-> P0B core
+-> P0C physical fidelity
+-> P0D descriptor + nuisance risk
+-> P0E eligibility
+-> P1/P2（再次授权后）
+```
+
+pilot无论PASS或FAIL都必须进入A2冻结machine-readable coverage policy；PASS可在policy完成后申请conditional full，任一视频低于逐视频0.995则禁止strict full，只能停止PB或单独授权versioned mask-aware合同后重走R0/debug2/pilot。不得临时调低阈值、删视频或改split。即使full与P0B通过，也必须完成P0C/P0D/P0E；这三阶段所需的物理保真、描述符风险和eligibility工具当前尚未实现，不能直接进入模型修改或训练。
 
 ### 2026-07-17 输入路线修订：face-valid片段与AU语义保持的landmark局部增强
 

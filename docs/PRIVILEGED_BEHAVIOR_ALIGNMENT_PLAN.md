@@ -7,6 +7,8 @@
 状态日期：2026-07-28。
 
 - 用户已授权并完成 PB-P0 数据合同基础设施、no-gaze aligned-JPG 提取入口、两视频 debug 和当前权威 landmark-only v2 阻断审计；该授权不包含全量 rich 提取、P1/P2、模型改动或训练。
+- PB核心实现、extractor、测试与本方案已冻结在提交 `2685fa4`；本次文档同步作为其上的独立 docs-only follow-up 完成，未 amend 或改写核心提交。
+- PB-R0当前唯一未完成验收项是：push后在Windows获取包含上述两次提交的同一具名分支最终tip，确认checkout非detached、`git status --short`为空、`2685fa4`为祖先且extractor SHA匹配。该验收完成前不得运行fresh debug2。
 - 当前未创建训练配置、未修改 dataset/model/runner，也未启动训练。正式 P0 状态为 `BLOCKED`，因为现有全量 aligned-JPG OpenFace 来源缺少六个 AU/pose 源列。
 - 当前 face-valid + AU-semantic landmark local-crop 主线继续保持 RGB-only；本方案不无声改变现有 baseline 或当前输入路线。
 - 行为监督只保留 `AU12/AU14/AU15` 与旋转头部运动动态。
@@ -167,7 +169,7 @@ exact video_id
 2. 冻结 `source_video_contract.csv` SHA-256 `12f50c2311b9d89dde81e27fa83891226ca5f447ed7d3d56fe38cf673a1c5a31`：300/300 视频 `PASS`、统一 30 FPS、aligned/raw 共 493,141 帧完全匹配。行为审计只读取 identity/frame-count/FPS 字段，并仅用它生成 `t=(frame_id-1)/30`；严禁读取其中的 raw OpenFace 路径或任何历史 raw AU/pose 数值；
 3. 新增原始 aligned JPG 专用 no-gaze profile，OpenFace 参数固定为 `-2Dfp -pose -aus`，不请求 gaze/HOG/3D landmark/PDM/aligned 图或 tracked video；训练目标仍只白名单读取六列；
 4. `debug2c` 对 2/2 视频、1,920 张 JPG/1,920 行 CSV 完成 exact frame/schema 审计并 `PASS`。该结果只证明提取入口可运行，不是全量提取授权，也不是训练授权；
-5. 下一门禁收紧为`PB-R0`可复现提交、current-script fresh debug2、pilot20和阈值/coverage语义决策；只有这些前置门禁通过并另行授权后，才允许在新目录完成全量aligned-JPG rich提取，再检查AU/head数值、动态保真、coverage、train-only normalization和identity/task风险；
+5. PB核心实现已冻结在`2685fa4`，独立docs-only状态follow-up也已完成且未amend核心；下一门禁收紧为push后的Windows clean sync、current-script fresh debug2、pilot20和必经阈值/coverage policy。只有这些前置门禁通过并另行授权后，才允许在新目录完成全量aligned-JPG rich提取，再检查AU/head数值、动态保真、coverage、train-only normalization和identity/task风险；
 6. 每个未来实验必须冻结一个 aligned-JPG 目标来源，禁止混合不同输入空间、版本或 feature profile。audit-only run manifest 不构成训练授权，仍需单独的 training-target contract；
 7. OpenFace 3.0 只能作为独立 extractor-version 因素重新全量提取，不能与 2.2.0 输出混用。
 
@@ -249,7 +251,7 @@ P0 通过条件：
 
 当前不能把“等待full-rich授权”直接解释为“下一步运行300视频”。有两个更早的硬阻塞：
 
-1. 当前PB核心代码、extractor、测试和方案文档尚未进入可由Windows clean checkout获取的冻结提交；`/mnt/d/Project/stc`虽clean，但停在`40034f4`且不存在当前extractor。正式`MaxVideos=0`会在OpenFace调用前拒绝dirty或git-status-unavailable checkout。
+1. PB核心实现已冻结在`dev`提交`2685fa49459d6e79499849c2927fce17a2ddc1f8`（短SHA `2685fa4`），独立docs-only follow-up也已完成且未amend核心；但Windows clean checkout仍停在`40034f4`且不存在当前extractor。PB-R0只剩push后让Windows同步最终branch tip并完成clean/commit/SHA验收；正式来源必须记录该最终commit/branch，同时保持extractor SHA不变。正式`MaxVideos=0`会在OpenFace调用前拒绝dirty或git-status-unavailable checkout。
 2. 旧full aligned-landmark使用相同OpenFace 2.2.0和同一aligned JPG，只有259/300视频达到逐视频`success_ratio>=0.995`；41/300低于阈值，train/val/test=`13/14/14`，5个低于0.90，最低为0。当前rich脚本任一视频低于0.995都会令final summary为`FAIL`。
 
 旧`debug2c`只保留为schema/mask历史证据：其extractor SHA为`7771c7a6b1dcafe82a03a677a94a134a52151c99dc606298a3f309da7e29aed0`，当前脚本SHA为`64375c6575066619cb21ce94d213e7457446df961a8d9565bd554eee68db3cc5`，且旧run没有当前要求的`csv_content_manifest`和final-summary hash binding。
@@ -257,7 +259,9 @@ P0 通过条件：
 因此当前权威执行链为：
 
 ```text
-PB-R0 reproducibility freeze
+PB-R0a core freeze（DONE: 2685fa4）
+-> PB-R0b docs-only status follow-up（DONE; no amend）
+-> PB-R0c push后的Windows clean sync（PENDING）
 -> PB-P0A0 current-script fresh debug2
 -> PB-P0A1 pilot20
 -> PB-P0A2 threshold/coverage policy decision
@@ -271,29 +275,44 @@ PB-R0 reproducibility freeze
 -> PB-P2（条件性再次授权）
 ```
 
-| Gate | 输入与动作 | PASS产物 | 停止或分支 | 授权边界 |
+| Gate | 输入与动作 | 出队产物 / PASS条件 | 停止或分支 | 授权边界 |
 |---|---|---|---|---|
-| `PB-R0` | 在专用branch/worktree中选择性冻结PB文件；运行65项测试、compileall、PowerShell parser和whitespace检查；Windows拉取同一具名branch/commit | clean WSL/Windows来源、相同commit/脚本SHA、冻结命令与新输出根 | 混入无关改动、detached HEAD、dirty/status unavailable或SHA不一致即停止 | commit/push/sync需单独授权；不提取数据 |
+| `PB-R0` | 核心`2685fa4`和独立docs-only follow-up均已完成且未amend；push后让Windows拉取最终branch tip并重新计算commit/branch | Windows处于具名branch、`git status --short`为空、`2685fa4`为祖先、extractor SHA为`64375c...`；冻结命令与全新输出根 | detached HEAD、dirty/status unavailable、核心祖先或脚本SHA不一致即停止 | 当前只剩Windows clean sync验收；不提取数据 |
 | `PB-P0A0` | 当前脚本、clean commit、全新目录、`MaxVideos=2` | 2/2 PASS、1,920行、182列、content manifest与summary/run-manifest hash闭环 | 任一provenance/schema/value-domain失败即停止 | 小规模rich debug授权；不含full或训练 |
-| `PB-P0A1` | 相同来源运行`MaxVideos=20`；前20视频共25,980帧且含4个旧低覆盖失败代理 | 20/20 PASS、25,980行、每视频0.995、单一schema与完整hash | 任一视频低于0.995时，当前合同下full必然FAIL，禁止继续 | pilot20需单独授权 |
-| `PB-P0A2` | 在不读取BDI结果的前提下冻结strict或mask-aware策略 | versioned source/coverage contract、阈值、测试和决策记录 | 保留0.995则停止PB full；mask-aware则修改规格/代码后重走R0/A0/A1 | 合同语义改变需单独授权 |
-| `PB-P0A3` | 仅当前序门禁通过时运行300视频full-rich，新目录且不resume | 300/300 PASS、493,141行、182列、0禁用产物、全部provenance/hash闭合 | 任一失败不得把partial rich用于P0B | full-rich需再次授权；不含模型/训练 |
-| `PB-P0B` | 对不可变rich root运行现有P0 CLI | `CORE_PASS`、300/300 core/schema/join、physical-train统计、0 blocker、九项产物 | blocker、近常量列、统计不可用或来源失配即停止 | 只读数据审计 |
+| `PB-P0A1` | 相同来源运行`MaxVideos=20`；按目录名排序冻结前20视频和`input_frame_contract.csv` SHA，其中包含`205_1_Freeform`、`206_1_Freeform`、`207_2_Freeform`、`208_1_Freeform`四个旧低覆盖代理，共25,980帧 | 无论PASS/FAIL都保留20视频精确集合、25,980行目标、单一schema、逐视频结果与完整hash，随后进入A2 | 任一视频低于0.995时，当前strict合同下full必然FAIL；禁止直接继续，但仍必须进入A2记录停止或改版决策 | pilot20需单独授权 |
+| `PB-P0A2` | 无论pilot PASS/FAIL，都在不读取BDI/prediction/checkpoint的前提下冻结machine-readable、versioned source/coverage policy及其校验器 | policy明确validity定义与分母、train-only coverage阈值、val/test仅报告规则、强制执行阶段、输入manifest SHA、policy SHA和测试；pilot PASS时可冻结strict策略，pilot FAIL时二选一 | pilot PASS且strict/coverage policy就绪后才可申请full；pilot FAIL且保留0.995则停止；mask-aware则修改规格/代码后重走R0/A0/A1 | policy或合同语义改变及校验器代码需单独授权 |
+| `PB-P0A3` | 仅当前序门禁通过时运行300视频full-rich，新目录且不resume | 300/300 PASS、493,141行、182列、0禁用产物、全部provenance/hash闭合 | 任一失败返回A2；不得把partial rich用于P0B、不得resume或事后改manifest | full-rich需再次授权；不含模型/训练 |
+| `PB-P0B` | 对不可变rich root运行现有P0 CLI，再用A2冻结的coverage policy校验器读取其coverage产物 | CLI机器状态`status=PASS`、300/300 core/schema/join、physical-train统计、0 blocker、九项产物，以及独立coverage decision PASS | blocker、常量列、统计不可用、来源失配或coverage policy失败即停止；当前CLI默认`minimum_std=0`，只拒绝`std==0`，非零实用方差阈值必须另行版本化 | 现有CLI为只读审计；新增coverage校验器需单独授权 |
 | `PB-P0C` | 使用同版本/模型/profile新生成raw-space参考，与aligned rich按exact frame做AU/pose物理保真 | 每轴/每AU的方向、相关、幅度、lag和cross-talk报告 | Rx或Ry失败则删除HEAD；仅Rz失败只允许预登记Rx/Ry；AU失败则删除对应AU组 | 新raw参考与审计工具需单独授权 |
 | `PB-P0D` | 冻结实际P1描述符和matched RGB reference；重新拟合描述符级physical-train normalization；执行identity/task/exposure/quality probes | training-target contract、descriptor manifest、coverage/risk/null报告 | 风险超限、coverage依赖nuisance或需按BDI结果选描述符即停止 | 只读风险审计；不含训练 |
-| `PB-P0E` | 汇总B/C/D并生成机器可读资格 | `AU_ELIGIBLE`、`HEAD_ELIGIBLE`、`JOINT_ELIGIBLE`、`P1_CODE_AUTHORIZED=false` | 某组失败时重新冻结精简矩阵；core PASS不能替代资格 | P1仍需明确授权 |
+| `PB-P0E` | 汇总P0B core/coverage、P0C fidelity和P0D risk并生成机器可读资格 | `AU_ELIGIBLE`、`HEAD_ELIGIBLE`、`JOINT_ELIGIBLE`、`P1_CODE_AUTHORIZED=false` | 某组失败时重新冻结精简矩阵；P0B PASS不能替代最终资格 | P1仍需明确授权 |
 | `PB-P1-CODE` | 默认关闭的exact target loader、分组小头和train-only masked SmoothL1 | 默认兼容、sampling/mask/train-only/AMP/gradient测试与debug smoke | val/test读取OpenFace、梯度异常或默认行为变化即停止 | 模型代码需再次授权 |
 | `PB-P1-RUN` | seed42 smoke和100-step train-only校准；六条件screen；幸存条件再跑43/44 | paired-seed utility/risk/gradient报告；test只读一次 | shuffled复制收益、gap/identity/severity/task恶化或多seed不稳定即停止 | 正式训练需再次授权 |
 | `PB-P2` | 先2--4秒短窗口，再按结果决定关系损失 | 独立P2规格与消融 | P1联合条件不优于最强单组、HEAD被阻断或batch关系不稳定即不进入 | 条件性再次授权 |
 
+近期只按以下工作包出队，不跨级并行启动训练因素：
+
+1. **WP0 / PB-R0-SYNC**：核心与PB-only文档已分别冻结且未amend；push后同步Windows clean checkout，并在同步后重新计算最终commit/branch。完成定义是Windows记录最终commit/branch、clean status、`2685fa4`祖先关系、extractor SHA和source-contract SHA；不产生任何新OpenFace数据。
+2. **WP1 / PB-P0A0-DEBUG2**：从上述clean checkout在全新目录运行`MaxVideos=2`。只有2/2、1,920行、182列、完整content/summary/run-manifest哈希闭环全部通过才出队；失败直接修复来源或脚本，不进入pilot。
+3. **WP2 / PB-P0A1-PILOT20**：单独授权后运行`MaxVideos=20`，冻结lexicographic前20视频、`selected_for_run`行集和`input_frame_contract.csv` SHA。无论20/20 PASS还是出现低于0.995的视频，都进入WP3；FAIL只表示strict full被阻断，不允许跳过正式决策。
+4. **WP3 / PB-P0A2-POLICY**：不读取BDI、prediction或checkpoint，生成`behavior_source_coverage_policy_v1.json`及SHA，并实现最小只读校验器和测试。policy必须定义validity与分母、physical-train阈值、val/test只报告、最终强制阶段和失败状态。pilot PASS可冻结strict策略并申请full；pilot FAIL时strict分支结束PB，mask-aware分支改规格/代码后从R0/A0/A1重走。
+5. **WP4a / PB-P0A3-FULL**：仅在WP3允许且再次授权后运行全量300视频；任一未被pilot覆盖的视频导致full失败时返回WP3，失败目录不得进入P0B、不得resume或事后改manifest。
+6. **WP4b / PB-P0B-CORE+COVERAGE**：运行现有P0 CLI和WP3校验器。CLI权威状态名是`PASS/BLOCKED`而非`CORE_PASS`；现有实现只自动拒绝`std==0`常量列，coverage和非零实用方差必须由版本化policy另行裁决。
+7. **WP4c / PB-P0C-FIDELITY**：先冻结规格，再新增matched raw/aligned参考生成、物理保真审计工具和测试，最后运行；这不是现成命令。
+8. **WP4d / PB-P0D-TARGET-RISK**：先冻结`behavior_descriptor_v1`和matched RGB reference，再实现描述符、normalization与identity/task/exposure/quality probe工具并运行；这不是现成命令。
+9. **WP4e / PB-P0E-ELIGIBILITY**：新增机器可读eligibility聚合器，汇总core、coverage、fidelity和risk；输出仍固定`P1_CODE_AUTHORIZED=false`。
+10. **WP5 / PB-P1至PB-P2**：仅在P0E生成机器可读资格且再次授权后，先实现默认关闭的P1代码，再以单因素、paired-seed和负对照方式训练；P2只在P1多seed成立后讨论。
+
 ### 4.7 阈值策略与最终训练目标合同
 
-`PB-P0A1`任一视频仍低于0.995时，只允许以下互斥决策：
+`PB-P0A2`是必经门禁，不因pilot PASS而跳过。它必须产生机器可读、带版本与SHA的source/coverage policy，至少冻结：`success/confidence` validity定义、各ratio分母、physical-train总体/task/逐视频阈值、val/test只报告规则、最终强制执行阶段、输入manifest SHA和失败状态。当前P0 CLI只报告coverage，并未用这些候选阈值自动BLOCK；因此CLI的`status=PASS`不能替代独立coverage decision。`selected_target_manifest.json`中的通用`next_gate`也不是执行权威，当前路线以本节和`TODO.md`为准。
+
+pilot若20/20通过，可在A2冻结strict `0.995`及coverage policy，随后申请条件性full-rich。pilot任一视频仍低于0.995时，只允许以下互斥决策：
 
 - **Strict分支**：保留逐视频0.995，状态写为`STOPPED_DATA_INFEASIBLE`，不运行full-rich，不删视频、不改split，也不以曝光派生图静默替换当前RGB输入。
 - **Mask-aware分支（推荐评审方向）**：新建versioned合同，将提取完整性硬门禁固定为100%视频/行/schema/hash/provenance，把`success/confidence`只用于valid mask和coverage；阈值仅用physical train冻结，val/test只报告。不得简单把`MinSuccessRatio`改成刚好通过的数值。
 
-Mask-aware规格在实现前应冻结的候选coverage门槛为：physical-train总体`quality_valid_ratio>=0.98`，Freeform/Northwind各自`>=0.95`，每个train视频至少60个有效帧、head至少59个连续有效pair，不允许某训练视频整组完全无效，task间coverage gap不超过0.05；最终rich数据仍须验证这些候选是否合理。现有landmark证据只说明该路线可能可行，不能替代rich AU/pose审计。
+首版policy在实现前应冻结的候选coverage门槛为：physical-train总体`quality_valid_ratio>=0.98`，Freeform/Northwind各自`>=0.95`，每个train视频至少60个有效帧、head至少59个连续有效pair，不允许某训练视频整组完全无效，task间coverage gap不超过0.05；最终rich数据仍须验证这些候选是否合理。现有landmark证据只说明该路线可能可行，不能替代rich AU/pose审计。若full-rich在pilot未覆盖的视频上失败，必须返回A2更新结论；partial目录不得进入P0B，也不得resume或事后改manifest。
 
 P0B的帧级六列统计不等于P1最终training target。P0D必须冻结小型`behavior_descriptor_v1`，首版限定为：
 
@@ -566,4 +585,4 @@ python scripts/train_mtl_lite.py \
 | 2026-07-28 | 初始 landmark-only v1 P0 完成 300/300 exact join，但因缺少三列 AU intensity 和三列 rotation source 而 fail-closed 为 `BLOCKED`；禁止回退历史 raw rich CSV。 |
 | 2026-07-28 | provenance 加固后的 `p0_contract_landmark_only_blocked_v2` 取代 v1 成为当前权威 landmark-only 阻断审计；v1 仅保留历史。strict-rich 门禁已实现，但因当前 rich schema 为 0/300 而明确为 `NOT_APPLICABLE`，未执行全量 rich 提取。 |
 | 2026-07-28 | 早期将下一门禁登记为单独授权full-rich后重跑P0；尚未执行，随后由下一行的可行性证据进一步收紧。P1/P2和全部训练继续保持未授权。 |
-| 2026-07-28 | 后续路线改为`PB-R0 -> fresh debug2 -> pilot20 -> threshold policy`，不再把300视频full-rich作为无条件下一步；原因是当前来源尚未进入clean可复现提交，旧debug不满足最新hash合同，且41/300个同版landmark视频低于逐视频0.995。 |
+| 2026-07-28 | 后续路线改为`PB-R0 -> fresh debug2 -> pilot20 -> threshold policy`，不再把300视频full-rich作为无条件下一步；原因是旧debug不满足最新hash合同，且41/300个同版landmark视频低于逐视频0.995。PB核心随后冻结在`2685fa4`，独立docs-only follow-up也已完成且未amend；当前R0只剩push后的Windows clean sync验收。 |

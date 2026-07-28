@@ -581,6 +581,148 @@ $OutputRoot = "D:\Project\dataset\AVEC2014\openface_aligned_landmarks_of220_a29b
 
 正式输出目录不得复用历史 `openface_features`，输出文件也不得写进任何 `*_video_aligned` JPG 子目录。进程中断后可以对同一正式目录附加 `-Resume`；脚本只跳过已经通过完整 CSV 契约的视频，缺失或不合格 CSV 会重新生成。暂不并行启动多个 OpenFace 进程，以避免 CPU/内存竞争和输出审计混乱。
 
+### 4.2.3a PB-P0 aligned-JPG AU/head提取与数据合同审计
+
+PB-P0只建立`AU12_r/AU14_r/AU15_r`与旋转head velocity的数据来源、exact frame join、coverage和physical-train normalization门禁，不修改dataset/model/runner，不创建辅助头，也不启动训练。gaze不在命令、schema白名单、target、normalizer或loss中；历史raw-video `openface_features`不得用于补列。
+
+PB-R0提交侧状态已经冻结：
+
+```text
+core implementation commit 2685fa4: DONE
+independent docs-only follow-up: DONE（not amended into 2685fa4）
+push后的Windows clean sync验收: PENDING
+```
+
+推送包含上述两次提交的具名分支后，Windows必须拉取同一最终tip，确认checkout非detached、`git status --short`为空且当前extractor SHA匹配冻结值。该验收完成前不得运行fresh debug2。`SourceGitCommit`记录Windows实际最终HEAD；`2685fa4`继续作为PB核心实现来源提交保留。
+
+Windows PowerShell变量和clean gate如下：
+
+```powershell
+$Repo = "D:\Project\stc"
+Set-Location $Repo
+if ((git status --short)) { throw "Windows checkout must be clean" }
+
+$SourceGitCommit = (git rev-parse HEAD).Trim()
+$SourceGitBranch = (git branch --show-current).Trim()
+if (-not $SourceGitBranch) { throw "Windows checkout must be on a named branch" }
+
+$OpenFaceRoot = "D:\Tools\Openface_2.2.0_win_x64"
+$ImageRoot = "D:\Project\dataset\AVEC2014\face_images"
+$IntegritySummary = "D:\Project\dataset\AVEC2014\audits\image_integrity\comparison\comparison_summary.json"
+$SourceVideoContract = "\\wsl.localhost\Ubuntu\home\zhen\code\stc\logs\au_region_tracking_audit\source_video_presence\tables\source_video_contract.csv"
+
+git merge-base --is-ancestor 2685fa49459d6e79499849c2927fce17a2ddc1f8 HEAD
+if ($LASTEXITCODE -ne 0) { throw "PB core commit is not an ancestor of HEAD" }
+
+$ExtractorSha = (Get-FileHash "$Repo\scripts\run_openface_aligned_behavior_features.ps1" -Algorithm SHA256).Hash.ToLowerInvariant()
+if ($ExtractorSha -ne "64375c6575066619cb21ce94d213e7457446df961a8d9565bd554eee68db3cc5") {
+    throw "PB extractor SHA mismatch"
+}
+$SourceVideoContractSha = (Get-FileHash "$SourceVideoContract" -Algorithm SHA256).Hash.ToLowerInvariant()
+if ($SourceVideoContractSha -ne "12f50c2311b9d89dde81e27fa83891226ca5f447ed7d3d56fe38cf673a1c5a31") {
+    throw "PB source-video contract SHA mismatch"
+}
+```
+
+#### PB-P0A0 fresh debug2
+
+使用全新且事先不存在的输出目录：
+
+```powershell
+$OutputRoot = "D:\Project\dataset\AVEC2014\openface_aligned_behavior_of220_debug2_CURRENT"
+
+& "$Repo\scripts\run_openface_aligned_behavior_features.ps1" `
+  -OpenFaceRoot "$OpenFaceRoot" `
+  -ImageRoot "$ImageRoot" `
+  -OutputRoot "$OutputRoot" `
+  -IntegrityComparisonSummary "$IntegritySummary" `
+  -SourceVideoContract "$SourceVideoContract" `
+  -SourceGitCommit "$SourceGitCommit" `
+  -SourceGitBranch "$SourceGitBranch" `
+  -MaxVideos 2
+```
+
+脚本固定调用`-2Dfp -pose -aus`，profile为`quality_2d_pose_au_no_gaze_no_hog_v1`；不请求gaze/HOG，不生成tracked video或新的aligned图。fresh debug2必须满足：
+
+```text
+2/2 PASS
+1,920 images = 1,920 CSV rows
+single 182-column schema
+per-video success_ratio >= 0.995
+csv_content_manifest由final summary和run manifest双重绑定
+final extraction summary SHA由run manifest绑定
+gaze/HOG/tracked/regenerated outputs = 0
+```
+
+历史`debug2c`只保留为schema/mask证据。其extractor SHA为`7771c7a6...`，当前冻结脚本SHA为`64375c65...`，且旧run缺少当前content-manifest和final-summary hash合同，不能替代fresh debug2。
+
+#### PB-P0A1 pilot20
+
+fresh debug2通过后，仍使用同一Windows commit、branch、OpenFace package、输入root和source-video contract，在另一个全新目录运行：
+
+```powershell
+$OutputRoot = "D:\Project\dataset\AVEC2014\openface_aligned_behavior_of220_pilot20_CURRENT"
+
+& "$Repo\scripts\run_openface_aligned_behavior_features.ps1" `
+  -OpenFaceRoot "$OpenFaceRoot" `
+  -ImageRoot "$ImageRoot" `
+  -OutputRoot "$OutputRoot" `
+  -IntegrityComparisonSummary "$IntegritySummary" `
+  -SourceVideoContract "$SourceVideoContract" `
+  -SourceGitCommit "$SourceGitCommit" `
+  -SourceGitBranch "$SourceGitBranch" `
+  -MaxVideos 20
+```
+
+pilot20必须冻结`_audit/input_frame_contract.csv` SHA以及`selected_for_run=true`的精确20视频集合，目标总数为25,980张图/25,980行、单一182列schema和完整hash闭环。目录名排序后的四个旧低覆盖代理应为`205_1_Freeform_video_aligned`、`206_1_Freeform_video_aligned`、`207_2_Freeform_video_aligned`、`208_1_Freeform_video_aligned`。无论20/20 PASS或存在`success_ratio<0.995`，都必须保留结果并进入A2；FAIL只阻断strict full。
+
+#### PB-P0A2 threshold/coverage policy（必经）
+
+pilot20之后必须先在不读取BDI、prediction或checkpoint的前提下生成带版本与SHA的`behavior_source_coverage_policy_v1.json`及只读校验器，不能从pilot直接跳到full。policy至少明确validity定义、ratio分母、physical-train coverage阈值、val/test只报告规则、最终强制阶段和失败状态。
+
+- pilot PASS：冻结strict 0.995与coverage policy后，才可申请conditional full；
+- pilot FAIL：保留strict时将PB标记为`STOPPED_DATA_INFEASIBLE`；或单独授权versioned mask-aware，把100%视频/行/schema/hash/provenance与检测coverage分离，修改合同、实现和测试后重新走R0、fresh debug2与pilot20。
+
+禁止临时覆盖`-MinSuccessRatio`、删除低覆盖视频、修改split或把阈值调到刚好通过。
+
+#### PB-P0A3 conditional full-rich
+
+只有fresh debug2、pilot20和threshold policy全部通过，并再次获得全量提取授权后，才可在新的空目录运行：
+
+```powershell
+$OutputRoot = "D:\Project\dataset\AVEC2014\openface_aligned_behavior_of220_a29ba49c_v1"
+
+& "$Repo\scripts\run_openface_aligned_behavior_features.ps1" `
+  -OpenFaceRoot "$OpenFaceRoot" `
+  -ImageRoot "$ImageRoot" `
+  -OutputRoot "$OutputRoot" `
+  -IntegrityComparisonSummary "$IntegritySummary" `
+  -SourceVideoContract "$SourceVideoContract" `
+  -SourceGitCommit "$SourceGitCommit" `
+  -SourceGitBranch "$SourceGitBranch"
+```
+
+full-rich必须为`PASS/full_dataset`，精确覆盖300视频、493,141张图/CSV行、单一182列schema、零失败和零禁用产物。`csv_content_manifest.csv`的SHA必须同时由final summary和run manifest绑定。当前脚本不支持resume；任一未被pilot覆盖的视频导致失败时返回A2，partial rich不得进入P0B，不得resume或事后修改manifest。
+
+OpenFace `-fdir`输出的`timestamp`为常数0，禁止用于速度。head dynamics使用冻结`source_video_contract.csv`的30 FPS时钟：`t=(frame_id-1)/30`，旋转差wrap到最短有符号弧，只在source frame连续且两端有效时计算。
+
+#### PB-P0B rich contract audit
+
+full-rich通过后才运行现有只读P0 CLI，并使用新的输出目录：
+
+```bash
+/home/zhen/miniconda3/envs/light/bin/python \
+  scripts/audit_privileged_behavior_contract.py \
+  --dataset-split-file /home/zhen/dataset/depression/avec/2014/dataset_split.json \
+  --image-root /mnt/d/Project/dataset/AVEC2014/face_images \
+  --openface-root /mnt/d/Project/dataset/AVEC2014/openface_aligned_behavior_of220_a29ba49c_v1 \
+  --source-run-manifest /mnt/d/Project/dataset/AVEC2014/openface_aligned_behavior_of220_a29ba49c_v1/_audit/run_manifest.json \
+  --source-video-contract logs/au_region_tracking_audit/source_video_presence/tables/source_video_contract.csv \
+  --output-dir logs/privileged_behavior_alignment/p0_contract_rich_of220_v1
+```
+
+P0B要求CLI机器状态`status=PASS`、300/300 core/schema/join、physical-train统计、strict provenance、九项产物和0 blocker，并由A2只读校验器给出独立coverage decision PASS。现有CLI只报告coverage且默认只拒绝`std==0`常量目标。P0B通过仍不是训练授权；P0C/P0D/P0E所需的物理保真、最终描述符风险和eligibility工具当前尚未实现，完成并通过后才可请求P1。P1/P2当前均未授权。
+
 ### 4.2.4 AU-T0b aligned-coordinate contract
 
 T0b 必须读取已经通过的 T0a summary/mapping 和冻结的 split 文件。推荐优先在 aligned JPG 上使用固定 OpenFace 版本重新检测 landmark，并将对应 CSV root 传给：
