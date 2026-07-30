@@ -5,27 +5,124 @@
 This log records completed project maintenance, smoke validation, and experiment
 workflow milestones. Keep entries concise and reproducible.
 
+## 2026-07-30
+
+### PB-P0A3 authoritative full-rich v2 and full coverage decision
+
+- Authoritative source: `/mnt/d/Project/dataset/AVEC2014/openface_aligned_behavior_of220_a29ba49c_v2`. It completed 300/300 videos, 493,141/493,141 rows, one 182-column schema, 587 MB and 10,064.6 seconds. It produced no HOG, tracked video or regenerated aligned images; content/summary/run-manifest hash bindings pass.
+- Source provenance is clean Windows `dev@2538248`; extractor SHA-256 is `64375c6575066619cb21ce94d213e7457446df961a8d9565bd554eee68db3cc5`; source-contract SHA-256 is `12f50c2311b9d89dde81e27fa83891226ca5f447ed7d3d56fe38cf673a1c5a31`.
+- The incomplete v1 source is prohibited from resume, reuse or P0B. Its 282 complete/1 incomplete/17 missing videos and absent final manifests remain failure evidence only.
+- Authoritative A2 output: `logs/privileged_behavior_alignment/p0a2_mask_aware_policy_full_a29ba49c_v2/`. Result: `PASS_FULL_SOURCE_COVERAGE`, 0 blockers, 0 warnings, 486,441 quality/AU-valid frames and 485,863 head-valid adjacent pairs. Physical-train overall/Freeform/Northwind coverage is 0.989273/0.983944/0.996984, task gap is approximately 0.01304, and the lowest train video has 180 AU-valid frames and 179 head pairs.
+- Legacy extraction summary remains expected `FAIL` at 259 strict PASS / 41 strict FAIL and 486,640/493,141 OpenFace successes. It is diagnostic only under the frozen mask-aware policy. Val/test are report-only; P0B and training remain unauthorized.
+- Known report bug: the full PASS decision still writes `next_action=STOP_AND_REVIEW_POLICY_OR_SOURCE_ISSUES`. Known compatibility risk: current P0 core may still require legacy extraction/content rows to be strict PASS. Both require a separately disclosed and authorized code package before P0B; hash/schema/join/provenance/value-domain gates must remain unchanged.
+
+### Full-model-first hybrid ablation strategy and agent disclosure gate
+
+- Future GLA training now follows maximum P0E-eligible `GLA-FULL` seed42 screening, dependency-aware subtraction (`-HEAD -> -AU10/17 -> -AU4/6/7 -> -all AU -> -locals`), bounded single-group additive confirmation, paired seeds43/44, and one locked post-selection benchmark package.
+- Grid, no-cross and subject-deranged shuffled-aux controls remain mandatory. A component absent from P0E is `SKIPPED_INELIGIBLE`, not an ablation result. `GLA-FULL` is unrelated to the legacy full model and Stage C `C-FULL`.
+- This entry is docs/governance only. No dataset/model/runner/config was changed and no P0B, smoke, training, benchmark, commit or push was authorized or run.
+- Root `AGENTS.md` now requires a named implementation package disclosure before every code/config/test/data/run/commit/push package. The agent must report boundaries, architecture/data flow, interfaces, split/test access, exact commands/resources/outputs, validation, risks and sub-agent roles, end the turn, and wait for explicit authorization of that package.
+
+## 2026-07-29
+
+### PB-P0A2 versioned mask-aware source/coverage policy
+
+- Added frozen label-blind policy `configs/behavior_alignment/behavior_source_coverage_policy_v1.json` (SHA-256 `9a3fb739078ab36e1fa4f8f67a8c8b167a76329941a591ad0ef9dd0c731a1926`), the read-only validator/CLI and focused tests. No BDI label, prediction, checkpoint, model or training input is exposed.
+- Source completeness remains hard-fail across selected video set, rows, schema, hashes, provenance, forbidden outputs and input contracts. Frame validity is independently recomputed as `success == 1 && confidence >= 0.8`; legacy strict `0.995` status is retained as diagnostic only. A legacy FAIL in `csv_content_manifest.csv` is accepted only when it matches `video_run_summary.csv`; hashes, rows, size, schema and non-coverage extractor issues remain blocking.
+- Authoritative run: `logs/privileged_behavior_alignment/p0a2_mask_aware_policy_pilot20_2538248_v5/`. Result: `PASS_PILOT_MASK_AWARE_FEASIBILITY`, 20 videos, 25,980 frames, 25,440 quality/AU-valid frames, 25,410 adjacent valid head pairs, 0 blockers and 3 future-full warnings.
+- The warnings are physical-train pilot-subset overall `0.965171 < 0.98`, Freeform `0.932505 < 0.95`, and task gap `0.067495 > 0.05`. Because the pilot contains only 8 physical-train videos, aggregate thresholds are `REPORT_ONLY_INCOMPLETE_SPLIT`; they must be enforced on the complete train split after a separately authorized full extraction.
+- Decision fields remain `full_rich_authorized=false`, `p0b_authorized=false`, and `training_authorized=false`. The next candidate action is review of the three risks and separate PB-P0A3 authorization; no full extraction or training was started.
+- Validation: `7 passed` for the focused policy tests and `64 passed` for the pure-Python PB contract/P0/policy regression set.
+
 ## 2026-07-28
 
-### PB-P0 privileged AU/head contract core frozen at `2685fa4`
+### PB-P0 privileged AU/head data-contract infrastructure and blocked landmark-only audit
 
-- Froze the PB contract core, P0 orchestration, thin audit CLI, no-gaze aligned-JPG extractor, focused tests and the research plan in core commit `2685fa49459d6e79499849c2927fce17a2ddc1f8` (short SHA `2685fa4`).
-- The authorized scope remains PB-P0 source/schema/frame/coverage/provenance and train-only-normalization infrastructure plus the landmark-only blocked audit. It does not include full-rich extraction, dataset/model/runner changes, auxiliary heads, PB-P1/PB-P2 or training.
-- Frozen targets are `AU12_r/AU14_r/AU15_r` and wrapped rotational head dynamics. Gaze is absent from extractor arguments, targets, normalization and loss; historical raw-video rich OpenFace files are excluded.
-- Validation completed with `65 passed`, including the real Windows PowerShell 5 contract tests.
+- Authorization was limited to PB-P0 source/data/schema/coverage/train-only-normalization infrastructure and the landmark-only blocked audit; it did not include a full 300-video rich extraction. Added the fail-closed contract core and full-dataset landmark-only audit, the CLI `scripts/audit_privileged_behavior_contract.py`, and the independent no-gaze extractor `scripts/run_openface_aligned_behavior_features.ps1`. No dataset/model/runner, auxiliary head, training config, smoke training or PB-P1 implementation was added.
+- Frozen targets are `AU12_r/AU14_r/AU15_r` and `d_pose_Rx_dt/d_pose_Ry_dt/d_pose_Rz_dt`. Gaze is absent from extractor arguments, targets, normalization and loss. Historical raw-video rich OpenFace files are explicitly excluded.
+- The initial formal landmark-only run is `logs/privileged_behavior_alignment/p0_contract_landmark_only_blocked_v1/`. It completed exact structural joins for `300/300` split videos and `493141` aligned JPG frames, but the source schema lacks `AU12_r/AU14_r/AU15_r/pose_Rx/pose_Ry/pose_Rz`; rich core coverage is therefore `0/300`, train-only target statistics are unavailable and the result is correctly `BLOCKED` rather than silently falling back to historical features.
+- The audit records gaze target/value/normalizer/loss access counts as zero, raw OpenFace feature-file open/value access counts as zero, and val/test normalization access as zero. Its outputs include frame contract, group coverage, target statistics, source-provenance fidelity, explicit `NOT_RUN_P0_PLACEHOLDER` identity/task-risk rows, issue table, selected-target manifest, report and run manifest. Neither identity/task risk nor aligned-pose physical fidelity was run or passed.
 
-### Authoritative landmark-only v2 and historical debug evidence
+### PB-P0 provenance hardening and authoritative landmark-only v2
 
-- `logs/privileged_behavior_alignment/p0_contract_landmark_only_blocked_v2/` is the authoritative landmark-only audit: 300 videos, 493,141 frames, 300 exact joins, 0 core-audited/rich-schema videos and 301 blockers because all sources lack the six required AU/pose columns. The result is correctly `BLOCKED`, not P0 PASS.
-- Historical `debug2c` produced 2/2 PASS, 1,920/1,920 rows and one 182-column no-gaze schema, but its extractor SHA is `7771c7a6...` rather than the frozen `64375c65...`, and it lacks the current `csv_content_manifest` plus final-summary hash binding. It remains schema/mask evidence only.
-- The same-version aligned-landmark full result has only 259/300 videos at per-video `success_ratio>=0.995`; 41 are below threshold and the first 20 videos include four failure proxies. This evidence supersedes the earlier idea of proceeding directly to a 300-video rich run.
+- `logs/privileged_behavior_alignment/p0_contract_landmark_only_blocked_v2/` supersedes v1 as the current authoritative landmark-only audit; v1 is retained only as historical evidence.
+- The v2 result remains intentionally `BLOCKED`: `300` videos, `493141` frames, `0` core-audited videos, `0` rich-schema videos, `300` exact joins and `301` blocking issues (`300 × missing_behavior_columns`, `1 × train_only_statistics_unavailable`). All nine outputs and all eight recorded output hashes were independently verified.
+- The implementation SHA-256 values frozen by the v2 manifest are `34a72712c113a3d387d7898b3bf969a2a40962b5e61fe4fcbdc21de7e2151e02` for P0 orchestration, `6027c587df39c748e8572cbe2426d1ea0749fe171a9b02c9b63b337528862227` for the contract core and `f86793ae0d4ecf938c6fc3e17ae09c3f8cc24e104ff64dc2b81ef7f5d63cf5a3` for the CLI.
+- Strict-rich provenance now requires the exact reviewed extractor SHA and frozen OpenFace 2.2.0 package/profile, a valid commit/branch with available and clean source git status, `run_scope=full_dataset`, `max_videos=0`, exact 300-video/493141-frame scope and an exactly frozen `min_success_ratio=0.995`.
+- The extractor rejects row-width, parsing and value-domain violations: exact 182-column rows, sequential frames, zero image-directory timestamps, finite binary success, confidence in `[0,1]`, AU intensities in `[0,5]` and rotations in `[-pi,pi]`.
+- The final run manifest hashes the adjacent PASS extraction summary. Both that summary and the run manifest hash the same `csv_content_manifest.csv`; PB-P0 rechecks each CSV's rows, schema, byte size and SHA-256.
+- For an eligible full-rich source, PB-P0 also rechecks every current aligned JPG against the frozen candidate image manifest by exact relative path, byte size and SHA-256. This expensive gate is `NOT_APPLICABLE`, not passed, for the current landmark-only v2 source.
+- Validation passed with `65 passed in 47.43s` for `tests/test_privileged_behavior_contract.py`, `tests/test_privileged_behavior_p0.py` and `tests/test_openface_aligned_behavior_features_script.py`, including the real Windows PowerShell 5 contract tests.
+- The eight-file PB-P0 core was frozen on branch `dev` at commit `2685fa49459d6e79499849c2927fce17a2ddc1f8` (`2685fa4`, `feat: add privileged behavior P0 audit contract`). PB status documentation is recorded in the independent docs-only follow-up created on top of that commit; the validated core commit was not amended.
+- The current P0 machine status vocabulary is `PASS/BLOCKED`; its train-statistics default only rejects exactly constant (`std == 0`) targets, and its coverage table is reporting-only. The generic `selected_target_manifest.next_gate` remains a historical P0 field and must not override the later `Windows sync -> fresh debug2 -> pilot20 -> policy` route.
+- No full 300-video rich extraction, dataset/model/runner change, auxiliary head, PB-P1/PB-P2 implementation or training was authorized or performed. Gaze remains excluded.
 
-### PB-R0 docs-only follow-up and next gate
+### PB-P0 aligned-JPG rich extractor two-video debug
 
-- Completed this documentation synchronization as an independent docs-only follow-up on top of `2685fa4`; the core commit was not amended or rewritten.
-- PB-R0 submission-side work is complete. After the named branch is pushed, its sole remaining acceptance item is to sync Windows to the same final tip and verify a non-detached clean checkout, matching commit and frozen extractor SHA.
-- After Windows clean sync, the mandatory order is `fresh debug2 -> pilot20 -> threshold/coverage policy -> conditional full-rich`. Threshold policy cannot be skipped; a pilot failure either stops the strict branch or requires a separately authorized versioned mask-aware contract and a full R0/debug2/pilot rerun.
-- No full-rich extraction, PB-P1/PB-P2 implementation, model change or training was authorized or performed.
+- Final debug output: `/mnt/d/Project/dataset/AVEC2014/openface_aligned_behavior_of220_debug2c_20260728`.
+- OpenFace 2.2.0 ran with the fixed `quality_2d_pose_au_no_gaze_no_hog_v1` profile (`-2Dfp -pose -aus`). Both videos passed: `2/2 PASS`, `1920/1920` image/CSV rows, `1920` successes, one 182-column schema, and zero gaze, HOG, tracked-video or regenerated-aligned outputs.
+- The core contract check found 1,920 valid AU rows and 1,918 valid head-velocity rows; the first valid frame of each video has no predecessor and is correctly masked for velocity. These are two-video schema/mask checks, not physical-fidelity evidence.
+- OpenFace `-fdir` timestamps were all zero. Head dynamics therefore use the frozen `source_video_contract.csv` rather than CSV timestamps: `300/300 PASS`, aligned/raw frame counts equal, `fps=30`, and `t=(source_frame_id-1)/fps` with wrapped angular differences on adjacent valid frames only.
+- This two-video debug validates the executable/schema/provenance path only. It is not a full rich extraction and cannot authorize PB-P1. The next gates are `2685fa4`-based Windows clean sync, a current-script fresh debug2, pilot20, and a label-blind threshold/coverage policy decision. A new 300-video rich output is conditional on all four gates and separate authorization; it must then pass PB-P0 core, aligned-pose physical fidelity and final-descriptor identity/task/exposure/quality risk before any training starts.
+
+## 2026-07-19
+
+### FACE-S1 and LM-T0b AI-assisted review copies
+
+- Preserved both authoritative `PENDING` templates and generated separate review copies with reviewer `Codex-AI-assisted`, review date, per-row notes and explicit `human_countersigned=false` provenance.
+- FACE-S1 reviewed all 124 train frames and 372 decision cells. Global labels are `111 usable / 8 out-of-frame / 3 major-occlusion / 2 blur`; local labels are `92 candidate / 12 landmark-missing / 7 out-of-frame / 6 unstable / 5 extreme-pose / 2 other`; all 12 paired jumps and all 124 temporal labels are `no_boundary`. Independent validation checked canonical row order, immutable fields, closed label sets, 124 current images, 12 previous images and 11 contact sheets. Completed/validated CSV SHA-256 is `e7a09000da2781ea12d0496abd62722957cb3d10c469797a3a217d0c0c6cb802`.
+- LM-T0b reviewed all 120 train overlays as `115 PASS / 5 UNCERTAIN / 0 FAIL`. The uncertain rows are `T0B-0007`, `T0B-0031`, `T0B-0035`, `T0B-0115` and `T0B-0119`, all due to occlusion or severe crop. The repository validator checked immutable fields and overlay hashes; completed/validated CSV SHA-256 is `575541d57d510f16b44310cb233a90ab54ed22fa017edabdf5e5b36ec901a8ac`.
+- The LM-T0b overlay status is `REVIEW_REQUIRED`; the source `40 FAIL / 260 REVIEW_REQUIRED` keeps `coordinate_contract_status=FAIL` and `authorized=false`. FACE-S1 remains `AI_ASSISTED_REVIEW_COMPLETE_HUMAN_COUNTERSIGN_PENDING`. No threshold manifest, `face_usable` approval, FACE-S2 clip, local crop or training authorization was produced.
+
+Validation commands:
+
+```bash
+/home/zhen/miniconda3/envs/light/bin/python scripts/validate_au_coordinate_overlay_review.py \
+  --review-package-dir logs/au_region_tracking_audit/t0b_overlay_review_of220_v2 \
+  --completed-review logs/au_region_tracking_audit/t0b_overlay_review_ai_assisted_20260719/tables/overlay_review_completed_codex_ai.csv \
+  --output-dir logs/au_region_tracking_audit/t0b_overlay_review_validation_ai_assisted_20260719
+
+/home/zhen/miniconda3/envs/light/bin/python scripts/validate_face_usability_threshold_review.py \
+  --review-package-dir logs/au_region_tracking_audit/face_usability_threshold_review_v2 \
+  --completed-review logs/au_region_tracking_audit/face_usability_threshold_review_ai_assisted_20260719/tables/face_usability_threshold_review_completed_codex_ai.csv \
+  --output-dir logs/au_region_tracking_audit/face_usability_threshold_review_validation_ai_assisted_20260719_v4 \
+  --review-kind ai_assisted \
+  --review-date 2026-07-19
+```
+
+## 2026-07-18
+
+### LM-T0b full aligned-coordinate contract audit
+
+- Completed the full read-only coordinate audit with the frozen OpenFace 2.2.0 aligned-image landmark run `t0b_coordinate_contract_of220_v1`.
+- The run covers 300 videos and 41,016 model-selected frames. Its decision is `260 REVIEW_REQUIRED / 40 FAIL / 0 BLOCKED`; the 40 FAIL videos are train/val/test=`12/13/15` and all fail the frozen `mapping_valid_ratio >= 0.995` gate.
+- The aligned OpenFace extraction itself contains 493,141 rows and 486,640 `success=1` frames (`0.986817` overall), matching the independent frame-failure audit. T0b additionally records 364 sampled `mapping_source_detection_failed` frames and 3 low in-bounds frames in `222_1_Freeform_video`.
+- The severe examples are `238_3_Freeform_video` (mapping-valid ratio `0.0000`), `207_2_Freeform_video` (`0.703704`) and `242_1_Northwind_video` (`0.769841`). These are not repaired by interpolation or by changing thresholds.
+- The authoritative report and tables are under `logs/au_region_tracking_audit/t0b_coordinate_contract_of220_v1/`. The 120 train overlays remain blank for manual `review_status/review_notes`; dynamic masks, local crops and training remain blocked. The historical placeholder directory `t0b_coordinate_contract` is not used.
+
+### LM-T0b train-overlay review package and validator
+
+- Added a read-only review-package generator that verifies train-only rows and source artifacts, hashes every overlay, and writes 12 paginated contact sheets plus a separate PENDING review template. The original T0b overlay manifest is not modified.
+- Added a fail-closed signed-review validator. Immutable frame/path/hash/mapping fields must match the template; every row requires `REVIEWED`, `PASS|FAIL|UNCERTAIN`, reviewer and date, with notes for non-PASS decisions.
+- The validator reports overlay-review and source-coordinate decisions separately. Even an all-PASS 120-overlay review cannot override the 40 automated source-video FAIL decisions or authorize local crops.
+- Generated the authoritative `t0b_overlay_review_of220_v2` package: 120 overlays, 30 per selection reason, 12 contact-sheet pages. The earlier v1 package was generated before the validator was added and is superseded by v2.
+- A model-assisted visual precheck found no systematic scale/translation error. Hand occlusion, severe crop and locally obscured anatomy remain explicit human decisions, including `T0B-0007`, `T0B-0031`, `T0B-0035`, `T0B-0115` and `T0B-0119`.
+
+### Exposure-derived OpenFace audit-feature extraction implementation
+
+- Added `scripts/run_openface_exposure_features.ps1` as a separate Windows pipeline for formally materialized exposure-processed aligned JPGs. It explicitly requests quality, pose, gaze, 2D/3D landmarks, PDM parameters and AU outputs while disabling HOG and aligned-image generation.
+- Added fail-closed gates for a colocated `COMPLETE + mirror` materialization manifest, full source/derived relative-frame parity, repair manifest hashes, per-modified-frame source/derived SHA-256, exposure-only repair types, git/review provenance, frozen OpenFace/CEN/AU models, CSV row/frame/schema parity and contract-aware resume.
+- Strengthened future `materialization_manifest.json` outputs with completion status, repair/failure CSV hashes and an explicit complete-tree/relative-path/hash frame contract. Historical manifests are not silently upgraded.
+- Kept the AU boundary unchanged: extracted AU values are for paired input diagnostics only and are not authorized as RGB-model inputs, auxiliary targets or training supervision.
+- Validation completed locally with focused pytest (`12 passed`), Python compile checks and `git diff --check`. Native PowerShell parser execution was unavailable in the current sandbox, so Windows parser/debug execution remains part of the two-video gate.
+
+### Raw-vs-exposure OpenFace paired audit implementation
+
+- Added a read-only frame-paired diagnostic and CLI that require matching OpenFace core/CEN provenance, exact video/frame joins and the exposure run's recorded materialization SHA-256.
+- Added per-video success transitions, confidence deltas, 68-point displacement and temporal motion metrics, plus per-feature 3D/pose/gaze/PDM/AU drift only when both schemas and rich-model hashes match.
+- Kept landmark-only references valid for the common quality/2D subset while explicitly refusing to fill unavailable rich fields from historical raw-video OpenFace outputs.
+- Outputs are descriptive and remain `REVIEW_REQUIRED`; they do not access BDI labels/predictions or claim exposure normalization improves downstream utility.
+- Synthetic coverage includes landmark-only pairing, full rich-feature pairing, provenance rejection and a read-only CLI contract.
 
 ## 2026-07-17
 

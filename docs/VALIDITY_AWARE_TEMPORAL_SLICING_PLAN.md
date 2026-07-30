@@ -2,6 +2,8 @@
 
 > 文档职责：冻结本项目“人脸可用片段挖掘、训练样本扩增、video-level聚合、AU语义保持的landmark局部裁切”的设计边界。原始/派生视频问题见 `AVEC2014_SOURCE_DATA_QUALITY.md`，脚本字段见 `SHORTCUT_AUDIT_DESIGN.md`，当前状态见 `CURRENT_STATUS.md`。
 
+> **2026-07-30职责收敛**：本文继续作为face-valid时间切片与crop数据合同权威；局部视图已由历史四区改为眼眉、鼻颊、嘴部三语义区，train-only AU/head辅助监督和FULL优先混合消融统一由`GLOBAL_LOCAL_AU_EXPERIMENT_PLAN.md`管理。本文旧L0/L1/L2矩阵只保留历史背景，不再是训练执行入口。
+
 ## 2026-07-17 路线修订
 
 本项目的时间切片目标不是保证窗口在视频内均匀随机，也不是把固定head替换为另一种随机采样。正式目标是：
@@ -15,18 +17,18 @@
 AU在本项目中的边界必须分成“语义先验”和“模型数据”两层：
 
 - **保留**AU/FACS作为局部RGB视图的语义分区依据，避免任意几何裁切破坏抑郁相关面部动作区域；
-- **不使用**逐帧AU intensity/presence数值、AU序列或AU特征作为模型输入；
-- **不建立**AU预测任务、AU监督loss或AU专属head；
+- **不使用**逐帧AU intensity/presence数值、AU序列或AU特征作为推理输入；
+- **允许**通过PB-P0E资格门禁的聚合AU动态作为train-only辅助目标；validation/test隐藏目标root仍必须运行；
 - 68点landmark只负责在每一帧动态定位完整语义区域，landmark坐标本身也不送入模型。
 
 当前项目的数据流为：
 
 ```text
 完整aligned face global view
-+ 由68点landmark逐帧定位的四个AU语义完整局部RGB crop
--> 同一个backbone / temporal encoder / BDI head
--> local与global互为训练增强
--> validation/test默认使用global face
++ 由68点landmark逐帧定位的眼眉/鼻颊/嘴部三个语义局部RGB crop
+-> 同一个shared backbone -> 帧级validity-aware fusion -> temporal encoder / BDI head
+-> 可选train-only区域/跨区域AU辅助head
+-> validation/test使用同一冻结RGB视图合同，但不读取AU/head target
 ```
 
 `FACE-*`命名用于人脸可用性和时间片段，`LM-*`命名用于landmark定位与局部RGB数据路径；它们不表示取消AU语义分区。历史 `AU-T* / AU-M*` 输出继续作为frame、coordinate、failure、exposure和区域跟踪审计证据。
@@ -197,17 +199,16 @@ clip不能作为独立subject进入主指标、bootstrap或显著性检验。
 
 ### 输入定义
 
-首版先用AU/FACS定义不可被任意切碎的粗粒度语义区域，再用aligned-space 68点landmark逐帧定位其完整外包络。模型读取的是裁切后的RGB像素，不读取AU值或landmark坐标：
+首版用AU/FACS定义不可被任意切碎的粗粒度语义区域，再用aligned-space 68点landmark逐帧定位其完整外包络。模型推理输入只包含RGB像素和valid mask，不读取AU值或landmark坐标：
 
 ```text
 global_face: 完整aligned face
-brow: AU1/2/4
-eye_cheek: AU5/6/7/45
-nose_upper_lip: AU9/10
-mouth_jaw: AU12/14/15/17/20/23/24/25/26
+eye_brow: 双眼、双眉和少量眼下区域
+nose_cheek: 鼻梁、鼻翼、双侧颧部和鼻唇沟上段
+mouth_lower_face: 完整嘴唇、双侧嘴角、鼻唇沟下段和少量下巴
 ```
 
-每个语义组必须先冻结对应的68点landmark集合、polygon/外包络、相对margin、最小面积和越界规则，并通过aligned-space overlay确认。局部view使用能覆盖完整语义polygon及margin的真实矩形RGB crop后resize；AU编号只定义语义范围，不用AU强度决定区域，不生成AU heatmap，不建立AU预测loss。
+每个语义组必须先冻结对应的68点landmark集合、polygon/外包络、相对margin、最小面积和越界规则，并通过aligned-space overlay确认。相邻区域只允许约5%--10%边界容错。局部view使用能覆盖完整语义polygon及margin的真实矩形RGB crop后resize；AU强度不决定裁切位置，也不生成AU heatmap。通过PB-P0E的AU12/14/15、AU4/6/7、AU10/17可按GLA方案作为train-only辅助目标，其中AU6和AU14允许跨相邻区域token预测。
 
 ### 语义完整性gate
 
@@ -227,19 +228,19 @@ global和local必须：
 - 复用同一随机flip/affine/color参数；
 - 共享同一个backbone、temporal encoder和BDI head；
 - local无效时跳过对应local loss，不伪造或镜像隐藏区域；
-- validation/test默认只使用global face，另行报告global+local推理只能作为消融。
+- validation/test使用冻结的global+有效local视图合同，但不读取AU/head target；global-only部署必须另立蒸馏/一致性实验。
 
 ### 控制组
 
-为区分“任何裁切增强”与“AU语义保持的landmark定位裁切”，固定比较：
+为区分“任何裁切增强”与“AU语义保持的landmark定位裁切”，GLA矩阵保留以下语义对照：
 
 ```text
-L0 global-only
-L1 global + four equal-area fixed/grid crops
-L2 global + AU-semantic landmark-guided RGB crops
+GLA-C-REF: global-only
+GLA-RGB-GRID: global + three equal-area fixed/grid crops
+GLA-RGB-FULL: global + three semantic landmark-guided RGB crops
 ```
 
-L2必须与L1匹配局部view数量、总面积、loss scale、模型和训练预算。只有L2稳定优于L1，才能支持“AU语义保持的区域布局优于任意局部裁切”；若L1≈L2，只能主张一般局部多裁切正则有效。即使L2获胜，也不能声称模型使用了AU数值、识别了AU或学到了逐AU表征。
+`GLA-RGB-FULL`必须与`GLA-RGB-GRID`匹配局部view数量、面积/长宽比、padding、valid mask、loss scale、模型和训练预算。只有语义视图稳定优于grid，才能支持“语义区域布局优于任意局部裁切”；若二者近似，只能主张一般局部多裁切正则有效。完整运行顺序和AU/head消融以GLA文档为准。
 
 ## 实验矩阵
 
@@ -253,15 +254,15 @@ L2必须与L1匹配局部view数量、总面积、loss scale、模型和训练�
 | S3 | S2下比较300/600/1200/2000窗口 | 时间尺度敏感性；只在S2主协议下比较 |
 | S4 | S2下比较0/25/50% overlap | 重叠增加是否提供信息还是只产生重复 |
 
-### AU语义保持的Landmark局部增强
+### 历史局部增强矩阵（已由GLA矩阵取代）
 
 | ID | 视图 | 推理 |
 |---|---|---|
 | L0 | global face | global |
-| L1 | global + equal-area grid | global |
-| L2 | global + four AU-semantic landmark-guided RGB crops | global |
+| L1 | global + equal-area grid | 历史global-only部署假设 |
+| L2 | global + four AU-semantic landmark-guided RGB crops | 历史global-only部署假设 |
 
-只有S2通过seed-42 gate后运行时间尺度/重叠消融；只有L2优于L1后运行multi-seed和S2+L2组合。避免一次性展开完整笛卡尔积。
+L0/L1/L2只用于解释历史设计演进，不得继续运行。当前三语义区、统一train/val/test RGB合同和FULL优先混合消融见`GLOBAL_LOCAL_AU_EXPERIMENT_PLAN.md`；时间片段S0-S4是否恢复也必须先并入同一策略manifest，避免与视图/AU因素形成未注册笛卡尔积。
 
 ## 与曝光处理的关系
 
@@ -289,18 +290,19 @@ L2必须与L1匹配局部view数量、总面积、loss scale、模型和训练�
 - 相对固定S0，任一seed `delta_CCC < -0.05` 或 `delta_MAE > +0.50` 时停止；
 - clip数增加但video-level utility、train-val gap和clip dispersion不改善时，不继续提高overlap；
 - identity risk、severe bias或task consistency恶化时不判成功；
-- L2不优于L1时停止AU语义裁切复杂化；
-- 不引入learned selector、AU分支、区域专属head或多模型对齐来规避负结果。
+- `GLA-RGB-FULL`不优于`GLA-RGB-GRID`时停止“语义裁切特异性”主张；
+- 不引入learned selector、区域专属backbone或多模型对齐来规避负结果；train-only AU/head小头只按GLA eligibility和消融合同存在。
 
 ## 下一实施顺序
 
 1. [已完成] provenance-final frame audit和3帧raw-frame warp smoke；smoke不等于全量repair授权；
 2. [已完成] `FACE-S1 phase-1 v2`全量只读分布审计，生成11类train-only contact sheets；
-3. [当前下一步] 填写124个去重train帧的global/local-geometry/boundary标签；12个jump帧使用精确`t-1/t`证据。local geometry通过只进入后续四区overlay审计，不等于local crop批准；
+3. [待人工复签] 124个去重train帧的global/local-geometry/boundary标签已有AI辅助副本；local geometry通过只进入后续三语义区overlay审计，不等于local crop批准；
 4. 生成全split确定性usable-run与clip候选统计，不训练；
 5. 根据clip数量、时长、subject/task分布冻结主window/stride；
 6. 实现S1 clip loss + video normalization；
 7. 实现S2同模型video bag聚合；
-8. 冻结四区landmark映射、完整性gate和train-only overlay，再实现L0/L1/L2局部裁切增强；
-9. seed 42通过后才运行seeds 43/44和组合实验；
-10. 协议冻结前保持test关闭。
+8. 冻结三语义区landmark映射、完整性gate和train-only overlay；不得据此直接实现模型；
+9. P0E和crop manifest汇合后，按`AGENTS.md`先披露并授权GLA默认关闭实现；
+10. 训练严格采用`GLA-FULL`优先、依赖感知减法、有限加法复核和paired multi-seed；
+11. 协议冻结前保持benchmark关闭；历史role-swap使其只能称locked post-selection benchmark。

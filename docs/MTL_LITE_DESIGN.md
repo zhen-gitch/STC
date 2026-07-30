@@ -41,7 +41,7 @@ MTL-Lite 主流程：
 
 使用有序严重程度辅助监督约束共享时序表征，为 AVEC2014 面部视频小样本场景提供稳定、可消融的 BDI 预测基线。当前 task-nuisance 路线在该基座之上继续审计和改进表征。
 
-### 2.1 OpenFace 行为表征对照（暂缓扩展）
+### 2.1 OpenFace 行为表征对照与已登记受控分支（暂未实施）
 
 当前输入帧已经经过 OpenFace 裁剪和对齐。后续模型设计需要承认 aligned face 中仍可能包含身份纹理、裁剪伪影、姿态残留、追踪质量和视频质量等非抑郁捷径。仅依赖 RGB backbone 可能不足以学习跨 subject 稳定的抑郁相关行为线索。
 
@@ -62,23 +62,39 @@ aligned RGB frames
 - behavior-only 与 RGB/MTL-Lite 的 prediction-level 对照；
 - AU intensity、AU presence、landmark motion、pose/gaze、expression distribution 等辅助任务仅在行为特征子集稳定后再考虑。
 
-该方向的历史研究依据见 `docs/RESEARCH_NOTES.md`。当前执行顺序仍以 `docs/TODO.md` 的 Stage A/B/C/D 为准。
+该方向的历史研究依据见`docs/RESEARCH_NOTES.md`。Stage A-D已经收口；当前执行顺序以`docs/TODO.md`顶部GLA任务和`GLOBAL_LOCAL_AU_EXPERIMENT_PLAN.md`为准。
+
+2026-07-28登记的默认关闭训练期特权监督分支已推进到PB-P0A3 full-rich v2和A2完整coverage PASS，完整来源规格见`PRIVILEGED_BEHAVIOR_ALIGNMENT_PLAN.md`。P0B-P0E、扩展AU合同、模型接入和训练仍未授权。它不是behavior late fusion，也不把OpenFace向量拼入模型输入；通过P0E的AU/head只作train-only分组辅助目标。gaze、`pose_T*`、landmark/geometry/quality语义目标和完整embedding MSE仍排除；validation/test/inference只读取RGB视图与mask，不读取行为目标。
+
+候选结构为：
+
+```text
+shared RGB representation
+  -> existing BDI head
+  -> optional AU auxiliary head, train only
+  -> optional head-motion auxiliary head, train only
+```
+
+PB-P0A3权威v2已对300/300视频、493,141行完成full-rich提取，A2为`PASS_FULL_SOURCE_COVERAGE`。landmark-only `BLOCKED`保留为历史证据。source-video contract冻结为30 FPS并只提供`t=(frame_id-1)/30`；aligned `-fdir timestamp=0`不得用于速度，旋转差必须wrap且只跨连续有效帧计算，历史raw OpenFace AU/pose值禁止访问。下一步先披露并授权P0B mask-aware兼容代码包；只有P0B-P0E、扩展AU和三语义区crop合同通过且再次披露/授权后，才允许修改`src/models/mtl_lite.py`或相关dataset/trainer。
 
 非抑郁捷径验证的具体实施方案见 `docs/SHORTCUT_AUDIT_DESIGN.md`。该框架应作为模型改动前的离线诊断层，优先验证 OpenFace 质量、姿态、gaze、裁剪伪影和预测误差之间的关系。
 
-### 2.2 当前输入增强边界（2026-07-17）
+### 2.2 当前输入增强边界（2026-07-30）
 
-当前项目不把AU intensity/presence数值、AU序列或AU特征作为MTL辅助任务或输入分支，也不增加AU监督loss。AU/FACS只定义局部RGB裁切的语义边界；OpenFace在数据侧提供验证后的68点landmark坐标和检测质量证据，用于逐帧定位完整区域。训练增强候选为：
+当前项目不把AU intensity/presence数值、AU序列或AU特征作为模型输入。AU/FACS定义局部RGB语义边界；通过PB-P0E的聚合AU/head动态可作为train-only辅助目标。OpenFace在数据侧提供验证后的68点landmark坐标和检测质量证据，用于逐帧定位完整区域。未来默认关闭候选为：
 
 ```text
 all deterministic face-valid temporal clips
 global aligned face
-+ brow / eye-cheek / nose-upper-lip / mouth-jaw RGB crops
++ eye-brow / nose-cheek / mouth-lower-face RGB crops
   located by aligned-space landmarks
--> one shared MTL-Lite backbone / temporal encoder / BDI head
+-> one shared MTL-Lite backbone
+-> frame-level validity-aware fusion
+-> temporal encoder / BDI head
+-> optional train-only regional/cross-regional AU and head heads
 ```
 
-clip数增加不改变独立subject数；dataset/trainer必须支持每video clip loss归一或video-bag聚合。local/global来自相同frame和clip并共享空间增强；landmark polygon/mask只用于crop envelope与coverage gate，不作为模型输入；默认关闭时现有dataset和forward行为不变。完整规格见`VALIDITY_AWARE_TEMPORAL_SLICING_PLAN.md`。
+clip数增加不改变独立subject数；dataset/trainer必须支持每video clip loss归一或video-bag聚合。local/global来自相同frame和clip并共享空间增强；landmark polygon只用于crop envelope与coverage gate，模型只接收RGB与valid mask。默认关闭时现有dataset和forward行为必须不变。实验顺序为最大P0E-eligible FULL优先、依赖感知减法和有限加法复核；完整规格见`GLOBAL_LOCAL_AU_EXPERIMENT_PLAN.md`。
 
 ## 3. 推荐目录结构
 

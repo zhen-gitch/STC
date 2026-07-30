@@ -13,9 +13,23 @@ optional: H0 -> z_dep, z_id, z_nuisance
 
 artifact、context、pose、quality 等因素只作为审计变量、post-hoc probe、case study 和 group-wise evaluation，不作为第一版显式 latent。
 
-## 2026-07-17 输入路线说明
+## 2026-07-30 当前输入与实验路线说明
 
-本项目当前不直接引入AU intensity/presence数值、AU序列、AU特征、AU辅助任务或AU监督loss，但保留AU/FACS作为局部RGB裁切的语义分区先验。当前输入侧路线为：从全部`face_usable`连续片段生成确定性clip，并用验证后的68点landmark逐帧定位brow、eye-cheek、nose-upper-lip和mouth-jaw四个完整AU语义区域，与完整aligned face共享同一个模型互为增强。模型只读取RGB；AU数值数据和AU监督研究可放入另一项目，不能据此删除本项目的AU语义裁切标准。
+本项目当前输入侧路线是：从全部`face_usable`连续片段生成确定性clip，用验证后的68点landmark逐帧定位眼眉、鼻颊、嘴部三个主体语义区域，与完整aligned face共用一个backbone，帧级融合后进入原时序模块。AU/head不作为推理输入；通过PB-P0E的AU动态只允许作为train-only辅助目标，validation/test隐藏目标root并使用同一冻结RGB视图合同。gaze继续排除。
+
+实验顺序采用全模型优先混合消融。`GLA-FULL`严格等于P0E批准的最大依赖闭合候选，seed42先与匹配`GLA-C-REF`比较；只要没有技术失败就完成`-HEAD -> -AU10/17 -> -AU4/6/7 -> -all AU -> -locals`的S1--S5阶梯。FULL科学失败时该阶梯只作诊断，并跳过controls、加法、multi-seed和benchmark；科学通过时才对幸存组有限加回，并运行grid、no-cross和subject-deranged shuffled-aux反证。只有减法和加法证据一致的候选进入paired seeds43/44。历史四区、RGB-only、global-only推理和G0/G1/G2前向选择均降为历史素材。
+
+## 2026-07-28 AU/head训练期特权监督研究结论
+
+现有证据可以支撑特征选择与方法范式，但不能直接证明该方案会降低AVEC2014 RGB过拟合：Girard et al. 2013/2014支持高抑郁严重度下AU12减少、AU14及AU12-AU14共现增加、AU15总体减少；Alghowinem et al.支持头部运动幅度和速度下降。LUPI、modality hallucination、AU positive matching及affect privileged-information工作支持训练期使用额外行为信息、测试仅使用RGB。完整文献、DOI和实验映射见`PRIVILEGED_BEHAVIOR_ALIGNMENT_PLAN.md`。
+
+因此首版研究白名单固定为`AU12_r/AU14_r/AU15_r`与`pose_Rx/Ry/Rz`派生动态，并预注册去AU14敏感性实验。gaze因缺少同等级、可迁移的抑郁关联证据且受相机/任务/头姿混杂较重，已从输入、监督、关系条件和消融中完全移除，以减少工作量和多重比较。该决定不影响历史pose/gaze质量审计；历史gaze只保留为已有诊断背景，不构成训练候选。
+
+PB-P0A3权威full-rich v2已完成300/300视频、493,141行、单一182列schema和全部hash/provenance闭环；A2完整判定为`PASS_FULL_SOURCE_COVERAGE`、0 blocker/0 warning。该结果只证明来源与mask-aware coverage通过，不代表P0B、动态物理保真、normalization、身份风险或训练资格已经通过。当前代码合同仍只批准AU12/14/15；182列含扩展AU不等于AU4/6/7/10/17获准。
+
+时间语义也已修正：aligned JPG通过`-fdir`提取时OpenFace `timestamp`为常数0，不能计算速度。冻结SHA-256为`12f50c2311b9d89dde81e27fa83891226ca5f447ed7d3d56fe38cf673a1c5a31`的source-video contract只提供300/300 PASS、30 FPS、493,141 frame-match与`t=(frame_id-1)/30`外部时钟，不提供或授权任何历史raw OpenFace AU/pose数值。旋转差使用wrap后的最短有符号角差，且仅在frame ID连续、两端有效时计算。下一门禁是先披露并授权A2报告分支/P0 mask-aware兼容修复，再另行运行P0B；P0C/P0D/P0E、P1/P2与训练仍未授权。
+
+推荐方法是分组masked SmoothL1辅助预测，而不是完整OpenFace embedding与RGB embedding强MSE。只有至少3个paired seed的BDI utility不降、train-validation gap不扩大、身份风险不升、severity/task robustness不恶化且shuffled target不能复现收益时，才能将结果解释为对行为语义假设的支持。
 
 ## 当前问题判断
 
@@ -28,7 +42,7 @@ artifact、context、pose、quality 等因素只作为审计变量、post-hoc pr
 - regression-only baseline 在训练集上可以持续拟合，但验证集和测试集泛化不稳定；
 - 冻结 backbone 底层、只微调最后 1 或 2 个 transformer blocks 后，并未明显改善 test 表现；
 - last1/last2 结果提示问题不只是 backbone 可训练层数，而更可能是输入表征和监督信号没有充分约束模型关注抑郁相关面部行为；
-- 当前 ordinal BDI 辅助任务本质上仍来自同一个 BDI 标签，可能不足以约束模型关注稳定的landmark局部几何与面部行为；本项目先通过face-valid片段和landmark crop提供输入归纳偏置，不增加AU监督。
+- 当前ordinal BDI辅助任务本质上仍来自同一个BDI标签，可能不足以约束模型关注稳定的landmark局部几何与面部行为；本项目因此检验face-valid片段、三语义区RGB归纳偏置和通过P0E的train-only AU/head辅助监督，但不把AU作为推理输入。
 
 ## 当前主线：Task-Nuisance 理论支撑与研究定位
 
@@ -869,9 +883,9 @@ task_diff_mean 不恶化
 
 若 identity retrieval 下降但 severity agreement 和 task consistency 也下降，应解释为 `middle_crop` 式失败。若 severe bias 改善但 identity retrieval 上升，应解释为 `border_black_feather` 式 identity / artifact 纠缠。
 
-## 2026-07-14 AU-guided Single-model Local-view Regularization
+## 2026-07-14 AU-guided Single-model Local-view Regularization（历史四区方案）
 
-> 2026-07-17边界澄清：本节的AU/FACS语义分区仍属于当前路线；转移到另一项目的是AU数值输入、AU序列建模和AU监督，不是语义保持的RGB裁切。当前时间片段设计见后续新节。
+> 2026-07-30边界澄清：本节四区、无AU监督和global-only推理假设只保留为理论演进材料。当前三语义区、train-only AU/head和FULL优先混合消融以`GLOBAL_LOCAL_AU_EXPERIMENT_PLAN.md`为准。
 
 近期实验进一步限定了方法选择。identity-adversarial gradient 能改善短期 BDI utility，却没有降低 fresh external identity leakage；显式 L1/L2 没有缓解主要过拟合；连续标签密度权重不及四档 severity weighting；单独改变 representation dimension 也不能提供语义分离方向。这些结果支持把下一次干预放在可观察、可审计的输入归纳偏置，而不是继续增加 latent 或 loss 组合。
 
@@ -891,7 +905,7 @@ global + AU/FACS semantic local views
 
 视频场景还要求区域逐帧动态跟踪。FACS 语义可以固定，但 mask 几何不能固定。OpenFace 检测坐标与 aligned 输入坐标之间必须有合法的 alignment transform；真实大幅转头应保留，检测抖动才应被平滑。大 yaw 下隐藏侧不能通过镜像或复制生成，低有效率区域应跳过 local loss。由此，动态 tracking audit 是方法成立的前置实验，而不是工程细节。
 
-## 2026-07-17 Face-valid Segment Mining and AU-semantic Landmark Local Crops
+## 2026-07-17 Face-valid Segment Mining and AU-semantic Landmark Local Crops（历史输入方案）
 
 当前项目把“增加时间样本”和“提高输入质量”合并为可审计的数据构造问题：先在完整帧率判断是否存在可用人脸，再从全部连续高质量run生成确定性clip。该路线不同于TSN式均匀随机snippet；它优先避免人物缺席、纯黑、大遮挡、大偏转、严重出界和landmark无效片段，同时尽量保留所有合格人脸时间段。
 

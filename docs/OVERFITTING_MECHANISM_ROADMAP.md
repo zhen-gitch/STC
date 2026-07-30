@@ -31,8 +31,9 @@ Stage C: Coarse task-nuisance information separation
 Stage D: Falsification and robustness validation
         multi-attacker / leakage matrix / severity-balanced loss / group-wise robustness
         ↓
-Current intervention: face-valid segment mining + landmark local/global augmentation
-        face usability audit -> all qualified clips -> one shared model -> video-level evaluation
+Current intervention: face-valid clips + three semantic local/global views + train-only AU/head
+        P0E maximal eligible profile -> GLA-FULL first
+        -> dependency-aware subtraction -> bounded additive confirmation -> paired multi-seed
 ```
 
 当前机制分工：
@@ -44,19 +45,25 @@ Current intervention: face-valid segment mining + landmark local/global augmenta
 | severity label imbalance / middle-score collapse | severity bias、calibration summary、pred_std compression | severity-balanced regression 作为对照或支线 |
 | input artifact / black boundary / OpenFace quality | black artifact、alignment geometry、confidence、bbox、valid ratio | 审计变量、post-hoc probes、case study 和 group-wise evaluation；不默认建 `z_art` |
 | temporal/task context | temporal sampling、task consistency | 混杂监控和 task consistency evaluation；不显式建 `z_ctx` |
-| dynamic facial behavior | literature / landmark dynamics / local crops | 当前以AU/FACS定义四个局部RGB语义区、landmark逐帧定位；AU数值/序列/监督不进入模型，不建立独立动态模型 |
+| dynamic facial behavior | literature / landmark dynamics / local crops | 眼眉/鼻颊/嘴部三语义区共享backbone；P0E合格的AU/head只作train-only辅助目标，val/test保持RGB-only target access |
 
 读本文档时，应把前面 Layer 0-6 理解为证据地图，把“当前推进路线”理解为当前模型路线。若旧段落中的“下一步”与本总览冲突，以本总览和 `RGB_OVERFITTING_AUDIT_PLAN.md` 的最新 task-nuisance Stage A-D 为准。
 
-### 2026-07-14 机制路线转折
+### 2026-07-30 全模型优先混合消融转折
+
+PB-P0A3权威full-rich v2和A2完整coverage已经通过，但P0B-P0E、扩展AU合同、三语义区crop manifest、模型和训练仍未授权。完整候选不再由global-only逐级前向堆叠，而是在P0E冻结最大依赖闭合eligible profile后先运行`GLA-FULL`与匹配reference；只要没有技术失败就完成`-HEAD -> -AU10/17 -> -AU4/6/7 -> -all AU -> -locals`的S1--S5阶梯。FULL科学失败时该阶梯只作诊断并停止扩展；科学通过时才做grid、no-cross、subject-deranged shuffled-aux和幸存组有限加回。
+
+FULL优先只改变训练实验的验证顺序，不绕过任何数据、几何、来源、物理保真、风险或代码授权门禁。每个代码/运行包必须先按根`AGENTS.md`报告边界、架构/数据流、文件、命令、验证、风险和agent分工，结束该轮并等待明确授权。历史role-swap意味着最终只能报告locked post-selection benchmark，不能声称untouched test。
+
+### 2026-07-14 机制路线转折（历史输入方案）
 
 Stage C 结构、identity-gradient、显式参数正则和连续 severity weighting 的结果已经把当前失败进一步定位：过拟合不是单靠全局权重衰减、连续长尾重加权或一个可持续学习的身份 attacker 就能解除；表示维度变化在缺少有效语义梯度时只是在改变容量，不能证明信息被分离。split sensitivity 还说明 checkpoint 选择对小样本 subject-disjoint 验证集较敏感，后续论文级结论需要 repeated group folds，而不能继续把单次验证改进解释为稳定机制。
 
-当前路线因此转向两层输入干预。第一层在完整帧率上识别所有`face_usable`连续片段，排除人物缺席、纯黑、大幅遮挡/偏转/出界和landmark不可信片段，再确定性生成全部合格clip；第二层把完整global face与brow、eye-cheek、nose-upper-lip、mouth-jaw四个AU语义完整的landmark定位RGB crop交给同一个共享模型互为增强。AU/FACS只定义裁切语义；AU intensity/presence数值、AU序列和AU监督不进入模型。
+当时路线转向两层输入干预：face-valid连续片段和历史四区RGB-only局部增强。该四区、无AU监督和global-only推理假设现已由上方2026-07-30三语义区GLA方案取代，只保留为设计演进记录。
 
 provenance-final与3帧raw-warp smoke已完成；下一门禁是用`FACE-S1`量化大姿态、遮挡、face coverage和landmark可信度。smoke不授权全量materialize。所有clip增加的是同一video的数据视图，不是独立subject；训练必须按source video归一或使用同模型video-bag loss。四个AU语义保持的landmark局部crop只有在匹配view数、面积和loss scale后稳定优于equal-area grid，才支持语义区域布局贡献。
 
-正式实施链更新为：`LM-T0 frame/coordinate -> FACE-T0c recovery -> FACE-S1 usability -> FACE-S2 deterministic clips -> FACE-M0 clip/video loss -> LM-M0 local/global path -> LM-M1 gradient calibration -> LM-M2 seed-42 -> LM-M3 seeds 43/44`。任何阶段失败都停在对应层，不通过learned selector、AU分支、区域head、consistency loss或多模型推理规避反证。
+当时登记的`LM-M0/LM-M1/LM-M2/LM-M3`前向链不再是当前执行入口；当前权威顺序见`GLOBAL_LOCAL_AU_EXPERIMENT_PLAN.md`和`TODO.md`。
 
 ## 1. 研究目标
 

@@ -42,11 +42,17 @@ Stage D: falsification and robustness validation
 
 截至 2026-07-14，Stage C 的 `C-REF/C-BN/C-REC/C-FULL` 已在 seed 42 被 utility gate 否证并停止进入 C3。后续 capacity audit、identity-gradient、显式 L1/L2、continuous severity weighting 和 split sensitivity 也已收口：维度变化没有稳定恢复 utility；GRL candidate 短期改善 BDI，但 external identity leakage 与末期过拟合恶化；全局参数正则无实质收益；连续权重不及四档 E2；checkpoint 选择对验证 subject composition 敏感。因此不继续 dimension/lambda/regularization sweep，也不重新打开 Stage C。
 
-当前活动路线是`face-valid`时间片段挖掘与AU语义保持的landmark局部/全脸共享模型增强。正式训练不再从每个视频均匀随机一个窗口，而是在完整帧率排除人物缺席、纯黑、不可解码、大幅遮挡/偏转/出界和landmark不可信帧，从全部连续可用run确定性生成clip。clip增加的是同一video的数据视图，不是独立subject；loss必须按`1/N_clips(video)`归一或先用同一模型聚合为video prediction再计算BDI loss。
+当前活动路线是`face-valid`时间片段、完整对齐脸和眼眉/鼻颊/嘴部三个语义局部视图的共享backbone增强。正式训练不再从每个视频均匀随机一个窗口，而是在完整帧率排除人物缺席、纯黑、不可解码、大幅遮挡/偏转/出界和landmark不可信帧，从全部连续可用run确定性生成clip。clip增加的是同一video的数据视图，不是独立subject；loss必须按`1/N_clips(video)`归一或先用同一模型聚合为video prediction再计算BDI loss。
 
-本项目保留AU/FACS作为局部RGB裁切的语义边界，但不直接引入AU intensity/presence数值、AU序列、AU特征、AU辅助损失或AU预测任务。验证后的aligned-space 68点landmark逐帧定位brow（AU1/2/4）、eye-cheek（AU5/6/7/45）、nose-upper-lip（AU9/10）和mouth-jaw（AU12/14/15/17/20/23/24/25/26）四个完整区域；模型只读取局部RGB crop和global face，完全共享backbone、时序编码器和BDI head。equal-area grid是任意裁切控制。`FACE-* / LM-*`任务命名不取消AU语义分区，历史`AU-T*`输出继续提供frame/coordinate/failure/exposure/tracking证据。
+AU/FACS同时承担局部RGB语义边界和train-only辅助监督候选。三个主体区域为eye-brow、nose-cheek、mouth-lower-face，允许5%--10%边界容错；global+三个local共用一个backbone，帧级validity-aware融合后再进入原时序模块。候选AU分为core AU12/14/15、extension A AU4/6/7和extension B AU10/17；AU6使用眼眉+鼻颊，AU14使用鼻颊+嘴部跨区域token。gaze和首轮AU25/26排除。validation/test使用与train相同的冻结RGB视图合同，但绝不读取AU/head目标；若未来需要global-only部署，必须另立蒸馏/一致性实验。
 
-provenance-final已以`300/6501/221`和实现/输出SHA-256完成；3帧真实raw-frame warp smoke得到3个`AUTO_PASS_REVIEW_REQUIRED`和1个无合法raw锚点的fail-closed。`FACE-S1 phase-1 v2`也已完成300视频/493,141帧全量分布审计：486,640帧仍为`pending_threshold_review`，6,501帧保持2,365 raw-warp pending、2,295 visible low-quality、1,841 person-absent硬状态；没有生成`face_usable`。132个train contact条目已去重为124帧v2模板，分别等待`global_face/local_geometry/temporal_boundary`人工标签；local geometry通过只授权后续区域overlay审计，不批准具体AU语义crop。jump、blur或单一PnP量不能独立删帧。现有WSL只读副本包括`/home/zhen/dataset/depression/avec/2014/face_images`和`/home/zhen/dataset/depression/avec/2014/openface_features`；使用后者前仍需明确所需字段和版本一致性门禁。aligned邻帧合成禁用，3帧smoke不授权全量materialize或训练。曝光协议使用train-normal q20/q80安全带=`49.018/142.171`、q25/q75目标=`53.740/135.769`，22视频最终为17欠曝log、2过曝tone-only、3`keep_raw`，共24个reviewed segment。`raw_detail_recoverable=0`，tone normalization不能声明恢复剪切细节。输入派生方案冻结后统一版本整体重跑landmark；AU数值列不进入模型数据路径，但AU/FACS语义映射必须进入crop规范。原始`face_images`永不覆盖。
+PB-P0A3权威full-rich v2已经完成300/300视频、493,141行、单一182列schema，大小587 MB；A2完整判定为`PASS_FULL_SOURCE_COVERAGE`、0 blocker/0 warning。quality/AU-valid为486,441帧、head-valid为485,863对，physical train总体/Freeform/Northwind均通过冻结阈值。失败且不完整的v1禁止复用。当前policy/P0代码合同仍只批准AU12/14/15与旋转head dynamics；CSV含AU4/6/7/10/17不等于这些扩展组已经获准。
+
+下一候选不是模型实现或训练，而是先披露并等待授权的P0B兼容代码包：修复A2 full PASS却写入错误`next_action=STOP...`的报告分支，并防止旧P0把41个legacy strict失败误拒为mask-aware来源失败，同时保留hash/schema/join/provenance/value-domain硬门禁。之后仍须分别授权P0B运行、P0C物理保真、P0D描述符风险、扩展AU合同、三语义区crop manifest和P0E eligibility；P0E之前不得实现或训练模型。
+
+未来实验采用全模型优先混合消融：`GLA-FULL`严格等于P0E批准的最大依赖闭合候选，seed42先与匹配`GLA-C-REF`运行；只要没有技术失败就完成`-HEAD -> -AU10/17 -> -AU4/6/7 -> -all AU -> -locals`的S1--S5阶梯。若FULL科学失败，该阶梯只作诊断并跳过controls、加法、multi-seed和benchmark；科学通过时才对幸存组执行有限单组加回、至多一次reduced rebuild以及grid、no-cross和subject-deranged shuffled-aux控制。只有减法与加法方向一致的候选进入paired seeds43/44。历史role-swap使原test不能再称untouched；冻结后的评估只能称locked post-selection benchmark。
+
+provenance-final已以`300/6501/221`和实现/输出SHA-256完成；3帧真实raw-frame warp smoke得到3个`AUTO_PASS_REVIEW_REQUIRED`和1个无合法raw锚点的fail-closed。`FACE-S1 phase-1 v2`也已完成300视频/493,141帧全量分布审计：486,640帧仍为`pending_threshold_review`，6,501帧保持2,365 raw-warp pending、2,295 visible low-quality、1,841 person-absent硬状态；没有生成`face_usable`。132个train contact条目已去重为124帧v2模板，分别等待`global_face/local_geometry/temporal_boundary`人工标签；local geometry通过只授权后续区域overlay审计，不批准具体AU语义crop。jump、blur或单一PnP量不能独立删帧。现有WSL只读副本包括`/home/zhen/dataset/depression/avec/2014/face_images`和`/home/zhen/dataset/depression/avec/2014/openface_features`；使用后者前仍需明确所需字段和版本一致性门禁。aligned邻帧合成禁用，3帧smoke不授权全量materialize或训练。曝光协议使用train-normal q20/q80安全带=`49.018/142.171`、q25/q75目标=`53.740/135.769`，22视频最终为17欠曝log、2过曝tone-only、3`keep_raw`，共24个reviewed segment。`raw_detail_recoverable=0`，tone normalization不能声明恢复剪切细节。输入派生方案冻结后统一版本整体重跑landmark；曝光审计产生的AU列不得混入训练，未来train-only辅助目标只来自通过PB-P0E的独立v2行为合同。原始`face_images`永不覆盖。
 
 ### 机制证据背景：RGB 过拟合多因素审计
 
@@ -74,7 +80,7 @@ split integrity audit
 
 这些审计现在作为当前 task-nuisance 路线的证据层和 Stage A 输入，不再单独构成新的模型路线。
 
-当前文档导航以 `docs/DOCS_GUIDE.md` 为准；当前执行入口以 `docs/TODO.md` 的“当前立即执行任务（权威入口）”为准。机制路线归档在 `docs/RGB_OVERFITTING_AUDIT_PLAN.md`，相关研究背景在 `docs/RESEARCH_NOTES.md`。后续 Codex 在设计实验或修改模型前，应先确认这些文档是否仍与当前 task-nuisance 路线一致。
+当前文档导航以`docs/DOCS_GUIDE.md`为准；当前执行入口以`docs/TODO.md`的“当前立即执行任务（权威入口）”为准。任何代码、配置、测试、数据生成、smoke、训练、commit或push前，必须先执行根`AGENTS.md`的具名实施披露与显式授权门禁；披露后结束该轮，初始“开始/执行”不能跳过。机制路线归档在`docs/RGB_OVERFITTING_AUDIT_PLAN.md`，相关研究背景在`docs/RESEARCH_NOTES.md`。
 更高层的系统机制路线图位于 `docs/OVERFITTING_MECHANISM_ROADMAP.md`。后续不要把单个 artifact 当作总解释，应按该文档的 Layer 0-6 逐层验证：数据有效性、prediction compression、input/local occlusion、identity/static appearance、OpenFace geometry/quality、temporal/task context、model optimization。
 
 非抑郁捷径验证框架归档在 `docs/SHORTCUT_AUDIT_DESIGN.md`。后续若用户要求实现 OpenFace 质量诊断、输入消融、shortcut-only baseline 或行为表征 baseline，应先阅读该文档，并优先采用离线诊断方式，避免改动训练主流程。
@@ -232,12 +238,14 @@ src/diagnostics/
 11. 在服务器运行 MTL-Lite debug smoke。
 12. 在服务器运行 MTL-Lite 离线诊断脚本。
 13. 对比 regression-only 与 MTL-Lite。
-14. 历史OpenFace行为baseline已完成；当前先完成FACE-S1人脸可用性、全部合格clip和四个AU语义保持的landmark局部RGB crop。AU数值、序列和监督不进入模型，AU/FACS语义边界保留。
-15. 在行为表征 baseline 稳定后，再重新设计 MTL 辅助任务，并逐项加入 CCC、LDS、`loss_dist` 或任务权重消融。
-16. Shortcut Audit 的最小可行版本应先实现 OpenFace quality summary、预测残差相关性、相关性热力图和 markdown 报告，再考虑输入消融与 behavior-only baseline。
+14. PB-P0A3 full-rich v2与A2 full coverage已经完成；下一步先披露并授权P0B兼容代码包，之后再分别推进P0B-P0E、扩展AU合同和三语义区crop manifest。
+15. P0E通过后仍须重新披露默认关闭的GLA模型代码包；实现、smoke、FULL seed42、减法/加法、多seed和locked benchmark分别授权。
+16. GLA实验顺序固定为最大eligible FULL优先、依赖感知减法、幸存因素有限加法复核和paired multi-seed，不恢复旧G0/G1/G2后逐级AU前向选择。
+17. Shortcut Audit 的最小可行版本应先实现 OpenFace quality summary、预测残差相关性、相关性热力图和 markdown 报告，再考虑输入消融与 behavior-only baseline。
 
 ## 安全重构规则
 
+- 根`AGENTS.md`的pre-implementation disclosure是硬门禁：具名报告后必须结束该轮并等待用户授权同一package，不能在同一轮继续写代码。
 - 修改前先阅读相关文件。
 - 每次只处理一个重构目标。
 - 不改变模型算法逻辑，除非用户明确确认。
@@ -295,7 +303,7 @@ Shortcut Audit 输出中，`Matched samples: 100`，且样本均通过完整 `vi
 - `shortcut_predictor_results.csv` 的 in-sample predictor 结果过拟合风险很高，不能当作泛化性能；
 - Shortcut Audit 已支持按 `subject_id` 分组的 shortcut-only predictor 交叉验证，并会额外输出
   `shortcut_predictor_grouped_cv.csv`；
-- 上述AU/pose/gaze shortcut结果作为历史审计证据保留；provenance-final/raw-warp smoke已完成，当前下一步是FACE-S1，不再扩展AU behavior baseline。
+- 上述AU/pose/gaze shortcut结果作为历史审计证据保留，不再扩展旧behavior baseline；当前权威下一步是先披露并授权P0B mask-aware兼容代码包，几何侧仍须完成人工复签和三语义区crop manifest。
 
 后续 Codex 在解释 Shortcut Audit 时，仍必须先确认 `Matched samples` 达到预期样本数；
 若匹配数为 0 或明显偏低，只能判定为对齐失败，不能解释风险等级。

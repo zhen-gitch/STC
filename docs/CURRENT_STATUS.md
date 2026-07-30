@@ -4,7 +4,7 @@
 
 ## 状态日期
 
-2026-07-28
+2026-07-30
 
 ## 阅读提示
 
@@ -22,45 +22,91 @@
 | 第一版 latent | `z_dep`、`z_nuisance` |
 | 可选 latent | `z_id` 不进入第一版；基础方案通过 C3 后才重新论证 |
 | 不做 | 不显式建 `z_art/z_ctx/z_pose/z_quality`，不做多级 RPDF |
-| 当前输入路线 | 全部face-valid片段确定性挖掘 + 四个AU语义完整的landmark局部RGB crop/完整脸共享模型增强；AU数值、序列和监督不进入模型 |
-| PB研究分支 | AU12/14/15 + 旋转head dynamics的PB-P0基础设施与landmark-only v2已完成；核心提交`2685fa4`和独立docs-only follow-up均已完成且未amend |
-| 当前输入下一步 | v2复核模板已将132个contact条目去重为124帧；填写global/local-geometry/boundary人工标签并冻结独立threshold manifest。具体local crop仍等待区域overlay gate |
-| PB下一步 | Windows clean checkout仍停在`40034f4`；同步已推送的最终tip并完成clean/ancestor/SHA验收，随后严格按`fresh debug2 -> pilot20 -> threshold/coverage policy -> conditional full-rich`推进。P1/P2仍未授权 |
+| 当前输入路线 | 完整对齐帧 + 眼眉/鼻颊/嘴部三个语义局部帧；同一backbone编码、帧级validity-aware融合后进入原时序模块 |
+| AU方案 | 核心AU12/14/15，扩展A为AU4/6/7，扩展B为AU10/17；AU6跨眼眉+鼻颊，AU14跨鼻颊+嘴部；gaze继续排除 |
+| 已实现边界 | PB-P0来源/schema代码仍只覆盖AU12/14/15；三语义区dataset/model、扩展AU合同和训练配置尚未实现 |
+| 数据门禁 | PB-P0A3权威full-rich v2已完成300视频、493,141行、单一182列schema；A2完整判定为`PASS_FULL_SOURCE_COVERAGE`、0 blocker/0 warning，strict逐视频0.995仅保留为诊断 |
+| 实验策略 | `GLA-FULL`最大合格候选优先 -> 依赖感知反向减法 -> 幸存因素有限加法复核 -> paired multi-seed -> locked post-selection benchmark |
+| 当前下一步 | P0B前先披露并等待授权修复A2 `next_action`报告bug及旧P0对mask-aware来源的兼容性；当前`P0B/model/training_authorized=false` |
 | 审计判据 | BDI metrics、identity risk、nuisance/BDI leakage、shortcut probe risk、severity bias、task consistency、train-val gap |
 | 主张边界 | reconstruction/decorrelation 收敛或单一 attacker 下降不等于语义解耦成功 |
-| 反证条件 | 不优于 paired-seed `C-REF`、multi-seed 不稳定或风险改善伴随 utility/group robustness 恶化时停止增加复杂度 |
+| 反证条件 | `GLA-FULL`不优于匹配`GLA-C-REF`、减法/加法证据不一致、multi-seed不稳定或风险改善伴随utility/group robustness恶化时停止增加复杂度 |
 
 “可审计”要求每个表示出口和训练约束都对应可独立复现的外部测量；“可证伪”要求在编码和运行前冻结强 baseline、统一指标、multi-seed 规则和停止条件。负结果应作为机制结论保留，而不是通过继续堆叠 latent、门控或损失规避。
 
-### 2026-07-28 AU/head训练期特权监督 PB-P0 与 PB-R0 状态
+### 2026-07-30 PB-P0A3完成与全模型优先混合消融决策
 
-PB分支只使用`AU12_r/AU14_r/AU15_r`与旋转head dynamics作为候选训练期特权目标；gaze完全排除。validation、test和inference保持RGB-only。当前没有创建训练配置、辅助头或PB训练入口，P1/P2均未授权。
+权威full-rich来源为`/mnt/d/Project/dataset/AVEC2014/openface_aligned_behavior_of220_a29ba49c_v2`。该run完成300/300视频、493,141/493,141行、单一182列schema，大小587 MB，耗时10,064.6秒；无HOG、tracked video或重新生成aligned图。extractor来自clean Windows `dev@2538248`，脚本SHA-256为`64375c6575066619cb21ce94d213e7457446df961a8d9565bd554eee68db3cc5`，source-contract SHA-256为`12f50c2311b9d89dde81e27fa83891226ca5f447ed7d3d56fe38cf673a1c5a31`。失败且不完整的v1目录只保留失败证据，禁止resume、复用或进入P0B。
 
-PB-P0基础设施、no-gaze aligned-JPG extractor、合同CLI和三组测试已冻结在核心提交`2685fa4`，允许Windows PowerShell 5互操作的完整验证为`65 passed`。本次六份文档同步作为其上的独立docs-only follow-up完成，明确没有amend或改写`2685fa4`。
+A2权威完整判定在`logs/privileged_behavior_alignment/p0a2_mask_aware_policy_full_a29ba49c_v2/`，状态为`PASS_FULL_SOURCE_COVERAGE`。quality/AU-valid为486,441帧，head-valid为485,863对；physical train总体、Freeform、Northwind分别为0.989273、0.983944、0.996984，task gap约0.01304；最低train视频仍有180个AU-valid帧和179个head pair。val/test只报告，且决策明确`P0B/training_authorized=false`。legacy extractor summary的259 PASS / 41 FAIL及总体0.986817仍是预期诊断，不再作为mask-aware资格门禁。
 
-当前权威landmark-only v2对300/300个物理split视频和493,141帧完成exact structural join，但300个CSV均缺少`AU12_r/AU14_r/AU15_r/pose_Rx/pose_Ry/pose_Rz`，因此`core_audited_video_count=0`、`rich_schema_video_count=0`，最终为预期的`BLOCKED`，共有301个blocker。该结果证明fail-closed合同有效，不是P0 PASS，也不允许回退历史raw-video rich CSV补列。
+当前发现两个P0B前代码问题：A2在full PASS时仍把`next_action`写成`STOP_AND_REVIEW_POLICY_OR_SOURCE_ISSUES`；既有P0核心可能仍要求legacy extraction summary/content逐视频strict `PASS`，从而误拒有效v2来源。下一代码包只能在先向用户披露边界、架构/数据流、文件、命令、验证和风险并获得明确授权后实施；修复不得弱化hash、schema、exact join、数值域或provenance门禁。
 
-历史`debug2c`仅保留为schema/mask证据：其extractor SHA为`7771c7a6...`，当前冻结脚本SHA为`64375c65...`，且旧run缺少`csv_content_manifest`和final-summary hash binding，不能作为当前strict-rich preflight。相同OpenFace版本和aligned JPG的旧landmark结果只有259/300视频达到逐视频`success_ratio>=0.995`，41/300未达到；前20视频包含4个旧失败代理，因此直接启动300视频full-rich不是合法下一步。
+后续训练策略改为`GLA-FULL`优先的混合消融。`GLA-FULL`严格等于P0E批准的最大依赖闭合global/local+AU/cross-region/head profile，不是legacy full model或Stage C的`C-FULL`。seed42先运行完整候选与匹配reference；只要没有技术失败就按`-HEAD -> -AU10/17 -> -AU4/6/7 -> -all AU -> -locals`完成S1--S5。若FULL科学失败，该阶梯只作诊断并跳过controls、加法、multi-seed和benchmark；科学通过时才执行grid、no-cross、shuffled-aux及幸存组有限加回。只有减法和加法证据一致的简化候选进入seeds43/44。由于历史上已运行val/test role swap，最终评估只能称为locked post-selection benchmark，不能再声称test从未参与历史选择。
 
-PB-R0提交侧工作在本次docs-only follow-up中已经完成：`core 2685fa4 DONE -> independent docs-only follow-up DONE`。Windows checkout当前仍停在`40034f4`；唯一剩余验收是获取已推送的最终tip，并确认checkout非detached、`git status --short`为空、`2685fa4`为祖先，同时重新计算最终commit/branch、extractor SHA与source-contract SHA。该验收通过前不得运行fresh debug2。
+### 2026-07-29 三语义区共享backbone与跨区域AU方案（历史顺序，以2026-07-30混合消融为准）
 
-当前P0机器状态词汇为`PASS/BLOCKED`，不是`CORE_PASS`。现有P0 CLI的coverage表只负责报告，默认train statistics也只拒绝`std==0`的常量目标；因此即使CLI为`PASS`，仍必须由A2冻结的独立coverage policy作最终裁决。`selected_target_manifest.next_gate`是早期通用字段，不是当前执行权威。
+当前权威方案已写入`docs/GLOBAL_LOCAL_AU_EXPERIMENT_PLAN.md`。局部区域由历史四区收敛为眼眉、鼻颊、嘴部三个主体语义区，并保留完整对齐人脸；相邻区域允许5%--10%边界容错。四个RGB视图使用同一个backbone，先在帧级融合为一个token，再进入现有时序模块，避免构造`4T`序列。AU候选组定义为core AU12/14/15、extension A AU4/6/7和extension B AU10/17；AU6由眼眉+鼻颊特征预测，AU14由鼻颊+嘴部特征预测；AU25/26因语音/任务混杂不进入首轮，gaze继续完全排除。候选组的当前运行顺序已由上方2026-07-30 FULL优先混合消融接管。
 
-验收后的执行顺序固定为：
+该变更目前仅是方案和文档更新。现有四区审计代码/日志继续作为历史几何证据，现有PB-P0合同仍只投影AU12/14/15；不得据此声称三语义区、跨区域AU或扩展白名单已经实现。
 
-```text
-fresh debug2
--> pilot20
--> threshold/coverage policy（必经）
--> full-rich（仅条件通过且再次授权）
--> P0B core
--> P0C physical fidelity
--> P0D descriptor + nuisance risk
--> P0E eligibility
--> P1/P2（再次授权后）
-```
+PB-P0A2已将policy冻结为`configs/behavior_alignment/behavior_source_coverage_policy_v1.json`，SHA-256为`9a3fb739078ab36e1fa4f8f67a8c8b167a76329941a591ad0ef9dd0c731a1926`。权威pilot判定为`logs/privileged_behavior_alignment/p0a2_mask_aware_policy_pilot20_2538248_v5/`：`PASS_PILOT_MASK_AWARE_FEASIBILITY`、0 blocker、3 warning，且未读取BDI/prediction/checkpoint。3项warning分别是pilot中的physical-train子集overall `0.965171<0.98`、Freeform `0.932505<0.95`、task gap `0.067495>0.05`；因为pilot只覆盖8个train视频，这些是future-full风险提示而非完整train门禁结论。A2不授权full-rich、P0B或训练。
 
-pilot无论PASS或FAIL都必须进入A2冻结machine-readable coverage policy；PASS可在policy完成后申请conditional full，任一视频低于逐视频0.995则禁止strict full，只能停止PB或单独授权versioned mask-aware合同后重走R0/debug2/pilot。不得临时调低阈值、删视频或改split。即使full与P0B通过，也必须完成P0C/P0D/P0E；这三阶段所需的物理保真、描述符风险和eligibility工具当前尚未实现，不能直接进入模型修改或训练。
+### 2026-07-28 AU/head 训练期特权监督 PB-P0 实施结果（历史快照，后续状态以上方2026-07-30段落为准）
+
+已完成只读项目审阅与现有研究整理，并将完整方案登记到 `docs/PRIVILEGED_BEHAVIOR_ALIGNMENT_PLAN.md`。该分支检验：使用抑郁相关 `AU12_r/AU14_r/AU15_r` 和去中心 `pose_Rx/Ry/Rz` 动态作为训练期辅助目标，是否能在测试仍只使用RGB的条件下减小身份捷径、train-validation gap和severity compression。
+
+首版明确移除gaze，不建立gaze target、gaze auxiliary head、gaze loss、gaze消融或gaze关系对齐条件。推荐顺序为P0 exact `video_id + task_name + frame_id`数据合同与OpenFace来源审计、P1分组masked SmoothL1辅助预测、P1通过后的可选P2跨subject关系式对齐。固定首轮矩阵为`PB-REF / PB-AU / PB-HEAD / PB-AU-HEAD / PB-AU-NO14 / PB-SHUFFLED`，至少3个paired seed，并以BDI utility、identity risk、severity bias、task consistency和train-validation gap联合判定。
+
+用户已授权执行`PB-P0-DATA`的基础设施与landmark-only阻断审计，范围限于数据合同、来源、schema、coverage和train-only normalization基础设施，不包含全量300视频rich提取。本轮新增核心合同审计、薄CLI和独立no-gaze aligned-JPG rich-feature提取入口；没有创建辅助头或训练配置，没有修改dataset/model/runner，没有启动smoke training或正式训练，也没有授权PB-P1。
+
+当前权威landmark-only全量审计位于`logs/privileged_behavior_alignment/p0_contract_landmark_only_blocked_v2/`；v1仅保留为历史证据。v2对300/300个物理split视频和493,141帧完成100%结构连接，`core_audited_video_count=0`、`rich_schema_video_count=0`、`exact_join_video_count=300`。由于300个landmark-only CSV均缺少`AU12_r/AU14_r/AU15_r/pose_Rx/pose_Ry/pose_Rz`，physical-train normalization不可用，最终为`BLOCKED`，共301个blocker：300个`missing_behavior_columns`和1个`train_only_statistics_unavailable`。gaze和历史raw rich访问计数均为0，不得用`/home/zhen/dataset/depression/avec/2014/openface_features`补列。
+
+PB-P0已实现future full-rich来源的strict-rich provenance门禁：source git status必须可用且clean，commit/branch合法；extractor和冻结OpenFace版本/profile必须匹配；scope必须精确为300视频/493,141帧且`min_success_ratio`精确为0.995；182列schema、每行列数和数值域必须逐行有效；final extraction summary由run manifest绑定，CSV content manifest同时由summary和run manifest绑定；每个CSV的rows/schema/size/SHA以及当前每张JPG对candidate manifest的相对路径/大小/SHA均会重新核验。
+
+在该历史快照时，门禁尚未在full-rich数据上执行；landmark-only v2因`rich_schema_video_count=0`记录为`NOT_APPLICABLE`并保持`BLOCKED`。full-rich v2现已完成，见本文顶部；aligned pose物理保真、identity/task risk、P1/P2和训练仍未授权。
+
+后续可行性复核又发现两个更早的阻塞。第一，PB核心代码、extractor和测试已冻结在`dev`提交`2685fa4`，独立docs-only follow-up也已完成且未amend；但Windows侧`/mnt/d/Project/stc`仍停在`40034f4`且没有PB extractor，当前R0只剩Windows clean sync验收。第二，同版aligned-landmark full只有259/300视频达到逐视频0.995，41/300未达到，train/val/test=`13/14/14`，整体success为`486640/493141=0.986817`，其中5个视频低于0.90。直接运行300视频rich极可能只是在4.5--6小时后复现final FAIL。
+
+上述R0、fresh debug2、pilot20和A2当时均已完成。A2选择了versioned mask-aware分支：100%视频/行/schema/hash/provenance仍为硬门禁，`success==1 && confidence>=0.8`仅决定valid mask和coverage；val/test永远只报告。当时下一可申请动作是PB-P0A3；该动作现已完成，最新状态见本文顶部2026-07-30段落。P0B之后仍须完成matched raw/aligned物理保真、最终聚合描述符的train-only normalization及identity/task/exposure/quality风险，再生成region、分组AU/head、cross-region资格与带SHA的完整`eligible_component_profile`，不能从P0B直接跳到模型。
+
+新的`scripts/run_openface_aligned_behavior_features.ps1`固定使用原始模型aligned JPG、OpenFace 2.2.0和`-2Dfp -pose -aus`，不请求gaze、HOG、tracked video或aligned图再生成。历史两视频`debug2c`目录`/mnt/d/Project/dataset/AVEC2014/openface_aligned_behavior_of220_debug2c_20260728`为`2/2 PASS`：1,920张JPG与1,920行CSV完全一致，1,920帧`success=1`，182列且单一schema，gaze/HOG/tracked/regenerated计数均为0；核心合同实测AU有效1,920帧、head velocity有效1,918帧。这些计数只验证旧脚本的schema、mask和差分入口，不是当前strict-rich preflight、全量rich extraction或物理保真/identity-risk证据。
+
+OpenFace对图像目录使用`-fdir`时CSV `timestamp`全为0，不能用于头部速度。时间基准已冻结为`source_video_contract.csv`：300/300视频`PASS`、aligned/raw frame count一致、`fps=30`，按`t=(source_frame_id-1)/fps`计算，角差wrap后只对相邻有效完整帧求旋转速度。fresh debug2、pilot20、A2和full现均已完成；P0B/P0C/P0D/P0E通过并另行授权前，仍不得启动PB-P1。
+
+当前P0 CLI的机器状态名是`PASS/BLOCKED`，不存在`CORE_PASS`；train-only statistics默认`minimum_std=0`，只自动拒绝`std==0`常量目标。它会输出coverage但不按A2阈值自动BLOCK；权威v2已经得到独立A2 full PASS，未来P0B仍必须绑定并验证该decision。landmark-only `selected_target_manifest.json`中的通用`next_gate`提示直接rich提取，只能视为历史P0字段，不能覆盖`TODO.md`和PB方案中的现行路线。
+
+### 2026-07-19 FACE-S1 / LM-T0b AI辅助复核副本
+
+已在不修改两个原始`PENDING`模板的前提下生成独立`Codex-AI-assisted`复核副本，并分别记录输入/输出SHA-256、reviewer和日期。该动作是AI辅助视觉复核，不是人工countersign；因此没有生成threshold manifest、`face_usable`批准、FACE-S2 clip或local crop授权。
+
+FACE-S1已复核124个train-only帧、372个决策单元，并重新检查124张当前图、12张`t-1`配对图和11张contact sheet。global标签为`111 global_usable / 8 out_of_frame / 3 major_occlusion / 2 blur`；local标签为`92 candidate / 12 landmark_missing / 7 out_of_frame / 6 unstable / 5 extreme_pose / 2 other`；124个temporal标签均为`no_boundary`，无uncertain。已完成副本与validator输出SHA-256同为`e7a09000da2781ea12d0496abd62722957cb3d10c469797a3a217d0c0c6cb802`。该结果只能作为人工复签底稿，不能直接冻结阈值。
+
+LM-T0b已复核120张train overlay，得到`115 PASS / 5 UNCERTAIN / 0 FAIL`。`T0B-0007/0031/0035/0115/0119`因手部或物体遮挡、严重裁切而保留为blocking uncertain。仓库validator已确认120行、不可变字段、overlay SHA-256和闭集标签，overlay review状态为`REVIEW_REQUIRED`；原始`40 FAIL / 260 REVIEW_REQUIRED`使总coordinate contract继续为`FAIL`且`authorized=false`。已完成副本与validated副本SHA-256同为`575541d57d510f16b44310cb233a90ab54ed22fa017edabdf5e5b36ec901a8ac`。
+
+### 2026-07-18 曝光派生图像 OpenFace 审计特征脚本
+
+冻结OpenFace 2.2.0的CEN依赖已补齐，aligned-image landmark全量提取已完成并通过行数/schema/provenance审阅；其总体 `success=0.986817` 低于单视频门槛，具体坐标契约结论见下方 LM-T0b 全量审计，不把进程正常结束等同于质量 PASS。
+
+已新增独立 `scripts/run_openface_exposure_features.ps1`，用于未来正式曝光materialization后的配对审计。它不复用landmark-only输出目录，显式请求quality、pose、gaze、2D/3D landmark、PDM和AU字段，禁用HOG与aligned图再生成。该AU输出只用于raw-vs-exposure诊断，不进入当前模型输入或监督。
+
+脚本要求`COMPLETE + mirror`物化manifest、完整原始/派生相对帧路径一致、repair表哈希一致、每个修改帧的双端SHA-256一致、非空git/命令/review provenance，以及同一CSV schema/逐视频行数/`frame=1..N`/success门禁。`src/diagnostics/frame_recovery.py`同步为新materialization manifest增加状态、repair输出哈希与frame contract；旧manifest不能手工补字段，必须在正式授权后用新目录重新物化。当前尚未生成正式曝光派生完整树，因此新脚本已实现但尚未运行debug或全量提取。
+
+已继续新增只读`src/diagnostics/openface_exposure_pairing.py`与`scripts/audit_openface_exposure_pairing.py`，用于曝光提取完成后的逐视频逐帧对齐审计。它强制reference/exposure OpenFace核心哈希、CEN哈希、frame序列和materialization SHA一致，输出success迁移、confidence差、landmark位移/motion及字段可用时的3D/pose/gaze/PDM/AU漂移。模块不读取BDI、prediction或checkpoint，结论固定为`REVIEW_REQUIRED`。
+
+当前曝光配对审计的reference run仍是landmark-only，因此该支线首轮只能合法比较quality和2D landmark。pose/gaze/AU不会从历史raw-video OpenFace结果补入；PB-P0A3行为v2也不得跨用途混作曝光reference。该限制避免把输入空间或提取协议差异误写成曝光收益。
+
+### 2026-07-18 LM-T0b 全量 aligned-coordinate contract 审计
+
+T0b 已使用冻结的 OpenFace 2.2.0 `-fdir -2Dfp -mloc` 输出完成全量只读审计。输入是已通过逐文件完整性比较的 WSL `face_images` 副本，映射来源为同一 aligned JPG 序列上的重新检测 landmark；未执行检测坐标到 `112x112` 的猜测性独立缩放。运行命令和输入哈希记录在 `logs/au_region_tracking_audit/t0b_coordinate_contract_of220_v1/run_manifest.json`。
+
+权威结果为：300 个视频、41,016 个模型选中帧；`260 REVIEW_REQUIRED / 40 FAIL / 0 BLOCKED`。40 个 FAIL 按 train/val/test 为 `12/13/15`，均因 `mapping_valid_ratio < 0.995`；最严重的样本包括 `238_3_Freeform_video=0.0000`、`207_2_Freeform_video=0.703704` 和 `242_1_Northwind_video=0.769841`。其余失败比例多为少量采样帧未能在 aligned 图像上完成映射，不能在没有额外有效 landmark 来源时插值成“有效坐标”。采样表共记录 364 个 `mapping_source_detection_failed` 和 3 个 `low_landmark_in_bounds_ratio`（均位于 `222_1_Freeform_video`）。
+
+这不是坐标缩放错误的证据，也不是 T0b PASS：`coordinate_contract_report.md` 明确要求 train overlay 人工复核，且人工复核不能覆盖 40 个 FAIL。当前 120 张 train overlay 的 `review_status/review_notes` 仍为空；在完成审阅并另行处理失败帧前，动态 mask、四区局部 RGB crop、FACE-S2 clip 训练均保持阻断。失败/通过分类、帧级问题和可复现 provenance 以 `coordinate_mapping_manifest.csv`、`coordinate_frame_summary.csv`、`coordinate_contract_issues.csv` 与 `run_manifest.json` 为准；历史占位目录 `t0b_coordinate_contract` 不具备有效结果。
+
+已新增 `src/diagnostics/au_coordinate_overlay_review.py`、prepare/validate 两个 CLI 和独立复核包 `t0b_overlay_review_of220_v2`。它保持原始 T0b 输出只读，将 120 张 train overlay 按 frontal-control/high-pose/low-confidence/rapid-pose-change 各 30 张整理成 12 页 contact sheets，冻结单图、页面、输入表和实现 SHA-256，并输出独立 `PENDING` 模板。签署后必须提交模板副本给 validator；它逐字段拒绝修改 video/frame/path/hash/mapping 指标，并强制 `REVIEWED + PASS|FAIL|UNCERTAIN + reviewer + date`。即使 120 张全部 PASS，只要原始 40 个自动 FAIL 仍存在，最终 `coordinate_contract_status` 仍为 FAIL。
+
+模型辅助的 12 页预检未发现统一方向的 landmark 缩放或平移错位，但这不是人工签署。`T0B-0007`、`T0B-0031`、`T0B-0035`、`T0B-0115`、`T0B-0119` 等样本存在手部遮挡、极端裁切或局部语义被遮住，必须由复核者判断为 PASS/FAIL/UNCERTAIN；其中对局部 RGB crop 的可用性还要在 FACE-S1 local-geometry gate 单独判断，不能由坐标贴合自动批准。
 
 ### 2026-07-17 输入路线修订：face-valid片段与AU语义保持的landmark局部增强
 
@@ -82,7 +128,7 @@ PnP实现曾在两视频debug中暴露坐标系180度歧义：正常脸被报告
 
 train-only contact manifest含11类、132个PENDING极端帧。单帧视觉复核支持yaw/pitch、coverage、out-of-frame、低confidence、低blur和visible landmark failure的语义方向，但blur明显受曝光/对比度混杂，不能单独删帧；transform residual与大姿态/不对称高度重合。原始jump sheet只显示当前帧，不足以审计动态量，因此新增`src/diagnostics/face_usability_temporal_review.py`和配套CLI，输出`face_usability_temporal_review_v1`的12个train-only`t-1/t`帧对。逐对重算与主表差异均小于`1e-5`；高jump多数是真实快速姿态、表情或模糊变化，没有系统性landmark teleport证据，所以jump只能触发邻域复核，不能独立定义unusable。
 
-新增`src/diagnostics/face_usability_threshold_review.py`与`prepare_face_usability_threshold_review.py`，把132个contact条目去重为124个train帧：112个来自成功landmark极端层，12个来自可见landmark失败层，8帧同时触发两个原因。v2模板强制拆分`global_face_label`、`local_geometry_label`与`temporal_boundary_label`，因为landmark失败不必然使global RGB不可用。`local_geometry_candidate`只表示可进入后续四区overlay审计，不批准任何具体local crop；逐区polygon、margin和coverage尚未冻结。当前三栏均为124/124 `PENDING`，没有生成threshold manifest。旧v1模板已明确标记SUPERSEDED。
+新增`src/diagnostics/face_usability_threshold_review.py`与`prepare_face_usability_threshold_review.py`，把132个contact条目去重为124个train帧：112个来自成功landmark极端层，12个来自可见landmark失败层，8帧同时触发两个原因。v2模板强制拆分`global_face_label`、`local_geometry_label`与`temporal_boundary_label`，因为landmark失败不必然使global RGB不可用。`local_geometry_candidate`只表示可进入后续眼眉/鼻颊/嘴部三语义区overlay审计，不批准任何具体local crop；逐区polygon、margin和coverage尚未冻结。当前三栏均为124/124 `PENDING`，没有生成threshold manifest。旧v1模板已明确标记SUPERSEDED。
 
 当前仍不冻结阈值。下一步只允许填写这124个train-only人工标签并生成独立threshold manifest；validation/test只应用冻结规则并报告，不能回调阈值。FACE-S2 run/clip生成、全量raw-warp/materialize和任何训练继续阻断。
 
@@ -172,9 +218,9 @@ Stage C 的完整实施规格已写入 `docs/STAGE_C_RUNBOOK.md`。`C-REF / C-BN
 
 因此，当前不再把“增大/缩小/先升后降表示维度”作为立即实验。维度只有在训练目标能提供可验证的语义梯度、且外部 leakage 风险确实下降后才有解释价值。下一条主动干预路线转为输入侧局部归纳偏置：保留全脸信息，同时用动态 AU/FACS 语义区域训练同一个共享模型。
 
-### 2026-07-14 单模型AU语义区域路线（2026-07-17明确为RGB-only裁切）
+### 2026-07-14 单模型AU语义区域路线（历史四区/RGB-only方案）
 
-该路线继续作为当前局部增强设计，但输入边界现已冻结：AU/FACS定义语义区域，landmark负责逐帧定位，模型只接收局部RGB crop；AU intensity/presence、AU序列、AU特征和AU监督不进入模型。
+本节只保留历史设计演进；其四区、无AU监督和global-only推理假设已由本文顶部2026-07-30三语义区、train-only AU/head和FULL优先混合消融取代。
 
 目标不是训练多个区域模型，也不是在推理时做多分支融合，而是让同一个 MTL-Lite backbone、时序编码器和 BDI head 在训练时同时处理全局脸与全部有效 AU 语义局部视图。各视图沿 batch 维展开并共享全部参数；validation/test/inference 只输入全脸。若 global-only inference 得到改善，才能说明局部训练改变了同一模型的表示偏好，而不是依赖额外推理模型。
 
@@ -198,11 +244,11 @@ AU-T0a 已在 300 个视频上正确运行：`300 PASS / 0 FAIL / 0 BLOCKED`，�
 
 Windows OpenFace 当前冻结根目录改为 `D:\Tools\Openface_2.2.0_win_x64`，实际发布包为其下的 `OpenFace_2.2.0_win_x64` 子目录。该包的 `FeatureExtraction.exe`、`model/main_ceclm_general.txt`、`readme.txt` SHA-256 分别为 `a29ba49cfc59039bfe5e2f141898b2a110da420f6f520d6a923a86ac78cd96ae`、`7efbef33dbc3e54197960300827657f9fe7a42c0953ef52c2af054a6fdbc3598`、`4ccdd65f992124db8127688a545a9344b537bdeb2d97371cfddfd65fc68a1d93`。`scripts/run_openface_aligned_landmarks.ps1`现按该发布包布局解析路径并同时校验目录名和三项哈希；仍只执行完整序列`-fdir + -2Dfp + -mloc`，输出独立aligned-space landmark CSV。原始`face_images`、历史`openface_features`和现有landmark目录继续冻结且不得覆盖。
 
-当前新包首次debug暴露出四个CEN patch expert二进制未随压缩包提供：`model/patch_experts/cen_patches_0.25_of.dat`、`0.35`、`0.50`、`1.00`缺失，导致OpenFace返回`exit_code=1`且不生成CSV。脚本已增加依赖预检；必须在发布包目录运行官方`download_models.ps1`补齐文件后再重跑。`ccnf_*`/`svr_*`文本模型不能替代CEN二进制，不能把失败结果写入新的landmark版本。
+新包首次debug曾暴露四个CEN patch expert二进制未随压缩包提供：`model/patch_experts/cen_patches_0.25_of.dat`、`0.35`、`0.50`、`1.00`缺失，导致OpenFace返回`exit_code=1`且不生成CSV。该依赖现已通过官方`download_models.ps1`补齐，脚本继续在每次运行前预检并记录哈希。`ccnf_*`/`svr_*`文本模型不能替代CEN二进制。
 
 两视频 debug-v1 已完成并通过数据门禁：Freeform `930/930`、Northwind `990/990`，总计 `1920/1920` 行与检测成功，两个进程均正常关闭。独立坐标统计没有缺失或非有限值；总体 landmark in-bounds 比例分别为 `0.99973/0.99893`，单帧最低 `0.9853/0.9559`，少量越界仅涉及贴近图像边界的 jaw points。临时 T0b 检查为 `2 REVIEW_REQUIRED / 0 FAIL / 0 BLOCKED`，192 个模型选中帧全部有效，7 张 train overlay 人工审阅均正确贴合。
 
-debug-v1 的唯一阻塞项是 `git_commit/git_branch/git_status_short` 为空。根因不是提取失败，而是 `D:\Project\stc` 不含 `.git`；其脚本 SHA-256 `c7e89b39da16a9dc11e5624606586db2cf98c1eb8d8af209def916e277421df7` 已独立映射到提交 `1433a06`。脚本现新增成对的 `-SourceGitCommit/-SourceGitBranch`：非 git 代码副本缺少显式 provenance 时立即失败；若真实 checkout 可检测且与显式值不一致也立即失败。下一步使用实际 `ImageRoot=D:\Project\dataset\AVEC2014\face_images` 运行约 24 秒 debug-v2，确认 manifest 的 git 字段非空后才授权 300 视频全量生成。
+debug-v1 的唯一阻塞项曾是 `git_commit/git_branch/git_status_short` 为空。根因不是提取失败，而是当时的 `D:\Project\stc` 不含 `.git`；其脚本 SHA-256 `c7e89b39da16a9dc11e5624606586db2cf98c1eb8d8af209def916e277421df7` 已独立映射到提交 `1433a06`。脚本随后新增成对的 `-SourceGitCommit/-SourceGitBranch`，当前Windows checkout与CEN依赖已能正常启动并完成 300 视频提取；后续质量判断以 `t0b_coordinate_contract_of220_v1` 的逐视频表和 overlay gate 为准。
 
 ### 2026-07-14 AU-T0a frame-contract implementation
 
@@ -334,9 +380,9 @@ Stage D 反证与稳健性验证：multi-attacker、leakage matrix、severity-ba
 - Post-hoc linear calibration 全部降低 CCC，因此只作为 prediction compression 诊断，不作为模型方案。
 - `Shortcut-Regularized MTL` 保留为重要基线：`severity-balanced regression`（E2）作为 Stage C 强 baseline 候选，`identity-adversarial MTL`（E1，已证无效）作为支线消融对照。
 
-### 当前正在推进什么
+### 历史记录：当时推进的 Stage C（现已收口）
 
-Stage A、Stage B 均已完成收口（见上方 2026-07-08 Stage A 结论与 2026-07-10 Stage B B5 结论）。Stage B 证明轻量级可开关 defense（identity 对抗 + severity 平衡）不足以解除 shortcut，下一步进入 Stage C 粗粒度信息分流验证：
+该段记录2026-07-10之后的Stage C执行过程，不再是当前任务入口。Stage A、Stage B完成后，当时进入Stage C粗粒度信息分流验证：
 
 1. ~~**B0 干预规格**~~：已完成（identity-adversarial MTL + severity-balanced regression 配置/损失/评估/默认关闭）。
 2. ~~**B1 identity-adversarial baseline**~~：已完成（E1）——无效，identity risk 未降。
@@ -347,7 +393,7 @@ Stage A、Stage B 均已完成收口（见上方 2026-07-08 Stage A 结论与 20
 7. ~~**C1 coarse task-nuisance information separation**~~：代码、smoke、train-only calibration 和冻结权重均已完成。
 8. **C2 validation screening（utility 已否证）**：三组候选均触发 severe utility failure；停止进入 C3。后续只允许修复 validation-only 协议并运行失败机制诊断，不据此增加结构复杂度。
 
-编程实施控制已细化到 `TODO.md` 的“编程实施控制（下一步）”。后续按 `P0（已完成） -> C1 -> C2 -> C3 -> Stage D` 推进；不在基础两出口方案通过闸门前扩展 `z_id`、细粒度 latent 或多级门控。
+该历史路线在C2 utility gate失败后已经停止，没有进入C3。当前执行顺序以本文顶部权威快照和`TODO.md`开头的E/F路线为准。
 
 ### 当前路线细化补充
 

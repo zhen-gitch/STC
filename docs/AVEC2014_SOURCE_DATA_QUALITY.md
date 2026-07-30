@@ -1,6 +1,6 @@
 # AVEC2014 Source and Derived Video Quality Record
 
-> 文档职责：记录当前300个AVEC2014视频在原视频、aligned JPG、landmark/OpenFace派生层的已知问题、证据、处理边界与待补审计。本文是后续曝光调整、人脸片段选择、AU语义保持的landmark局部裁切和论文数据说明的权威问题档案。
+> 文档职责：记录当前300个AVEC2014视频在原视频、aligned JPG、landmark/OpenFace派生层的已知问题、证据、处理边界与待补审计。本文是后续曝光调整、人脸片段选择、AU语义保持的landmark局部裁切、已登记行为伪标签来源合同和论文数据说明的权威问题档案。
 
 ## 核心区分
 
@@ -168,6 +168,12 @@ mixed/ambiguous after segmentation: 0
 
 没有合法映射时必须BLOCKED，不能猜测坐标。
 
+### PB-P0已执行的AU/head训练期伪标签来源边界
+
+`PRIVILEGED_BEHAVIOR_ALIGNMENT_PLAN.md`登记的独立研究分支目前只授权并完成PB-P0合同/CLI/no-gaze extractor基础设施、两视频debug与landmark-only阻断审计。其`AU12_r/AU14_r/AU15_r`与旋转head dynamics只能来自模型实际使用的aligned JPG完整序列、冻结OpenFace 2.2.0与冻结profile `-2Dfp -pose -aus`；历史raw-video `openface_features`不得补入当前aligned RGB监督。`debug2c`已对2/2视频、1,920帧/行`PASS`，但不构成全量提取或训练授权。当前audit-only rich manifest也不能直接改名或解释为training-target contract。
+
+gaze已从该研究分支完全排除。正式landmark-only P0对300/300视频、493,141张JPG完成exact video/task/frame join，但因全量CSV缺少`AU12_r/AU14_r/AU15_r/pose_Rx/pose_Ry/pose_Rz`而`BLOCKED`，不得回退历史raw rich CSV。冻结source-video contract SHA-256为`12f50c2311b9d89dde81e27fa83891226ca5f447ed7d3d56fe38cf673a1c5a31`，300/300帧数匹配且统一30 FPS；行为合同只允许用它生成`t=(frame_id-1)/30`，不允许读取raw OpenFace路径或AU/pose数值。aligned JPG `-fdir`输出的`timestamp`为常数0，禁止用于速度；旋转差wrap后只在连续有效帧间计算。下一门禁是单独授权全量aligned rich提取后重跑coverage/source-provenance/train-only normalization；aligned pose物理保真与identity/task risk仍未运行通过，P1/P2和训练仍未授权。AU/head scalar目标不依赖landmark到local-crop的空间映射，因此既不能借T0b coordinate状态自动获批，也不能绕过当前face-usability和派生输入的数据披露要求。
+
 ## 视频时长和当前采样偏差
 
 视频原始长度分布：
@@ -208,13 +214,13 @@ videos > 3000 frames: 33
 
 ### AU语义保持的Landmark局部裁切
 
-- AU/FACS只定义四个完整局部RGB视图的语义边界：`brow(AU1/2/4)`、`eye_cheek(AU5/6/7/45)`、`nose_upper_lip(AU9/10)`、`mouth_jaw(AU12/14/15/17/20/23/24/25/26)`；
-- 不读取AU intensity/presence数值，不把AU序列、AU特征或landmark坐标作为模型输入，不增加AU预测或AU loss；
+- AU/FACS定义眼眉、鼻颊、嘴部三个主体语义局部RGB视图；相邻区域只允许约5%--10%边界容错，详细polygon/margin合同见`GLOBAL_LOCAL_AU_EXPERIMENT_PLAN.md`；
+- AU intensity/presence、AU序列、AU特征和landmark坐标都不作为推理输入；通过PB-P0E的AU动态只允许作为train-only辅助目标，validation/test不读取目标root；
 - 使用验证后的aligned-space 68点landmark逐帧定位上述语义区域，并生成覆盖完整polygon和冻结margin的矩形RGB crop；
-- local和global来自相同frame/clip，共享同一backbone、temporal encoder和BDI head；
+- local和global来自相同frame/clip，共享同一backbone，帧级validity-aware融合后进入同一temporal encoder和BDI head；
 - landmark mapping、关键点集合、区域coverage或语义完整性无效时跳过local view，不从邻帧或隐藏侧伪造；
-- 左右landmark只用于定位和可见性，不形成左右AU视图、预测或loss；
-- 等面积grid仅作为“AU语义保持的区域是否优于任意局部裁切”的控制组。
+- 左右landmark只用于定位和可见性，不形成左右AU视图或重复监督；AU6与AU14的跨区域token处理由GLA合同控制；
+- 三个等面积grid仅作为“语义区域是否优于任意局部裁切”的控制组；训练顺序采用FULL优先混合消融，不由本文定义。
 
 ## 数据版本与不可覆盖原则
 

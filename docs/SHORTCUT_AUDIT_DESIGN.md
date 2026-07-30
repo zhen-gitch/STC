@@ -1518,7 +1518,11 @@ A0   [ ] 服务器对 RGB baseline 运行 A1-A4，写入结论，关闭 Stage A
 
 ## 14. Dynamic AU-semantic Region Tracking and Crop-integrity Audit
 
+> **2026-07-30现行方案提示**：本节以下“四区、RGB-only”的字段、run ID和shape是已实现审计路线的历史规格，继续用于解释既有代码和日志，不再是未来训练方案的权威定义。新方案已收敛为`global + eye_brow + nose_cheek + mouth_lower_face`三个局部语义区、共享backbone、帧级融合和train-only区域AU；AU6使用眼眉+鼻颊特征，AU14使用鼻颊+嘴部特征。实验顺序是最大P0E-eligible `GLA-FULL`优先、依赖感知减法和幸存因素有限加法复核。未来实现、实验矩阵和停止条件以`GLOBAL_LOCAL_AU_EXPERIMENT_PLAN.md`为准；旧四区审计不得自动授权新训练。
+
 > 2026-07-17输入边界：AU/FACS在本节只定义四个局部RGB裁切的语义边界；68点landmark负责逐帧定位。模型不读取AU intensity/presence数值、AU序列、AU特征、landmark坐标或内部mask，也不增加AU预测任务与AU监督loss。FACE-S1/temporal clip规格见下方第15节。
+
+> 2026-07-30边界补充：PB-P0A3权威full-rich v2和A2完整coverage已经通过；landmark-only `BLOCKED`继续作为历史证据。该来源不能复用本节coordinate/crop状态替代P0B-P0E，CSV含扩展AU也不等于训练资格通过。aligned `-fdir timestamp=0`仍禁止计算速度；只允许使用冻结30 FPS source contract的`t=(frame-1)/30`，角度差wrap且只跨连续有效帧。P0B兼容修复/运行、物理保真、identity/task风险、扩展AU、模型和训练仍须分别披露与授权。
 
 本节定义单模型AU语义完整局部RGB裁切在训练前必须通过的只读几何审计。该审计不读取AU数值或BDI prediction来调整区域，不修改aligned frame、OpenFace CSV、split或checkpoint，也不进入训练forward。
 
@@ -1537,7 +1541,7 @@ A0   [ ] 服务器对 RGB baseline 运行 A1-A4，写入结论，关闭 Stage A
 
 禁止只按 `112/640`、`112/480` 独立缩放坐标，因为 aligned face 通常包含旋转、平移、尺度和裁剪变换。脚本必须把 `source_coordinate_system`、`mapping_method`、`transform_available`、`mapping_residual` 写入 manifest。
 
-在坐标映射之前必须先冻结 frame join 契约。aligned JPG 文件名中的帧号、OpenFace `frame`、`timestamp` 和数据集排序索引必须显式对齐；检查 0/1-based offset、重复帧、缺失帧和非单调时间戳。正式审计要求 `frame_join_rate >= 0.995`。禁止只因为 JPG 数量与 CSV 行数相同就按行号静默拼接。
+在坐标映射之前必须先冻结 frame join 契约。aligned JPG 文件名中的帧号、OpenFace `frame` 和数据集排序索引必须显式对齐；检查 0/1-based offset、重复帧和缺失帧。OpenFace aligned-JPG `-fdir`输出的`timestamp`为常数0，只验证该预期语义，不把它当作时钟；若需要真实帧时间，只能使用冻结source-video contract的外部时间轴。正式审计要求 `frame_join_rate >= 0.995`。禁止只因为 JPG 数量与 CSV 行数相同就按行号静默拼接。
 
 ### 14.2 AU 语义区域
 
@@ -1789,7 +1793,7 @@ L_total = L_global + 0.5 * mean(valid L_brow,L_eye,L_nose,L_mouth)
 
 #### AU-M2/M3 Validation Matrix
 
-seed 42 固定比较 G0/G1/G2；通过 utility、risk 和 AU-vs-grid gate 后才运行 seeds 43/44。沿用 Stage C utility failure 条件：`delta_CCC < -0.05` 或 `delta_MAE > +0.50` 的任一 seed 立即停止。论文中的 AU 语义主张还要求 G2 在 multi-seed 和 paired subject bootstrap 下稳定优于 G1；final test 在协议冻结前保持关闭。
+[历史矩阵] seed 42固定比较G0/G1/G2；该顺序已由2026-07-30 GLA-FULL优先混合消融取代，只用于复现旧审计设计，不得继续派生训练任务。
 
 ## 15. Current Face-valid Segment and AU-semantic Landmark-crop Audit
 
@@ -1837,7 +1841,7 @@ contact sheet必须覆盖：
 
 2026-07-17 phase-1实现状态：`face_usability_phase1_v2`已覆盖300视频/493,141帧，只生成分布和PENDING复核项。PnP必须记录solver、正深度和重投影RMSE；负深度迭代解回退到SQPnP/EPnP。jump是相邻帧量，contact review必须显示精确`t-1/t`帧对并重算主表值，单帧overlay不足以批准该指标。当前12个train最高jump帧对多为真实运动/表情/模糊变化，因此jump只能触发邻域复核，不能独立判`face_present_low_quality`。blur同样必须与luma、gradient和clipping联合。major occlusion是语义标签，当前几何proxy不能声称已自动互斥计数。
 
-阈值复核采用双通道契约：`global_face_label`决定global时间输入是否保留，`local_geometry_label`只决定landmark几何是否可进入后续四区overlay审计，`temporal_boundary_label`决定是否切断连续run。允许`global_usable + local_geometry_ineligible + no_boundary`；禁止用单一`face_usable`字段把局部坐标问题升级成global数据删除。当前阶段尚未冻结四区polygon/margin/coverage，因此不得使用`local_crop_eligible`或`semantic_truncation`最终标签。132个contact条目去重为124个train帧，三栏必须全部人工`REVIEWED`后才能冻结global/geometry threshold manifest。
+阈值复核采用双通道契约：`global_face_label`决定global时间输入是否保留，`local_geometry_label`只决定landmark几何是否可进入后续眼眉/鼻颊/嘴部三语义区overlay审计，`temporal_boundary_label`决定是否切断连续run。允许`global_usable + local_geometry_ineligible + no_boundary`；禁止用单一`face_usable`字段把局部坐标问题升级成global数据删除。当前阶段尚未冻结三语义区polygon/margin/coverage，因此不得使用`local_crop_eligible`或`semantic_truncation`最终标签。132个contact条目去重为124个train帧，三栏必须全部人工`REVIEWED`后才能冻结global/geometry threshold manifest。
 
 ### 15.3 FACE-S2 run与clip manifest
 
@@ -1877,6 +1881,8 @@ S2 all face-valid clips + shared-model video-bag loss
 S1中同一video的clip权重和必须为1；S2先按有效时长聚合为一个video prediction再计算一次BDI loss。validation/test始终先聚合为video prediction。clip不进入subject bootstrap或主MAE/RMSE/CCC样本数。
 
 ### 15.5 LM-M0 AU语义保持的landmark局部裁切
+
+> **Superseded for future training design (2026-07-30)**：本小节保留旧四区RGB-only合同以复现现有审计；未来训练采用`GLOBAL_LOCAL_AU_EXPERIMENT_PLAN.md`的三语义区、跨区域AU和FULL优先混合消融合同，尚未实现或授权。
 
 本项目局部view固定为AU语义保持的RGB crop。AU/FACS定义语义分区，landmark逐帧定位，内部polygon/mask只用于coverage和crop envelope；模型不读取AU数值、landmark坐标或mask：
 

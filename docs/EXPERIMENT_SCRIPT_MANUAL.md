@@ -2,6 +2,12 @@
 
 本手册汇总当前项目所有可直接运行的训练、诊断、审计和汇总脚本。所有路径默认采用新的实验输出布局：
 
+## 0. 执行授权门禁
+
+本文中的命令只说明复现方式，不构成运行授权。任何代码/配置/测试修改、数据生成、smoke、训练、评估、后台任务、commit或push前，agent必须先按根`AGENTS.md`提交具名package ID/version，明确边界、架构/数据流、文件/API、split/test访问、完整命令、设备/precision/耗时/磁盘、输出、验证、停止条件、风险和agent分工，结束该轮并等待用户明确授权。不同动作的授权互不传递。
+
+当前GLA模型和训练入口尚未实现；在P0E、代码披露和授权前，本手册不得添加或猜测`GLA-FULL`训练命令。权威实验矩阵见`GLOBAL_LOCAL_AU_EXPERIMENT_PLAN.md`。
+
 ```text
 <LOG_DIR>/<EXPERIMENT_GROUP>/<EXPERIMENT_NAME>/version_N/
 ```
@@ -581,21 +587,140 @@ $OutputRoot = "D:\Project\dataset\AVEC2014\openface_aligned_landmarks_of220_a29b
 
 正式输出目录不得复用历史 `openface_features`，输出文件也不得写进任何 `*_video_aligned` JPG 子目录。进程中断后可以对同一正式目录附加 `-Resume`；脚本只跳过已经通过完整 CSV 契约的视频，缺失或不合格 CSV 会重新生成。暂不并行启动多个 OpenFace 进程，以避免 CPU/内存竞争和输出审计混乱。
 
-### 4.2.3a PB-P0 aligned-JPG AU/head提取与数据合同审计
+### 4.2.3a 曝光处理后 aligned JPG 的 OpenFace 审计特征提取
 
-PB-P0只建立`AU12_r/AU14_r/AU15_r`与旋转head velocity的数据来源、exact frame join、coverage和physical-train normalization门禁，不修改dataset/model/runner，不创建辅助头，也不启动训练。gaze不在命令、schema白名单、target、normalizer或loss中；历史raw-video `openface_features`不得用于补列。
-
-PB-R0提交侧状态已经冻结：
+`scripts/run_openface_exposure_features.ps1` 是与上方 landmark-only 流水线完全分离的配对审计入口。它只接受正式 `materialize --layout mirror` 生成的完整派生图像树，显式提取：
 
 ```text
-core implementation commit 2685fa4: DONE
-independent docs-only follow-up: DONE（not amended into 2685fa4）
-push后的Windows clean sync验收: PENDING
+confidence/success
+pose
+gaze
+2D/3D 68-point landmarks
+PDM parameters
+AU regression/classification outputs
 ```
 
-推送包含上述两次提交的具名分支后，Windows必须拉取同一最终tip，确认checkout非detached、`git status --short`为空且当前extractor SHA匹配冻结值。该验收完成前不得运行fresh debug2。`SourceGitCommit`记录Windows实际最终HEAD；`2685fa4`继续作为PB核心实现来源提交保留。
+实际参数固定为 `-2Dfp -3Dfp -pdmparams -pose -aus -gaze`。HOG、aligned-image再生成和tracked-video输出均关闭。该曝光审计产生的AU字段只用于处理前后配对诊断，不进入GLA训练；未来train-only AU辅助目标只能来自通过PB-P0E的独立行为来源合同。
 
-Windows PowerShell变量和clean gate如下：
+该脚本在创建输出前 fail closed：
+
+- `MaterializationManifest` 必须位于 `<ImageRoot>\_audit\materialization_manifest.json`；
+- manifest 必须为 `COMPLETE + mirror`，并记录完整帧树、修改帧哈希、git/命令/review provenance；
+- 原始与派生目录的全部视频名、JPG相对路径和帧数必须逐项一致；
+- `repair_manifest.csv` 与 `repair_failures.csv` 必须通过记录的 SHA-256；
+- 每个曝光修改帧的原始和派生 JPEG 必须分别通过 `source_sha256/derived_sha256`；
+- repair只能是已审批的 `log/inverse_log tone_normalization`，不能混入未审批warp、邻帧复制或其他增强；
+- 输出目录不能位于原始/派生图像树内，也不能复用历史 `openface_features` 或 landmark 输出。
+
+因此，旧 materialization manifest 若缺少 `materialization_status`、repair manifest哈希或 `frame_contract`，不能直接补字段；应使用当前代码、相同review manifest和新的空输出目录重新物化。曝光图像尚未正式materialize时，本脚本只能保留待用，不能绕过前置gate直接指向preview目录或`sparse_overlay`。
+
+Windows两视频debug命令如下。示例假设完整派生树已位于 `face_images_exposure_q25q75_v1`；目录名应按实际冻结版本调整：
+
+可先在Windows PowerShell做纯语法解析，不会执行脚本主体：
+
+```powershell
+$ScriptPath = "D:\Project\stc\scripts\run_openface_exposure_features.ps1"
+$Tokens = $null
+$ParseErrors = $null
+[System.Management.Automation.Language.Parser]::ParseFile(
+  $ScriptPath, [ref]$Tokens, [ref]$ParseErrors
+) | Out-Null
+if ($ParseErrors.Count -gt 0) { $ParseErrors | Format-List; throw "PowerShell parse failed" }
+```
+
+```powershell
+$Repo = "D:\Project\stc"
+Set-Location $Repo
+
+$SourceGitCommit = (git rev-parse HEAD).Trim()
+$SourceGitBranch = (git branch --show-current).Trim()
+$OpenFaceRoot = "D:\Tools\Openface_2.2.0_win_x64"
+$SourceImageRoot = "D:\Project\dataset\AVEC2014\face_images"
+$ImageRoot = "D:\Project\dataset\AVEC2014\face_images_exposure_q25q75_v1"
+$MaterializationManifest = "$ImageRoot\_audit\materialization_manifest.json"
+$OutputRoot = "D:\Project\dataset\AVEC2014\openface_exposure_features_of220_a29ba49c_debug"
+
+& "$Repo\scripts\run_openface_exposure_features.ps1" `
+  -OpenFaceRoot "$OpenFaceRoot" `
+  -SourceImageRoot "$SourceImageRoot" `
+  -ImageRoot "$ImageRoot" `
+  -MaterializationManifest "$MaterializationManifest" `
+  -OutputRoot "$OutputRoot" `
+  -SourceGitCommit "$SourceGitCommit" `
+  -SourceGitBranch "$SourceGitBranch" `
+  -MaxVideos 2
+```
+
+debug必须满足：`video_count=2`、`pass_count=2`、`fail_count=0`、`total_images=total_csv_rows`、`schema_count=1`、`schema_consistent=true`、`hog_file_count=0`、`success_ratio>=0.995`和`status=PASS`。检查：
+
+```powershell
+Get-Content -Raw "$OutputRoot\_audit\extraction_summary.json"
+Import-Csv "$OutputRoot\_audit\video_run_summary.csv" | Format-Table -AutoSize
+Import-Csv "$OutputRoot\_audit\csv_schema_manifest.csv" | Format-Table -AutoSize
+Get-Content -Raw "$OutputRoot\_audit\run_manifest.json"
+```
+
+debug通过后使用新的正式输出目录并去掉 `-MaxVideos 2`：
+
+```powershell
+$OutputRoot = "D:\Project\dataset\AVEC2014\openface_exposure_features_of220_a29ba49c_q25q75_v1"
+
+& "$Repo\scripts\run_openface_exposure_features.ps1" `
+  -OpenFaceRoot "$OpenFaceRoot" `
+  -SourceImageRoot "$SourceImageRoot" `
+  -ImageRoot "$ImageRoot" `
+  -MaterializationManifest "$MaterializationManifest" `
+  -OutputRoot "$OutputRoot" `
+  -SourceGitCommit "$SourceGitCommit" `
+  -SourceGitBranch "$SourceGitBranch"
+```
+
+中断后只能在同一输入版本、同一materialization SHA-256、同一OpenFace二进制/模型和同一feature profile下增加 `-Resume`。脚本会拒绝把任意历史CSV目录伪装成resume输出。正式产物用于 raw-vs-exposure 配对质量、landmark、pose、gaze和AU变化审计；是否进入后续训练必须由独立 `FACE-T0d` paired ablation 决定。
+
+### 4.2.3b raw-vs-exposure OpenFace 逐帧配对审计
+
+完成曝光侧两视频或全量提取并把输出复制到WSL后，运行只读：
+
+```bash
+/home/zhen/miniconda3/envs/light/bin/python \
+  scripts/audit_openface_exposure_pairing.py \
+  --reference-openface-root logs/au_region_tracking_audit/openface_aligned_landmarks_of220_a29ba49c \
+  --exposure-openface-root logs/au_region_tracking_audit/openface_exposure_features_of220_a29ba49c_q25q75_v1 \
+  --materialization-manifest /path/to/copied/face_images_exposure_q25q75_v1/_audit/materialization_manifest.json \
+  --output-dir logs/au_region_tracking_audit/openface_exposure_pairing_q25q75_v1
+```
+
+若曝光输出只是两视频debug、而reference目录已经包含300视频，显式增加：
+
+```text
+--allow-reference-superset
+```
+
+该开关只允许“reference为全集、exposure为声明过的debug子集”，不会放宽曝光视频缺少reference、逐帧行数不等或frame不连续。全量正式审计禁止使用该开关，两个视频集合必须完全一致。
+
+输入门禁包括：reference/exposure `FeatureExtraction.exe`、主landmark模型、readme和四个CEN哈希完全相同；曝光run manifest必须使用冻结feature profile并精确引用传入的materialization manifest SHA-256。若两侧都是完整feature profile，还会继续要求AU predictor与完整model manifest哈希一致。
+
+固定输出为：
+
+```text
+audit_summary.json
+run_manifest.json
+tables/video_pair_summary.csv
+tables/schema_pair_summary.csv
+tables/success_transition_frames.csv
+tables/feature_pair_summary.csv
+reports/openface_exposure_pairing_report.md
+```
+
+审计逐帧报告 `fail->success`、`success->fail`、confidence变化、68点绝对位移、inner-face位移和相邻帧landmark motion变化。只有两侧字段集合与提取模型一致时才比较3D landmark、pose、gaze、PDM和AU；否则对应组标记为unavailable。
+
+当前冻结的原始aligned reference是`-2Dfp` landmark-only，因此它与曝光rich-feature输出的合法首轮比较范围只有quality和2D landmark。不得用历史raw-video `openface_features`补齐pose/gaze/AU，因为输入空间和提取来源不同。若后续需要解释rich-feature漂移，必须先对原始aligned JPG使用同一OpenFace版本和同一完整feature profile生成匹配reference。即使检测成功率上升，报告状态仍为`REVIEW_REQUIRED`；是否减轻过拟合只能由固定模型/split/seed的`FACE-T0d`配对训练实验回答。
+
+### 4.2.3c PB-P0 aligned-JPG AU/head提取与数据合同审计
+
+PB-P0只建立`AU12_r/AU14_r/AU15_r`与旋转head velocity的数据来源、逐帧连接、coverage和train-only normalization门禁，不修改dataset/model/runner，不创建辅助头，也不启动训练。gaze不在命令、schema白名单、target、normalizer或loss中；历史raw-video `/home/zhen/dataset/depression/avec/2014/openface_features`不得用于补列。
+
+先在Windows PowerShell运行两个视频debug。两个视频debug建议从clean checkout运行；正式`MaxVideos=0`全量提取则硬性要求`git status --short`命令可用且输出为空。非git代码副本即使显式提供commit/branch，也只能用于debug，不能授权full-dataset来源。commit必须为7–40位十六进制，branch必须合法；检测到checkout时显式值还必须与checkout一致。`SourceVideoContract`必须是冻结的300视频原视频时钟合同：
 
 ```powershell
 $Repo = "D:\Project\stc"
@@ -604,29 +729,48 @@ if ((git status --short)) { throw "Windows checkout must be clean" }
 
 $SourceGitCommit = (git rev-parse HEAD).Trim()
 $SourceGitBranch = (git branch --show-current).Trim()
-if (-not $SourceGitBranch) { throw "Windows checkout must be on a named branch" }
-
 $OpenFaceRoot = "D:\Tools\Openface_2.2.0_win_x64"
 $ImageRoot = "D:\Project\dataset\AVEC2014\face_images"
 $IntegritySummary = "D:\Project\dataset\AVEC2014\audits\image_integrity\comparison\comparison_summary.json"
 $SourceVideoContract = "\\wsl.localhost\Ubuntu\home\zhen\code\stc\logs\au_region_tracking_audit\source_video_presence\tables\source_video_contract.csv"
+$OutputRoot = "D:\Project\dataset\AVEC2014\openface_aligned_behavior_of220_debug_NEW"
 
-git merge-base --is-ancestor 2685fa49459d6e79499849c2927fce17a2ddc1f8 HEAD
-if ($LASTEXITCODE -ne 0) { throw "PB core commit is not an ancestor of HEAD" }
-
-$ExtractorSha = (Get-FileHash "$Repo\scripts\run_openface_aligned_behavior_features.ps1" -Algorithm SHA256).Hash.ToLowerInvariant()
-if ($ExtractorSha -ne "64375c6575066619cb21ce94d213e7457446df961a8d9565bd554eee68db3cc5") {
-    throw "PB extractor SHA mismatch"
-}
-$SourceVideoContractSha = (Get-FileHash "$SourceVideoContract" -Algorithm SHA256).Hash.ToLowerInvariant()
-if ($SourceVideoContractSha -ne "12f50c2311b9d89dde81e27fa83891226ca5f447ed7d3d56fe38cf673a1c5a31") {
-    throw "PB source-video contract SHA mismatch"
-}
+& "$Repo\scripts\run_openface_aligned_behavior_features.ps1" `
+  -OpenFaceRoot "$OpenFaceRoot" `
+  -ImageRoot "$ImageRoot" `
+  -OutputRoot "$OutputRoot" `
+  -IntegrityComparisonSummary "$IntegritySummary" `
+  -SourceVideoContract "$SourceVideoContract" `
+  -SourceGitCommit "$SourceGitCommit" `
+  -SourceGitBranch "$SourceGitBranch" `
+  -MaxVideos 2
 ```
 
-#### PB-P0A0 fresh debug2
+脚本固定调用`-2Dfp -pose -aus`，feature profile为`quality_2d_pose_au_no_gaze_no_hog_v1`；不请求gaze/HOG，不生成tracked video或新的aligned图。输出目录必须事先不存在。debug必须满足`2/2 PASS`、`image_count=csv_rows`、逐视频`frame=1..N`、`success_ratio>=0.995`、单一182列schema，且schema中不存在gaze列。历史两视频schema/debug证据位于：
 
-使用全新且事先不存在的输出目录：
+不得覆盖`-MinSuccessRatio`：正式rich来源要求manifest中的阈值精确为`0.995`，而不只是运行结果碰巧高于0.995。CSV还必须逐行满足完整182列、`frame=1..N`、有限且为0的timestamp、`success∈{0,1}`、`confidence∈[0,1]`、`AU12/14/15∈[0,5]`和`pose_Rx/Ry/Rz∈[-π,π]`；任一解析、范围或列数错误均使该视频FAIL。
+
+```text
+/mnt/d/Project/dataset/AVEC2014/openface_aligned_behavior_of220_debug2c_20260728
+```
+
+其结果为`2/2 PASS`、`1920/1920`行、`1920`个success、单一182列schema，gaze/HOG/tracked/regenerated输出均为0；合同核心得到1,920个有效AU帧和1,918个有效head-velocity帧。上述计数只验证两视频的schema、mask和时间差分入口，不证明全量coverage、aligned pose物理保真或identity/task risk；该目录不能作为全量PB-P0输入。
+
+该`debug2c`由旧extractor SHA `7771c7a6b1dcafe82a03a677a94a134a52151c99dc606298a3f309da7e29aed0`生成；当前脚本SHA为`64375c6575066619cb21ce94d213e7457446df961a8d9565bd554eee68db3cc5`。旧run没有`csv_content_manifest`和final-summary hash binding，因此不能作为当前strict-rich preflight。
+
+PB核心实现已冻结在`2685fa4`，独立docs-only follow-up也已完成且未amend。正式full之前的权威顺序是：同步已推送的最终branch tip到clean Windows checkout；最终HEAD必须包含`2685fa4`且当前extractor SHA仍为`64375c6575066619cb21ce94d213e7457446df961a8d9565bd554eee68db3cc5`。同步后重新计算`$SourceGitCommit/$SourceGitBranch`，再用当前脚本运行fresh debug2和pilot20。下列动作均待单独授权，输出目录必须换成真实唯一名称且事先不存在：
+
+```powershell
+git merge-base --is-ancestor 2685fa49459d6e79499849c2927fce17a2ddc1f8 HEAD
+if ($LASTEXITCODE -ne 0) { throw "PB core commit is not an ancestor of HEAD" }
+if ((git status --short)) { throw "Windows checkout must be clean" }
+$SourceGitCommit = (git rev-parse HEAD).Trim()
+$SourceGitBranch = (git branch --show-current).Trim()
+$ExtractorSha = (Get-FileHash "$Repo\scripts\run_openface_aligned_behavior_features.ps1" -Algorithm SHA256).Hash.ToLower()
+if ($ExtractorSha -ne "64375c6575066619cb21ce94d213e7457446df961a8d9565bd554eee68db3cc5") { throw "PB extractor SHA mismatch" }
+$SourceVideoContractSha = (Get-FileHash "$SourceVideoContract" -Algorithm SHA256).Hash.ToLower()
+if ($SourceVideoContractSha -ne "12f50c2311b9d89dde81e27fa83891226ca5f447ed7d3d56fe38cf673a1c5a31") { throw "PB source-video contract SHA mismatch" }
+```
 
 ```powershell
 $OutputRoot = "D:\Project\dataset\AVEC2014\openface_aligned_behavior_of220_debug2_CURRENT"
@@ -640,27 +784,7 @@ $OutputRoot = "D:\Project\dataset\AVEC2014\openface_aligned_behavior_of220_debug
   -SourceGitCommit "$SourceGitCommit" `
   -SourceGitBranch "$SourceGitBranch" `
   -MaxVideos 2
-```
 
-脚本固定调用`-2Dfp -pose -aus`，profile为`quality_2d_pose_au_no_gaze_no_hog_v1`；不请求gaze/HOG，不生成tracked video或新的aligned图。fresh debug2必须满足：
-
-```text
-2/2 PASS
-1,920 images = 1,920 CSV rows
-single 182-column schema
-per-video success_ratio >= 0.995
-csv_content_manifest由final summary和run manifest双重绑定
-final extraction summary SHA由run manifest绑定
-gaze/HOG/tracked/regenerated outputs = 0
-```
-
-历史`debug2c`只保留为schema/mask证据。其extractor SHA为`7771c7a6...`，当前冻结脚本SHA为`64375c65...`，且旧run缺少当前content-manifest和final-summary hash合同，不能替代fresh debug2。
-
-#### PB-P0A1 pilot20
-
-fresh debug2通过后，仍使用同一Windows commit、branch、OpenFace package、输入root和source-video contract，在另一个全新目录运行：
-
-```powershell
 $OutputRoot = "D:\Project\dataset\AVEC2014\openface_aligned_behavior_of220_pilot20_CURRENT"
 
 & "$Repo\scripts\run_openface_aligned_behavior_features.ps1" `
@@ -674,20 +798,13 @@ $OutputRoot = "D:\Project\dataset\AVEC2014\openface_aligned_behavior_of220_pilot
   -MaxVideos 20
 ```
 
-pilot20必须冻结`_audit/input_frame_contract.csv` SHA以及`selected_for_run=true`的精确20视频集合，目标总数为25,980张图/25,980行、单一182列schema和完整hash闭环。目录名排序后的四个旧低覆盖代理应为`205_1_Freeform_video_aligned`、`206_1_Freeform_video_aligned`、`207_2_Freeform_video_aligned`、`208_1_Freeform_video_aligned`。无论20/20 PASS或存在`success_ratio<0.995`，都必须保留结果并进入A2；FAIL只阻断strict full。
+fresh debug2必须验证`2/2 PASS`、1,920行、单一182列schema、`csv_content_manifest`双重绑定和final-summary hash。pilot20须冻结`_audit/input_frame_contract.csv` SHA及其中`selected_for_run=true`的精确20视频；目录名排序后的4个旧低覆盖代理应为`205_1_Freeform_video_aligned`、`206_1_Freeform_video_aligned`、`207_2_Freeform_video_aligned`、`208_1_Freeform_video_aligned`，总目标为25,980行。无论pilot是20/20 PASS还是存在`success_ratio<0.995`，都必须进入label-blind A2 policy冻结：PASS时冻结strict `0.995`和coverage policy后才可申请full；FAIL时只能保留0.995并停止PB，或单独授权versioned mask-aware合同并重走R0/A0/A1。不得临时覆盖`-MinSuccessRatio`、删视频或改split。
 
-#### PB-P0A2 threshold/coverage policy（必经）
+A2至少产出带版本与SHA的`behavior_source_coverage_policy_v1.json`，明确validity、ratio分母、physical-train阈值、val/test只报告、强制执行阶段和失败状态，并配套只读校验器/测试。现有P0 CLI只报告coverage且机器状态为`PASS/BLOCKED`，不能单独证明coverage合格。
 
-pilot20之后必须先在不读取BDI、prediction或checkpoint的前提下生成带版本与SHA的`behavior_source_coverage_policy_v1.json`及只读校验器，不能从pilot直接跳到full。policy至少明确validity定义、ratio分母、physical-train coverage阈值、val/test只报告规则、最终强制阶段和失败状态。
+资源预算：pilot20建议预留20--40分钟和1GB；full-rich建议预留4.5--6小时和5GB。脚本不支持resume，单视频失败不会提前终止full，因此pilot是必要的成本门禁。
 
-- pilot PASS：冻结strict 0.995与coverage policy后，才可申请conditional full；
-- pilot FAIL：保留strict时将PB标记为`STOPPED_DATA_INFEASIBLE`；或单独授权versioned mask-aware，把100%视频/行/schema/hash/provenance与检测coverage分离，修改合同、实现和测试后重新走R0、fresh debug2与pilot20。
-
-禁止临时覆盖`-MinSuccessRatio`、删除低覆盖视频、修改split或把阈值调到刚好通过。
-
-#### PB-P0A3 conditional full-rich
-
-只有fresh debug2、pilot20和threshold policy全部通过，并再次获得全量提取授权后，才可在新的空目录运行：
+仅在fresh debug2、pilot20和阈值策略全部通过并获得全量rich提取的单独授权后，才可换用新的全量目录并删除`-MaxVideos`；下列命令是条件性待授权模板，不表示该full run已执行：
 
 ```powershell
 $OutputRoot = "D:\Project\dataset\AVEC2014\openface_aligned_behavior_of220_a29ba49c_v1"
@@ -702,13 +819,26 @@ $OutputRoot = "D:\Project\dataset\AVEC2014\openface_aligned_behavior_of220_a29ba
   -SourceGitBranch "$SourceGitBranch"
 ```
 
-full-rich必须为`PASS/full_dataset`，精确覆盖300视频、493,141张图/CSV行、单一182列schema、零失败和零禁用产物。`csv_content_manifest.csv`的SHA必须同时由final summary和run manifest绑定。当前脚本不支持resume；任一未被pilot覆盖的视频导致失败时返回A2，partial rich不得进入P0B，不得resume或事后修改manifest。
+正式提取成功后，`_audit/extraction_summary.json`必须为`PASS/full_dataset`并精确记录300视频、493,141图像/CSV行、单一schema和零失败/禁用产物。脚本随后重写`_audit/run_manifest.json`，以SHA-256绑定该final summary。若pilot未覆盖的视频导致full失败，必须返回A2；失败或partial目录不得用于P0B，不得resume，也不得事后修改manifest。
 
-OpenFace `-fdir`输出的`timestamp`为常数0，禁止用于速度。head dynamics使用冻结`source_video_contract.csv`的30 FPS时钟：`t=(frame_id-1)/30`，旋转差wrap到最短有符号弧，只在source frame连续且两端有效时计算。
+`_audit/csv_content_manifest.csv`逐视频记录`video_id/csv_rows/schema_sha256/csv_size_bytes/csv_sha256/status`。其SHA-256必须同时出现在final summary和run manifest中。不得移动、编辑CSV或手工重写任一manifest后继续使用该来源。
 
-#### PB-P0B rich contract audit
+`-fdir`图像目录模式下OpenFace CSV的`timestamp`为全0，禁止据此计算速度。脚本和P0合同改用`source_video_contract.csv`的冻结时钟：300/300视频`PASS`、aligned/raw frame count一致、`fps=30`；时间为`t=(source_frame_id-1)/fps`，旋转角差wrap到最短有符号弧后，只对source frame id连续且两端均有效的相邻帧求差，视频首帧head velocity保持masked。
 
-full-rich通过后才运行现有只读P0 CLI，并使用新的输出目录：
+在rich全量提取完成前，可用landmark-only正式来源验证fail-closed行为。以下命令对应当前权威 landmark-only v2 `BLOCKED`运行；输出目录不可复用或覆盖：
+
+```bash
+/home/zhen/miniconda3/envs/light/bin/python \
+  scripts/audit_privileged_behavior_contract.py \
+  --dataset-split-file /home/zhen/dataset/depression/avec/2014/dataset_split.json \
+  --image-root /mnt/d/Project/dataset/AVEC2014/face_images \
+  --openface-root /mnt/d/Project/dataset/AVEC2014/openface_aligned_landmarks_of220_a29ba49c \
+  --source-run-manifest /mnt/d/Project/dataset/AVEC2014/openface_aligned_landmarks_of220_a29ba49c/_audit/run_manifest.json \
+  --source-video-contract logs/au_region_tracking_audit/source_video_presence/tables/source_video_contract.csv \
+  --output-dir logs/privileged_behavior_alignment/p0_contract_landmark_only_blocked_v2
+```
+
+当前权威v2结果为300/300视频exact structural join、493,141帧、`core_audited_video_count=0`、`rich_schema_video_count=0`、`exact_join_video_count=300`和301个blocker（300个`missing_behavior_columns`加1个`train_only_statistics_unavailable`）。v1只保留历史，不再作为当前结果入口。完整rich目录生成后，必须写入新的P0输出目录：
 
 ```bash
 /home/zhen/miniconda3/envs/light/bin/python \
@@ -721,7 +851,25 @@ full-rich通过后才运行现有只读P0 CLI，并使用新的输出目录：
   --output-dir logs/privileged_behavior_alignment/p0_contract_rich_of220_v1
 ```
 
-P0B要求CLI机器状态`status=PASS`、300/300 core/schema/join、physical-train统计、strict provenance、九项产物和0 blocker，并由A2只读校验器给出独立coverage decision PASS。现有CLI只报告coverage且默认只拒绝`std==0`常量目标。P0B通过仍不是训练授权；P0C/P0D/P0E所需的物理保真、最终描述符风险和eligibility工具当前尚未实现，完成并通过后才可请求P1。P1/P2当前均未授权。
+当且仅当300/300 CSV均具有完整rich schema时，P0才启动strict-rich门禁：重新哈希每个CSV并与`csv_content_manifest.csv`比较，同时把当前`--image-root`下每张JPG按相对路径、大小和SHA-256与image-integrity candidate manifest逐项比较。landmark-only/partial-rich来源的该门禁为`NOT_APPLICABLE`，不是PASS。
+
+固定输出包括：
+
+```text
+tables/behavior_frame_contract.csv
+tables/behavior_group_coverage.csv
+tables/behavior_target_stats.csv
+tables/behavior_contract_issues.csv
+tables/behavior_source_fidelity.csv
+tables/behavior_identity_task_risk.csv
+selected_target_manifest.json
+reports/behavior_contract_report.md
+run_manifest.json
+```
+
+`behavior_identity_task_risk.csv`在当前PB-P0实现中是显式`NOT_RUN_P0_PLACEHOLDER`，不能解释为identity/task risk已审计或通过；`behavior_source_fidelity.csv`也只记录来源/provenance合同，不能替代aligned pose物理语义保真审计。
+
+只有全量rich run通过逐视频schema/frame/provenance、AU/head coverage、来源合同和physical-train normalization，并另行完成aligned pose物理保真与identity/task risk门禁后，才可请求PB-P1授权。两视频debug、landmark-only exact join或历史raw rich CSV均不能授权模型修改或训练。
 
 ### 4.2.4 AU-T0b aligned-coordinate contract
 
@@ -746,6 +894,90 @@ python scripts/audit_au_coordinate_contract.py \
 若预处理阶段保存了逐帧 2x3 变换，使用 `--mapping-method explicit_affine --transform-root /path/to/transform_csv_root`；每个视频 CSV 必须包含 `frame,m00,m01,m02,m10,m11,m12`。只有存在经过确认的 aligned-space canonical template 时才使用 `--mapping-method canonical_similarity --canonical-template /path/to/template.csv`，template 格式为 `landmark_id,x,y`。
 
 不提供上述任何合法来源时，`auto` 会输出 `BLOCKED`，不会执行检测坐标到 `112x112` 的独立比例缩放。自动检查成功仍只输出 `REVIEW_REQUIRED`；必须填写 `overlay_manifest.csv` 的 `review_status/review_notes` 并人工确认 train overlays，才能判定 T0b PASS。validation/test 不用于修改 mapping、阈值或 template。
+
+#### 4.2.4a 2026-07-18 全量运行与结果
+
+当前冻结版本的 WSL 全量命令为：
+
+```bash
+/home/zhen/miniconda3/envs/light/bin/python scripts/audit_au_coordinate_contract.py \
+  --image-root /home/zhen/dataset/depression/avec/2014/face_images \
+  --openface-root /home/zhen/dataset/depression/avec/2014/openface_features \
+  --frame-contract-summary logs/au_region_tracking_audit/t0a_frame_contract/tables/frame_contract_summary.csv \
+  --selected-frame-mapping logs/au_region_tracking_audit/t0a_frame_contract/tables/selected_frame_mapping.csv \
+  --dataset-split-file /home/zhen/dataset/depression/avec/2014/dataset_split.json \
+  --aligned-openface-root /mnt/d/Project/dataset/AVEC2014/openface_aligned_landmarks_of220_a29ba49c \
+  --mapping-method aligned_redetection \
+  --output-dir logs/au_region_tracking_audit/t0b_coordinate_contract_of220_v1 \
+  --min-mapping-valid-ratio 0.995 \
+  --min-in-bounds-ratio 0.80 \
+  --max-overlays 120
+```
+
+运行结果固定写入：
+
+```text
+logs/au_region_tracking_audit/t0b_coordinate_contract_of220_v1/
+  reports/coordinate_contract_report.md
+  tables/coordinate_mapping_manifest.csv
+  tables/coordinate_frame_summary.csv
+  tables/coordinate_contract_issues.csv
+  tables/overlay_manifest.csv
+  run_manifest.json
+```
+
+本次结果为 `300` 视频、`260 REVIEW_REQUIRED / 40 FAIL / 0 BLOCKED`。40 个 FAIL 均因 `mapping_valid_ratio < 0.995`，不能通过人工标注覆盖；`238_3_Freeform_video` 的比例为 `0.0000`，`207_2_Freeform_video` 为 `0.703704`。120 张 train overlay 的 `review_status` 初始为空，人工复核时只允许填写 `REVIEWED` 或明确的 `REJECTED` 以及 `review_notes`，禁止修改映射数值、阈值、CSV 或 validation/test 样本。检查示例：
+
+```bash
+sed -n '1,80p' logs/au_region_tracking_audit/t0b_coordinate_contract_of220_v1/reports/coordinate_contract_report.md
+head -5 logs/au_region_tracking_audit/t0b_coordinate_contract_of220_v1/tables/overlay_manifest.csv
+```
+
+在 120 张 train overlay 完成审阅、且没有系统性 high-pose/rapid-turn 错位之前，T0b 仍保持 `REVIEW_REQUIRED`；40 个 FAIL 视频必须单独进入失败帧/片段策略，不能直接生成局部 crop、动态 mask 或训练 clip。历史 `logs/au_region_tracking_audit/t0b_coordinate_contract` 为占位 BLOCKED 结果，不得用于实验或 resume。
+
+#### 4.2.4b train overlay 复核包与签署验证
+
+不要直接编辑 T0b 原始 `tables/overlay_manifest.csv`。先生成独立复核包：
+
+```bash
+/home/zhen/miniconda3/envs/light/bin/python \
+  scripts/prepare_au_coordinate_overlay_review.py \
+  --coordinate-run-dir logs/au_region_tracking_audit/t0b_coordinate_contract_of220_v1 \
+  --output-dir logs/au_region_tracking_audit/t0b_overlay_review_of220_v2 \
+  --columns 3 \
+  --overlays-per-page 12 \
+  --tile-width 448
+```
+
+当前权威包包含 120 张 train overlay、四类各 30 张、12 页 contact sheets。复制模板后再填写，保留原始 PENDING 文件和哈希：
+
+```bash
+cp \
+  logs/au_region_tracking_audit/t0b_overlay_review_of220_v2/tables/overlay_review_template.csv \
+  /path/to/overlay_review_completed.csv
+```
+
+只填写以下字段：
+
+```text
+review_status=REVIEWED
+alignment_label=PASS|FAIL|UNCERTAIN
+reviewer=<non-empty reviewer id>
+review_date=YYYY-MM-DD
+review_notes=<FAIL/UNCERTAIN required; PASS optional>
+```
+
+不得修改 `review_id/video_id/image_frame_id/selection_reason/mapping_method/metrics/image_path/overlay_path/overlay_sha256/contact_sheet_pages`。填写完毕后使用新的空目录验证：
+
+```bash
+/home/zhen/miniconda3/envs/light/bin/python \
+  scripts/validate_au_coordinate_overlay_review.py \
+  --review-package-dir logs/au_region_tracking_audit/t0b_overlay_review_of220_v2 \
+  --completed-review /path/to/overlay_review_completed.csv \
+  --output-dir logs/au_region_tracking_audit/t0b_overlay_review_validation_of220_v1
+```
+
+validator 会重新检查模板、contact sheets 和每张 overlay 的 SHA-256，并输出 `overlay_review_status` 与 `coordinate_contract_status` 两个不同结论。前者全 PASS 只表示 120 张 train 样本视觉贴合；只要原始 T0b 仍有 40 个 FAIL，后者保持 FAIL，`coordinate_contract_authorized=false`。遮挡或无法确认的样本必须填 `UNCERTAIN`，不能用插值或降低阈值转成 PASS。
 
 ### 4.2.5 AU-T0c 逐帧失败、原视频 presence 与曝光审计
 
@@ -995,7 +1227,20 @@ jump必须使用相邻帧成对复核：
   --output-dir logs/au_region_tracking_audit/face_usability_threshold_review_v2
 ```
 
-正式模板为`tables/face_usability_threshold_review_template.csv`。同一帧分别填写global face、local geometry和temporal boundary标签；可见landmark失败允许global可用但local geometry不可用。local geometry通过只表示可进入后续四区polygon/margin overlay审计，不批准具体local crop。三个review-status字段必须全部改为`REVIEWED`，且标签只能使用instructions报告列出的闭集。当前模板124帧全部PENDING，不能直接传给FACE-S2。
+正式模板为`tables/face_usability_threshold_review_template.csv`。同一帧分别填写global face、local geometry和temporal boundary标签；可见landmark失败允许global可用但local geometry不可用。local geometry通过只表示可进入后续眼眉/鼻颊/嘴部三语义区polygon/margin overlay审计，不批准具体local crop。三个review-status字段必须全部改为`REVIEWED`，且标签只能使用instructions报告列出的闭集。权威模板必须保持PENDING；只在独立副本中填写和签署。
+
+完成副本后使用独立validator。当前v2 PENDING package manifest SHA-256已在validator代码中冻结为`5bda8942f551828d3e71e386f8cccf7bade813929718369ec62da33db7385f47`，不能用调用方现场计算的新哈希替换。AI辅助复核必须显式使用`--review-kind ai_assisted`，其输出固定保持human countersign pending；人工逐行复签后才允许在新的输出目录使用`--review-kind human_countersigned`。两种模式都只验证行集、不可变字段、标签闭集、证据图片和provenance，不直接生成threshold manifest、`face_usable`或local crop：
+
+```bash
+/home/zhen/miniconda3/envs/light/bin/python scripts/validate_face_usability_threshold_review.py \
+  --review-package-dir logs/au_region_tracking_audit/face_usability_threshold_review_v2 \
+  --completed-review logs/au_region_tracking_audit/face_usability_threshold_review_ai_assisted_20260719/tables/face_usability_threshold_review_completed_codex_ai.csv \
+  --output-dir logs/au_region_tracking_audit/face_usability_threshold_review_validation_ai_assisted_20260719_v4 \
+  --review-kind ai_assisted \
+  --review-date 2026-07-19
+```
+
+当前独立AI辅助副本已覆盖124帧/372个决策单元，但不是人工countersign，不能直接传给FACE-S2。人工复签时必须另存副本和新validation目录，不得把`ai_assisted`目录原地改写为human结果。
 
 WSL本地还存在历史OpenFace特征副本`/home/zhen/dataset/depression/avec/2014/openface_features`。FACE-S1不读取它；后续外部pose/quality/AU弱标签审计如需使用，必须先说明所需CSV字段、工具版本和与当前split/frame contract的一致性门禁。
 
