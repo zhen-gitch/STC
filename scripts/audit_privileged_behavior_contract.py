@@ -33,6 +33,21 @@ def build_parser():
         required=True,
         help="source_video_contract.csv; only exact identity/frame-count/FPS metadata is read.",
     )
+    parser.add_argument(
+        "--coverage-policy-decision",
+        default=None,
+        help="Full PB-P0A2 coverage_policy_decision.json; required with its SHA and policy when legacy strict coverage fails.",
+    )
+    parser.add_argument(
+        "--coverage-policy-decision-sha256",
+        default=None,
+        help="Expected SHA-256 of --coverage-policy-decision.",
+    )
+    parser.add_argument(
+        "--coverage-policy",
+        default=None,
+        help="Frozen PB-P0A2 coverage policy JSON bound by the supplied decision.",
+    )
     parser.add_argument("--output-dir", required=True)
     parser.add_argument("--confidence-threshold", type=float, default=0.8)
     parser.add_argument(
@@ -60,6 +75,15 @@ def main():
         source_run_manifest=source_run_manifest,
         source_video_contract=Path(args.source_video_contract),
         output_dir=Path(args.output_dir),
+        coverage_policy_decision=(
+            Path(args.coverage_policy_decision)
+            if args.coverage_policy_decision
+            else None
+        ),
+        coverage_policy_decision_sha256=args.coverage_policy_decision_sha256,
+        coverage_policy=(
+            Path(args.coverage_policy) if args.coverage_policy else None
+        ),
         confidence_threshold=args.confidence_threshold,
         max_pose_velocity_dt_seconds=args.max_pose_velocity_dt_seconds,
         project_root=PROJECT_ROOT,

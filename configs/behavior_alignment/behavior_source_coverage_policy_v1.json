@@ -1,0 +1,73 @@
+{
+  "policy_id": "pb_behavior_source_coverage_v1",
+  "policy_version": 1,
+  "status": "FROZEN",
+  "created_date": "2026-07-29",
+  "label_blind": true,
+  "source_contract": {
+    "feature_profile": "quality_2d_pose_au_no_gaze_no_hog_v1",
+    "confidence_threshold": 0.8,
+    "legacy_strict_success_ratio": 0.995,
+    "legacy_strict_status_is_diagnostic_only": true,
+    "expected_csv_column_count": 182,
+    "required_au_columns": [
+      "AU12_r",
+      "AU14_r",
+      "AU15_r"
+    ],
+    "required_pose_columns": [
+      "pose_Rx",
+      "pose_Ry",
+      "pose_Rz"
+    ],
+    "quality_valid_definition": "success == 1 and confidence >= confidence_threshold",
+    "au_valid_definition": "quality_valid and all required_au_columns are finite",
+    "pose_valid_definition": "quality_valid and all required_pose_columns are finite",
+    "head_pair_valid_definition": "adjacent source frame ids and both endpoints pose_valid",
+    "require_clean_source_git": true,
+    "require_complete_rows_schema_hashes": true,
+    "require_no_gaze_request": true,
+    "required_source_video_contract_sha256": "12f50c2311b9d89dde81e27fa83891226ca5f447ed7d3d56fe38cf673a1c5a31"
+  },
+  "pilot_evidence": {
+    "source_git_commit": "2538248aecc6c4d67816f9d5cebdea2b440c451b",
+    "dataset_split_sha256": "979dc7c5ea622a6b4575bf1d6f89393bf9563fe8f3cdc5bec80fff73787e2e24",
+    "run_manifest_sha256": "1c53f6106c988d5a0ded4f841adec2516b3b5dba4b65c05cc82b03a28c30586a",
+    "extraction_summary_sha256": "3ec57c4d983b9eb41815f6808b33cc941ef833dd5f1c6aa885b00699607835d3",
+    "video_run_summary_sha256": "3810529ab4613c572b0ec967515800415d3773d8ce7c41198df887cc403a1873",
+    "input_frame_contract_sha256": "c655a410a937da450542c2d7fd20980b49ae3ed7795af4dfc0ca81fbb5f9b7bc",
+    "csv_content_manifest_sha256": "7c4e8c0a6fdd412867b52644418bef348fe5bdbe74395ba3424311d7f4e1e171",
+    "expected_video_count": 20,
+    "expected_frame_count": 25980
+  },
+  "full_source_expectations": {
+    "expected_video_count": 300,
+    "expected_frame_count": 493141,
+    "require_exact_dataset_split_video_set": true
+  },
+  "pilot_feasibility_thresholds": {
+    "aggregate_ratio_policy": "REPORT_ONLY_INCOMPLETE_PHYSICAL_TRAIN",
+    "enforcement_split": "train",
+    "minimum_au_valid_frames_per_video": 60,
+    "minimum_head_valid_pairs_per_video": 59,
+    "require_each_group_nonzero": true
+  },
+  "physical_train_full_thresholds": {
+    "minimum_overall_quality_valid_ratio": 0.98,
+    "minimum_task_quality_valid_ratio": 0.95,
+    "maximum_task_quality_valid_ratio_gap": 0.05,
+    "minimum_au_valid_frames_per_video": 60,
+    "minimum_head_valid_pairs_per_video": 59,
+    "require_each_group_nonzero": true
+  },
+  "validation_test_policy": "REPORT_ONLY_NO_THRESHOLD_CALLBACK",
+  "decision_contract": {
+    "pilot_pass_status": "PASS_PILOT_MASK_AWARE_FEASIBILITY",
+    "full_pass_status": "PASS_FULL_SOURCE_COVERAGE",
+    "blocked_status": "BLOCKED",
+    "full_rich_authorized": false,
+    "p0b_authorized": false,
+    "training_authorized": false,
+    "pilot_pass_next_action": "VERSION_SOURCE_CONTRACT_AND_REQUEST_SEPARATE_FULL_RICH_AUTHORIZATION"
+  }
+}

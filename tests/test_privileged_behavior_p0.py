@@ -5,6 +5,7 @@ from pathlib import Path
 
 import pytest
 
+import src.diagnostics.privileged_behavior_p0 as p0_module
 from scripts.audit_privileged_behavior_contract import build_parser
 from src.diagnostics.privileged_behavior_contract import REQUIRED_OPENFACE_COLUMNS
 from src.diagnostics.privileged_behavior_p0 import (
@@ -28,6 +29,14 @@ def _sha(path):
 
 def _sha_text(value):
     return hashlib.sha256(value.encode("utf-8")).hexdigest()
+
+
+def _write_csv(path, fields, rows):
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with path.open("w", newline="", encoding="utf-8") as handle:
+        writer = csv.DictWriter(handle, fieldnames=fields)
+        writer.writeheader()
+        writer.writerows(rows)
 
 
 def _write_split(path):
@@ -275,12 +284,20 @@ def _write_source_manifest(path, image_root, source_contract, *, behavior=False)
     path.write_text(json.dumps(payload), encoding="utf-8")
 
 
-def _write_openface_csv(path, *, rich, au_scale=1.0, pose_scale=1.0):
+def _write_openface_csv(
+    path,
+    *,
+    rich,
+    au_scale=1.0,
+    pose_scale=1.0,
+    frame_count=3,
+    failed_frames=(),
+):
     if not rich:
         fields = ["frame", "timestamp", "confidence", "success", "x_0", "y_0"]
         rows = [
             {"frame": frame, "timestamp": 0, "confidence": 0.99, "success": 1, "x_0": 1, "y_0": 2}
-            for frame in range(1, 4)
+            for frame in range(1, frame_count + 1)
         ]
     else:
         fields = list(REQUIRED_OPENFACE_COLUMNS)
@@ -322,6 +339,35 @@ def _write_openface_csv(path, *, rich, au_scale=1.0, pose_scale=1.0):
                 "pose_Rz": 0.9 * pose_scale,
             },
         ]
+        extension_values = {
+            4: (4.5, 4.8, 4.0, 0.6, 1.0, 1.8),
+            5: (4.8, 4.9, 4.5, 1.0, 1.7, 3.0),
+        }
+        for frame in range(4, frame_count + 1):
+            au12, au14, au15, pose_rx, pose_ry, pose_rz = extension_values.get(
+                frame,
+                (1.0, 2.0, 3.0, 0.1, 0.2, 0.3),
+            )
+            rows.append(
+                {
+                    "frame": frame,
+                    "timestamp": 0,
+                    "confidence": 0.99,
+                    "success": 1,
+                    "AU12_r": au12 * au_scale,
+                    "AU14_r": au14 * au_scale,
+                    "AU15_r": au15 * au_scale,
+                    "pose_Rx": pose_rx * pose_scale,
+                    "pose_Ry": pose_ry * pose_scale,
+                    "pose_Rz": pose_rz * pose_scale,
+                }
+            )
+        rows = rows[:frame_count]
+    failed = set(failed_frames)
+    for row in rows:
+        if row["frame"] in failed:
+            row["success"] = 0
+            row["confidence"] = 0.2
     with path.open("w", newline="", encoding="utf-8") as handle:
         writer = csv.DictWriter(handle, fieldnames=fields)
         writer.writeheader()
@@ -346,6 +392,236 @@ def _build_inputs(tmp_path, *, rich):
         behavior=rich,
     )
     return split, image_root, openface_root, source_contract, source_manifest
+
+
+def _build_legacy_fail_inputs(tmp_path):
+    split = tmp_path / "dataset_split.json"
+    image_root = tmp_path / "face_images"
+    openface_root = tmp_path / "openface"
+    source_contract = tmp_path / "source_video_contract.csv"
+    source_manifest = openface_root / "_audit" / "run_manifest.json"
+    _write_split(split)
+    _write_images(image_root, count=5)
+    openface_root.mkdir()
+    _write_source_contract(source_contract, count=5)
+    _write_openface_csv(
+        openface_root / f"{VIDEO_ID}.csv",
+        rich=True,
+        frame_count=5,
+        failed_frames=(5,),
+    )
+    _write_source_manifest(
+        source_manifest,
+        image_root,
+        source_contract,
+        behavior=True,
+    )
+
+    content_path = source_manifest.parent / "csv_content_manifest.csv"
+    content_rows = _read_csv(content_path)
+    content_rows[0]["status"] = "FAIL"
+    _write_csv(content_path, content_rows[0].keys(), content_rows)
+
+    summary_path = source_manifest.parent / "extraction_summary.json"
+    summary = json.loads(summary_path.read_text(encoding="utf-8"))
+    summary.update(
+        {
+            "pass_count": 0,
+            "fail_count": 1,
+            "total_successes": 4,
+            "success_ratio": 0.8,
+            "status": "FAIL",
+            "csv_content_manifest_sha256": _sha(content_path),
+        }
+    )
+    summary_path.write_text(json.dumps(summary), encoding="utf-8")
+
+    manifest = json.loads(source_manifest.read_text(encoding="utf-8"))
+    manifest.update(
+        {
+            "csv_content_manifest_sha256": _sha(content_path),
+            "extraction_summary_sha256": _sha(summary_path),
+        }
+    )
+    source_manifest.write_text(json.dumps(manifest), encoding="utf-8")
+
+    _write_csv(
+        source_manifest.parent / "video_run_summary.csv",
+        (
+            "video_id",
+            "image_count",
+            "success_count",
+            "success_ratio",
+            "schema_column_count",
+            "status",
+            "issues",
+        ),
+        [
+            {
+                "video_id": VIDEO_ID,
+                "image_count": 5,
+                "success_count": 4,
+                "success_ratio": 0.8,
+                "schema_column_count": 182,
+                "status": "FAIL",
+                "issues": "success_ratio:0.8<0.995",
+            }
+        ],
+    )
+    _write_csv(
+        source_manifest.parent / "input_frame_contract.csv",
+        ("video_id", "image_count", "selected_for_run", "status", "issues"),
+        [
+            {
+                "video_id": VIDEO_ID,
+                "image_count": 5,
+                "selected_for_run": True,
+                "status": "PASS",
+                "issues": "",
+            }
+        ],
+    )
+    return split, image_root, openface_root, source_contract, source_manifest
+
+
+def _write_full_coverage_binding(
+    tmp_path,
+    *,
+    split,
+    openface_root,
+    source_contract,
+    source_manifest,
+    decision_count_updates=None,
+):
+    policy = {
+        "policy_id": "pb_behavior_source_coverage_v1",
+        "policy_version": 1,
+        "status": "FROZEN",
+        "label_blind": True,
+        "source_contract": {
+            "feature_profile": FROZEN_BEHAVIOR_PROFILE,
+            "confidence_threshold": 0.8,
+            "legacy_strict_success_ratio": FROZEN_MIN_SUCCESS_RATIO,
+            "legacy_strict_status_is_diagnostic_only": True,
+            "expected_csv_column_count": 182,
+            "required_au_columns": ["AU12_r", "AU14_r", "AU15_r"],
+            "required_pose_columns": ["pose_Rx", "pose_Ry", "pose_Rz"],
+            "required_source_video_contract_sha256": _sha(source_contract),
+        },
+        "pilot_evidence": {},
+        "full_source_expectations": {},
+        "pilot_feasibility_thresholds": {},
+        "physical_train_full_thresholds": {},
+        "validation_test_policy": "REPORT_ONLY_NO_THRESHOLD_CALLBACK",
+        "decision_contract": {
+            "pilot_pass_status": "PASS_PILOT_MASK_AWARE_FEASIBILITY",
+            "full_pass_status": "PASS_FULL_SOURCE_COVERAGE",
+            "blocked_status": "BLOCKED",
+            "full_rich_authorized": False,
+            "p0b_authorized": False,
+            "training_authorized": False,
+            "pilot_pass_next_action": "REQUEST_SEPARATE_FULL",
+        },
+    }
+    policy_path = tmp_path / "coverage_policy.json"
+    policy_path.write_text(json.dumps(policy), encoding="utf-8")
+
+    counts = {
+        "video_count": 1,
+        "frame_count": 5,
+        "quality_valid_count": 4,
+        "au_valid_count": 4,
+        "head_valid_pair_count": 3,
+        "blocking_issue_count": 0,
+        "warning_count": 0,
+    }
+    counts.update(decision_count_updates or {})
+    decision = {
+        "policy_id": policy["policy_id"],
+        "policy_version": policy["policy_version"],
+        "policy_sha256": _sha(policy_path),
+        "scope": "full",
+        "status": "PASS_FULL_SOURCE_COVERAGE",
+        "source_structural_complete": True,
+        "mask_aware_coverage_pass": True,
+        "full_train_aggregate_thresholds_evaluated": True,
+        "legacy_strict_status_observed": "FAIL",
+        "legacy_strict_status_used_as_gate": False,
+        "full_rich_authorized": False,
+        "p0b_authorized": False,
+        "training_authorized": False,
+        "next_action": "REQUEST_SEPARATE_P0B_AUTHORIZATION",
+        "nonblocking_future_full_warnings": [],
+        "counts": counts,
+        "label_access": {
+            "bdi_label_access_count": 0,
+            "prediction_access_count": 0,
+            "checkpoint_access_count": 0,
+            "validation_test_threshold_callback_count": 0,
+        },
+    }
+    a2_root = tmp_path / "a2_full"
+    a2_root.mkdir()
+    decision_path = a2_root / "coverage_policy_decision.json"
+    decision_path.write_text(json.dumps(decision), encoding="utf-8")
+
+    audit_root = source_manifest.parent
+    coverage_implementation = (
+        Path(__file__).resolve().parents[1]
+        / "src"
+        / "diagnostics"
+        / "privileged_behavior_coverage_policy.py"
+    )
+    a2_manifest = {
+        "audit": "PB-P0A2 mask-aware source/coverage policy validation",
+        "status": decision["status"],
+        "inputs": {
+            "policy": {"path": str(policy_path), "sha256": _sha(policy_path)},
+            "dataset_split": {"path": str(split), "sha256": _sha(split)},
+            "extraction_root": str(openface_root),
+            "run_manifest": {
+                "path": str(source_manifest),
+                "sha256": _sha(source_manifest),
+            },
+            "extraction_summary": {
+                "path": str(audit_root / "extraction_summary.json"),
+                "sha256": _sha(audit_root / "extraction_summary.json"),
+            },
+            "video_run_summary": {
+                "path": str(audit_root / "video_run_summary.csv"),
+                "sha256": _sha(audit_root / "video_run_summary.csv"),
+            },
+            "input_frame_contract": {
+                "path": str(audit_root / "input_frame_contract.csv"),
+                "sha256": _sha(audit_root / "input_frame_contract.csv"),
+            },
+            "csv_content_manifest": {
+                "path": str(audit_root / "csv_content_manifest.csv"),
+                "sha256": _sha(audit_root / "csv_content_manifest.csv"),
+            },
+        },
+        "outputs": {
+            decision_path.name: {
+                "path": str(decision_path),
+                "sha256": _sha(decision_path),
+            }
+        },
+        "implementation": {
+            "path": str(coverage_implementation),
+            "sha256": _sha(coverage_implementation),
+        },
+        "read_only_inputs": True,
+        "source_data_modified": False,
+        "model_modified": False,
+        "training_started": False,
+        "full_rich_authorized": False,
+        "p0b_authorized": False,
+        "training_authorized": False,
+    }
+    (a2_root / "run_manifest.json").write_text(
+        json.dumps(a2_manifest), encoding="utf-8"
+    )
+    return policy_path, decision_path, _sha(decision_path)
 
 
 def _build_multisplit_rich_inputs(tmp_path):
@@ -462,6 +738,16 @@ def test_cross_platform_path_equivalence_preserves_posix_case_and_supports_wsl_u
     assert not _paths_cross_platform_equivalent(
         "/home/zhen/Data", "/home/zhen/data"
     )
+
+
+def test_frozen_coverage_policy_hash_pin_matches_reviewed_config():
+    policy = (
+        Path(__file__).resolve().parents[1]
+        / "configs"
+        / "behavior_alignment"
+        / "behavior_source_coverage_policy_v1.json"
+    )
+    assert _sha(policy) == p0_module.FROZEN_COVERAGE_POLICY_SHA256
 
 
 @pytest.mark.parametrize(
@@ -982,6 +1268,9 @@ def test_rich_schema_calls_core_and_fits_physical_train_only_statistics(tmp_path
     selected = json.loads((output / "selected_target_manifest.json").read_text(encoding="utf-8"))
     assert selected["status"] == "PASS"
     assert selected["training_authorized"] is False
+    assert selected["rich_provenance"]["coverage_policy_binding"]["status"] == (
+        "NOT_REQUIRED_LEGACY_PASS"
+    )
     assert selected["normalization"] == {
         "physical_train_only": True,
         "available": True,
@@ -1034,6 +1323,173 @@ def test_rich_schema_calls_core_and_fits_physical_train_only_statistics(tmp_path
     assert run_manifest["git_status_available"] is False
     assert run_manifest["git_status_interpretation"] == (
         "unavailable; do not interpret empty as clean"
+    )
+
+
+def test_legacy_strict_failure_requires_bound_full_coverage_decision(tmp_path):
+    split, image_root, openface_root, source_contract, source_manifest = (
+        _build_legacy_fail_inputs(tmp_path)
+    )
+    output = tmp_path / "missing_a2"
+
+    run_privileged_behavior_p0(
+        dataset_split_file=split,
+        image_root=image_root,
+        openface_root=openface_root,
+        source_run_manifest=source_manifest,
+        source_video_contract=source_contract,
+        output_dir=output,
+        project_root=tmp_path,
+    )
+
+    selected = json.loads(
+        (output / "selected_target_manifest.json").read_text(encoding="utf-8")
+    )
+    assert selected["status"] == "BLOCKED"
+    assert "rich_coverage_policy_decision_required" in _issue_codes(output)
+    assert selected["rich_provenance"]["legacy_strict_status_observed"] == "FAIL"
+    assert selected["rich_provenance"]["legacy_strict_status_used_as_gate"] is False
+
+
+def test_bound_full_coverage_decision_replaces_only_legacy_coverage_gate(
+    tmp_path, monkeypatch
+):
+    split, image_root, openface_root, source_contract, source_manifest = (
+        _build_legacy_fail_inputs(tmp_path)
+    )
+    policy, decision, decision_sha256 = _write_full_coverage_binding(
+        tmp_path,
+        split=split,
+        openface_root=openface_root,
+        source_contract=source_contract,
+        source_manifest=source_manifest,
+    )
+    monkeypatch.setattr(
+        p0_module, "FROZEN_COVERAGE_POLICY_SHA256", _sha(policy)
+    )
+    output = tmp_path / "bound_a2"
+
+    run_privileged_behavior_p0(
+        dataset_split_file=split,
+        image_root=image_root,
+        openface_root=openface_root,
+        source_run_manifest=source_manifest,
+        source_video_contract=source_contract,
+        output_dir=output,
+        coverage_policy_decision=decision,
+        coverage_policy_decision_sha256=decision_sha256,
+        coverage_policy=policy,
+        project_root=tmp_path,
+    )
+
+    selected = json.loads(
+        (output / "selected_target_manifest.json").read_text(encoding="utf-8")
+    )
+    assert selected["status"] == "PASS"
+    binding = selected["rich_provenance"]["coverage_policy_binding"]
+    assert binding["status"] == "PASS"
+    assert binding["required"] is True
+    assert binding["decision"]["observed_sha256"] == decision_sha256
+    assert binding["observed_counts"] == {
+        "video_count": 1,
+        "frame_count": 5,
+        "quality_valid_count": 4,
+        "au_valid_count": 4,
+        "head_valid_pair_count": 3,
+    }
+    run_manifest = json.loads(
+        (output / "run_manifest.json").read_text(encoding="utf-8")
+    )
+    assert run_manifest["inputs"]["coverage_policy_decision"]["sha256"] == (
+        decision_sha256
+    )
+    assert run_manifest["inputs"]["coverage_policy_run_manifest"]["sha256"] == _sha(
+        decision.parent / "run_manifest.json"
+    )
+
+
+def test_bound_coverage_count_mismatch_blocks_without_legacy_fallback(
+    tmp_path, monkeypatch
+):
+    split, image_root, openface_root, source_contract, source_manifest = (
+        _build_legacy_fail_inputs(tmp_path)
+    )
+    policy, decision, decision_sha256 = _write_full_coverage_binding(
+        tmp_path,
+        split=split,
+        openface_root=openface_root,
+        source_contract=source_contract,
+        source_manifest=source_manifest,
+        decision_count_updates={"quality_valid_count": 3},
+    )
+    monkeypatch.setattr(
+        p0_module, "FROZEN_COVERAGE_POLICY_SHA256", _sha(policy)
+    )
+    output = tmp_path / "count_mismatch"
+
+    run_privileged_behavior_p0(
+        dataset_split_file=split,
+        image_root=image_root,
+        openface_root=openface_root,
+        source_run_manifest=source_manifest,
+        source_video_contract=source_contract,
+        output_dir=output,
+        coverage_policy_decision=decision,
+        coverage_policy_decision_sha256=decision_sha256,
+        coverage_policy=policy,
+        project_root=tmp_path,
+    )
+
+    assert json.loads(
+        (output / "selected_target_manifest.json").read_text(encoding="utf-8")
+    )["status"] == "BLOCKED"
+    assert (
+        "rich_coverage_policy_decision_count_quality_valid_count_mismatch"
+        in _issue_codes(output)
+    )
+
+
+def test_bound_coverage_manifest_detects_post_decision_source_evidence_change(
+    tmp_path, monkeypatch
+):
+    split, image_root, openface_root, source_contract, source_manifest = (
+        _build_legacy_fail_inputs(tmp_path)
+    )
+    policy, decision, decision_sha256 = _write_full_coverage_binding(
+        tmp_path,
+        split=split,
+        openface_root=openface_root,
+        source_contract=source_contract,
+        source_manifest=source_manifest,
+    )
+    monkeypatch.setattr(
+        p0_module, "FROZEN_COVERAGE_POLICY_SHA256", _sha(policy)
+    )
+    with (source_manifest.parent / "video_run_summary.csv").open(
+        "a", encoding="utf-8"
+    ) as handle:
+        handle.write("post-decision-change\n")
+    output = tmp_path / "source_evidence_changed"
+
+    run_privileged_behavior_p0(
+        dataset_split_file=split,
+        image_root=image_root,
+        openface_root=openface_root,
+        source_run_manifest=source_manifest,
+        source_video_contract=source_contract,
+        output_dir=output,
+        coverage_policy_decision=decision,
+        coverage_policy_decision_sha256=decision_sha256,
+        coverage_policy=policy,
+        project_root=tmp_path,
+    )
+
+    assert json.loads(
+        (output / "selected_target_manifest.json").read_text(encoding="utf-8")
+    )["status"] == "BLOCKED"
+    assert (
+        "rich_coverage_policy_run_manifest_input_video_run_summary_sha256_mismatch"
+        in _issue_codes(output)
     )
 
 
@@ -1277,6 +1733,9 @@ def test_cli_defaults_and_exposes_no_raw_openface_or_gaze_inputs():
     assert args.confidence_threshold == pytest.approx(0.8)
     assert args.max_pose_velocity_dt_seconds == pytest.approx(0.1)
     assert args.source_run_manifest is None
+    assert args.coverage_policy_decision is None
+    assert args.coverage_policy_decision_sha256 is None
+    assert args.coverage_policy is None
     assert all("raw_openface" not in key and "gaze" not in key for key in vars(args))
 
 

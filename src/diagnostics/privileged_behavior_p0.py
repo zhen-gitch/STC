@@ -28,6 +28,10 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
+from src.diagnostics.privileged_behavior_coverage_policy import (
+    CoveragePolicyError,
+    load_coverage_policy,
+)
 from src.diagnostics.privileged_behavior_contract import (
     AU_SOURCE_COLUMNS,
     OPTIONAL_ROW_IDENTITY_COLUMNS,
@@ -56,6 +60,12 @@ FROZEN_OPENFACE_README_SHA256 = (
 )
 FROZEN_BEHAVIOR_PROFILE = "quality_2d_pose_au_no_gaze_no_hog_v1"
 FROZEN_MIN_SUCCESS_RATIO = 0.995
+FROZEN_BEHAVIOR_CSV_COLUMN_COUNT = 182
+FROZEN_COVERAGE_POLICY_ID = "pb_behavior_source_coverage_v1"
+FROZEN_COVERAGE_POLICY_VERSION = 1
+FROZEN_COVERAGE_POLICY_SHA256 = (
+    "9a3fb739078ab36e1fa4f8f67a8c8b167a76329941a591ad0ef9dd0c731a1926"
+)
 REQUIRED_BEHAVIOR_ARGUMENTS = ("-fdir", "-2Dfp", "-pose", "-aus")
 CSV_CONTENT_MANIFEST_FIELDS = (
     "video_id",
@@ -1174,6 +1184,12 @@ def _validate_rich_source_provenance(
         "status": "BLOCKED",
         "extraction_summary": "",
         "csv_content_manifest": "",
+        "legacy_strict_status_observed": "",
+        "legacy_strict_pass_count": None,
+        "legacy_strict_fail_count": None,
+        "legacy_strict_success_ratio": None,
+        "legacy_strict_status_used_as_gate": False,
+        "mask_aware_decision_required": False,
     }
 
     def check(code: str, expected: Any, observed: Any, passed: bool, detail: str) -> None:
@@ -1450,6 +1466,9 @@ def _validate_rich_source_provenance(
         "The source run manifest must identify the adjacent final extraction summary.",
     )
     summary: dict[str, Any] = {}
+    summary_status = ""
+    summary_pass_count: int | None = None
+    summary_fail_count: int | None = None
     if summary_path.is_file():
         try:
             loaded = json.loads(summary_path.read_text(encoding="utf-8-sig"))
@@ -1489,12 +1508,9 @@ def _validate_rich_source_provenance(
             "The final rewritten run manifest must bind the adjacent extraction summary.",
         )
         summary_checks = (
-            ("status", "PASS"),
             ("run_scope", "full_dataset"),
             ("feature_profile", FROZEN_BEHAVIOR_PROFILE),
             ("video_count", expected_video_count),
-            ("pass_count", expected_video_count),
-            ("fail_count", 0),
             ("total_images", total_image_frames),
             ("total_csv_rows", total_openface_rows),
             ("schema_count", 1),
@@ -1512,8 +1528,49 @@ def _validate_rich_source_provenance(
                 expected,
                 observed,
                 observed == expected,
-                "The adjacent final summary must describe a successful full-dataset rich extraction.",
+                "The adjacent final summary must describe the exact full-dataset rich extraction.",
             )
+        summary_pass_count = _parse_nonnegative_int(summary.get("pass_count"))
+        summary_fail_count = _parse_nonnegative_int(summary.get("fail_count"))
+        check(
+            "extraction_summary_pass_count",
+            "non-negative integer",
+            summary.get("pass_count"),
+            summary_pass_count is not None,
+            "The legacy strict PASS count must remain an internally valid diagnostic.",
+        )
+        check(
+            "extraction_summary_fail_count",
+            "non-negative integer",
+            summary.get("fail_count"),
+            summary_fail_count is not None,
+            "The legacy strict FAIL count must remain an internally valid diagnostic.",
+        )
+        pass_fail_total = (
+            summary_pass_count + summary_fail_count
+            if summary_pass_count is not None and summary_fail_count is not None
+            else None
+        )
+        check(
+            "extraction_summary_pass_fail_total",
+            expected_video_count,
+            pass_fail_total,
+            pass_fail_total == expected_video_count,
+            "Legacy strict PASS/FAIL counts must cover the exact video set once.",
+        )
+        summary_status = str(summary.get("status", "")).strip()
+        if summary_fail_count is None:
+            expected_summary_status = "PASS_OR_FAIL"
+        else:
+            expected_summary_status = "PASS" if summary_fail_count == 0 else "FAIL"
+        check(
+            "extraction_summary_status",
+            expected_summary_status,
+            summary_status,
+            summary_status in {"PASS", "FAIL"}
+            and summary_status == expected_summary_status,
+            "The summary status must remain consistent with the legacy strict FAIL count.",
+        )
         summary_successes = _parse_nonnegative_int(summary.get("total_successes"))
         summary_success_ratio = _parse_finite_float(summary.get("success_ratio"))
         summary_min_success_ratio = _parse_finite_float(
@@ -1526,11 +1583,14 @@ def _validate_rich_source_provenance(
             summary_min_success_ratio == FROZEN_MIN_SUCCESS_RATIO,
             "The final extraction summary must preserve the frozen success threshold.",
         )
+        actual_total_successes = sum(
+            int(row.get("success_count", 0)) for row in csv_evidence.values()
+        )
         success_counts_valid = (
             summary_successes is not None
             and 0 <= summary_successes <= total_openface_rows
+            and summary_successes == actual_total_successes
             and summary_success_ratio is not None
-            and summary_success_ratio >= FROZEN_MIN_SUCCESS_RATIO
             and abs(
                 summary_success_ratio
                 - (summary_successes / total_openface_rows if total_openface_rows else 0.0)
@@ -1539,14 +1599,24 @@ def _validate_rich_source_provenance(
         )
         check(
             "extraction_summary_success_counts",
-            f"0<=successes<=rows; ratio=successes/rows; ratio>={FROZEN_MIN_SUCCESS_RATIO}",
+            "successes=recomputed CSV success count; ratio=successes/rows",
             {
                 "total_successes": summary_successes,
+                "recomputed_total_successes": actual_total_successes,
                 "success_ratio": summary_success_ratio,
                 "min_required_success_ratio": summary_min_success_ratio,
             },
             success_counts_valid,
-            "Final rich success counts and ratios must be internally consistent and meet the frozen extraction threshold.",
+            "Final rich success counts and ratios must remain internally consistent; the frozen threshold is diagnostic here.",
+        )
+        evidence.update(
+            {
+                "legacy_strict_status_observed": summary_status,
+                "legacy_strict_pass_count": summary_pass_count,
+                "legacy_strict_fail_count": summary_fail_count,
+                "legacy_strict_success_ratio": summary_success_ratio,
+                "mask_aware_decision_required": summary_fail_count not in (None, 0),
+            }
         )
 
     content_manifest_path = source_run_manifest.parent / "csv_content_manifest.csv"
@@ -1613,11 +1683,24 @@ def _validate_rich_source_provenance(
                         f"duplicates={sorted(set(duplicate_ids))} missing={sorted(expected_video_ids-set(rows_by_video))[:20]} extra={sorted(set(rows_by_video)-expected_video_ids)[:20]}",
                     )
                 )
+            observed_status_counts: Counter[str] = Counter()
+            recomputed_status_counts: Counter[str] = Counter()
             for video_id in sorted(expected_video_ids & set(rows_by_video)):
                 row = rows_by_video[video_id]
                 actual = csv_evidence[video_id]
+                observed_status = str(row.get("status", "")).strip()
+                if observed_status in {"PASS", "FAIL"}:
+                    observed_status_counts[observed_status] += 1
+                recomputed_status = (
+                    "PASS"
+                    if actual["csv_rows"] > 0
+                    and actual["success_count"] / actual["csv_rows"]
+                    >= FROZEN_MIN_SUCCESS_RATIO
+                    else "FAIL"
+                )
+                recomputed_status_counts[recomputed_status] += 1
                 comparisons = {
-                    "status": ("PASS", str(row.get("status", "")).strip()),
+                    "status": (recomputed_status, observed_status),
                     "csv_rows": (actual["csv_rows"], _parse_positive_int(row.get("csv_rows"))),
                     "schema_sha256": (
                         actual["schema_sha256"],
@@ -1646,6 +1729,531 @@ def _validate_rich_source_provenance(
                             video_id=video_id,
                         )
                     )
+            expected_status_counts = {
+                "PASS": summary_pass_count,
+                "FAIL": summary_fail_count,
+            }
+            observed_counts = {
+                status: observed_status_counts.get(status, 0)
+                for status in ("PASS", "FAIL")
+            }
+            recomputed_counts = {
+                status: recomputed_status_counts.get(status, 0)
+                for status in ("PASS", "FAIL")
+            }
+            check(
+                "csv_content_manifest_status_counts",
+                expected_status_counts,
+                {
+                    "observed": observed_counts,
+                    "recomputed": recomputed_counts,
+                },
+                expected_status_counts == observed_counts == recomputed_counts,
+                "Per-video legacy status must match recomputed success ratios and summary counts.",
+            )
+            evidence["mask_aware_decision_required"] = (
+                recomputed_status_counts.get("FAIL", 0) > 0
+            )
+    evidence["status"] = "PASS" if not issues else "BLOCKED"
+    return issues, fidelity, evidence
+
+
+def _validate_full_coverage_decision_binding(
+    *,
+    coverage_policy_decision: Path | None,
+    coverage_policy_decision_sha256: str | None,
+    coverage_policy: Path | None,
+    dataset_split_file: Path,
+    openface_root: Path,
+    source_run_manifest: Path,
+    source_video_contract: Path,
+    legacy_strict_status: str,
+    decision_required: bool,
+    observed_counts: dict[str, int],
+    confidence_threshold: float,
+) -> tuple[list[dict[str, Any]], list[dict[str, Any]], dict[str, Any]]:
+    """Bind a full A2 PASS to the exact source audited by this P0 run."""
+
+    issues: list[dict[str, Any]] = []
+    fidelity: list[dict[str, Any]] = []
+    provided = {
+        "decision": coverage_policy_decision is not None,
+        "decision_sha256": bool(str(coverage_policy_decision_sha256 or "").strip()),
+        "policy": coverage_policy is not None,
+    }
+    evidence: dict[str, Any] = {
+        "required": bool(decision_required),
+        "provided": provided,
+        "status": "BLOCKED",
+        "decision": {
+            "path": str(coverage_policy_decision) if coverage_policy_decision else "",
+            "expected_sha256": str(coverage_policy_decision_sha256 or "").strip().lower(),
+            "observed_sha256": "",
+        },
+        "run_manifest": {"path": "", "sha256": ""},
+        "policy": {
+            "path": str(coverage_policy) if coverage_policy else "",
+            "sha256": "",
+        },
+        "legacy_strict_status_observed": legacy_strict_status,
+        "legacy_strict_status_used_as_gate": False,
+        "observed_counts": dict(observed_counts),
+    }
+
+    def check(code: str, expected: Any, observed: Any, passed: bool, detail: str) -> None:
+        fidelity.append(
+            _fidelity_row(
+                f"coverage_policy_{code}",
+                expected,
+                observed,
+                "PASS" if passed else "FAIL",
+                detail,
+            )
+        )
+        if not passed:
+            issues.append(
+                _issue_row(
+                    f"rich_coverage_policy_{code}_mismatch",
+                    f"expected={expected!r} observed={observed!r}",
+                )
+            )
+
+    if not any(provided.values()):
+        if decision_required:
+            issues.append(
+                _issue_row(
+                    "rich_coverage_policy_decision_required",
+                    "legacy strict coverage failed; a bound full A2 decision, expected SHA-256 and frozen policy are required",
+                )
+            )
+            evidence["status"] = "REQUIRED_MISSING"
+        else:
+            evidence["status"] = "NOT_REQUIRED_LEGACY_PASS"
+        return issues, fidelity, evidence
+
+    if not all(provided.values()):
+        issues.append(
+            _issue_row(
+                "rich_coverage_policy_binding_incomplete",
+                f"provided={provided}; decision, expected SHA-256 and policy must be supplied together",
+            )
+        )
+        evidence["status"] = "INCOMPLETE"
+        return issues, fidelity, evidence
+
+    assert coverage_policy_decision is not None
+    assert coverage_policy is not None
+    expected_decision_sha256 = str(coverage_policy_decision_sha256).strip().lower()
+    decision_sha_format_valid = bool(re.fullmatch(r"[0-9a-f]{64}", expected_decision_sha256))
+    check(
+        "decision_expected_sha256_format",
+        "64 lowercase hexadecimal characters",
+        expected_decision_sha256,
+        decision_sha_format_valid,
+        "The command must pin the exact A2 decision bytes.",
+    )
+
+    decision: dict[str, Any] = {}
+    observed_decision_sha256 = ""
+    if coverage_policy_decision.is_file():
+        observed_decision_sha256 = _sha256_file(coverage_policy_decision)
+        try:
+            loaded = json.loads(
+                coverage_policy_decision.read_text(encoding="utf-8-sig")
+            )
+        except (OSError, UnicodeDecodeError, json.JSONDecodeError) as exc:
+            issues.append(
+                _issue_row("rich_coverage_policy_decision_invalid", str(exc))
+            )
+        else:
+            if isinstance(loaded, dict):
+                decision = loaded
+            else:
+                issues.append(
+                    _issue_row(
+                        "rich_coverage_policy_decision_invalid",
+                        "coverage decision is not a JSON object",
+                    )
+                )
+    else:
+        issues.append(
+            _issue_row(
+                "rich_coverage_policy_decision_missing",
+                str(coverage_policy_decision),
+            )
+        )
+    evidence["decision"]["observed_sha256"] = observed_decision_sha256
+    check(
+        "decision_sha256",
+        expected_decision_sha256,
+        observed_decision_sha256,
+        decision_sha_format_valid
+        and observed_decision_sha256 == expected_decision_sha256,
+        "The decision file must match the explicitly pinned SHA-256.",
+    )
+
+    policy: dict[str, Any] = {}
+    policy_sha256 = ""
+    if coverage_policy.is_file():
+        policy_sha256 = _sha256_file(coverage_policy)
+        try:
+            policy = load_coverage_policy(coverage_policy)
+        except CoveragePolicyError as exc:
+            issues.append(_issue_row("rich_coverage_policy_invalid", str(exc)))
+    else:
+        issues.append(
+            _issue_row("rich_coverage_policy_missing", str(coverage_policy))
+        )
+    evidence["policy"]["sha256"] = policy_sha256
+    check(
+        "frozen_policy_sha256",
+        FROZEN_COVERAGE_POLICY_SHA256,
+        policy_sha256,
+        policy_sha256 == FROZEN_COVERAGE_POLICY_SHA256,
+        "PB-P0B accepts only the reviewed frozen A2 policy bytes.",
+    )
+
+    source_contract = policy.get("source_contract", {}) if policy else {}
+    decision_contract = policy.get("decision_contract", {}) if policy else {}
+    actual_source_contract_sha256 = (
+        _sha256_file(source_video_contract) if source_video_contract.is_file() else ""
+    )
+    policy_checks = (
+        (
+            "policy_identity",
+            {
+                "policy_id": FROZEN_COVERAGE_POLICY_ID,
+                "policy_version": FROZEN_COVERAGE_POLICY_VERSION,
+            },
+            {
+                "policy_id": policy.get("policy_id"),
+                "policy_version": policy.get("policy_version"),
+            },
+        ),
+        (
+            "policy_source_profile",
+            FROZEN_BEHAVIOR_PROFILE,
+            source_contract.get("feature_profile"),
+        ),
+        (
+            "policy_csv_column_count",
+            FROZEN_BEHAVIOR_CSV_COLUMN_COUNT,
+            _parse_positive_int(source_contract.get("expected_csv_column_count")),
+        ),
+        (
+            "policy_au_columns",
+            list(AU_SOURCE_COLUMNS),
+            source_contract.get("required_au_columns"),
+        ),
+        (
+            "policy_pose_columns",
+            list(POSE_ROTATION_SOURCE_COLUMNS),
+            source_contract.get("required_pose_columns"),
+        ),
+        (
+            "policy_source_video_contract_sha256",
+            actual_source_contract_sha256,
+            str(source_contract.get("required_source_video_contract_sha256", "")).lower(),
+        ),
+    )
+    for code, expected, observed in policy_checks:
+        check(
+            code,
+            expected,
+            observed,
+            observed == expected,
+            "The A2 policy must match the exact behavior source audited by P0.",
+        )
+    policy_confidence_threshold = _parse_finite_float(
+        source_contract.get("confidence_threshold")
+    )
+    check(
+        "confidence_threshold",
+        policy_confidence_threshold,
+        float(confidence_threshold),
+        policy_confidence_threshold is not None
+        and float(confidence_threshold) == policy_confidence_threshold,
+        "P0 and A2 must apply the same quality-mask confidence threshold.",
+    )
+    check(
+        "legacy_success_threshold",
+        FROZEN_MIN_SUCCESS_RATIO,
+        _parse_finite_float(source_contract.get("legacy_strict_success_ratio")),
+        _parse_finite_float(source_contract.get("legacy_strict_success_ratio"))
+        == FROZEN_MIN_SUCCESS_RATIO,
+        "The legacy 0.995 field remains frozen as diagnostic evidence.",
+    )
+    for field in ("full_rich_authorized", "p0b_authorized", "training_authorized"):
+        check(
+            f"policy_{field}",
+            False,
+            decision_contract.get(field),
+            decision_contract.get(field) is False,
+            "The frozen policy itself must not authorize a later package.",
+        )
+
+    expected_decision_status = decision_contract.get("full_pass_status")
+    decision_counts = decision.get("counts", {}) if decision else {}
+    parsed_decision_counts = {
+        key: _parse_nonnegative_int(decision_counts.get(key))
+        for key in (
+            "video_count",
+            "frame_count",
+            "quality_valid_count",
+            "au_valid_count",
+            "head_valid_pair_count",
+            "blocking_issue_count",
+            "warning_count",
+        )
+    }
+    for code, expected, observed in (
+        ("decision_policy_id", policy.get("policy_id"), decision.get("policy_id")),
+        (
+            "decision_policy_version",
+            policy.get("policy_version"),
+            decision.get("policy_version"),
+        ),
+        ("decision_policy_sha256", policy_sha256, decision.get("policy_sha256")),
+        ("decision_scope", "full", decision.get("scope")),
+        ("decision_status", expected_decision_status, decision.get("status")),
+        (
+            "decision_legacy_status",
+            legacy_strict_status,
+            decision.get("legacy_strict_status_observed"),
+        ),
+    ):
+        check(
+            code,
+            expected,
+            observed,
+            observed == expected,
+            "The decision must identify the exact frozen full-coverage contract.",
+        )
+    for field in (
+        "source_structural_complete",
+        "mask_aware_coverage_pass",
+        "full_train_aggregate_thresholds_evaluated",
+    ):
+        check(
+            f"decision_{field}",
+            True,
+            decision.get(field),
+            decision.get(field) is True,
+            "A full A2 PASS must explicitly record every enforced coverage gate.",
+        )
+    check(
+        "decision_legacy_status_used_as_gate",
+        False,
+        decision.get("legacy_strict_status_used_as_gate"),
+        decision.get("legacy_strict_status_used_as_gate") is False,
+        "Legacy strict status must remain diagnostic only in A2.",
+    )
+    for field in ("full_rich_authorized", "p0b_authorized", "training_authorized"):
+        check(
+            f"decision_{field}",
+            False,
+            decision.get(field),
+            decision.get(field) is False,
+            "A2 evidence must not silently authorize a later package.",
+        )
+    check(
+        "decision_blocking_issue_count",
+        0,
+        parsed_decision_counts["blocking_issue_count"],
+        parsed_decision_counts["blocking_issue_count"] == 0,
+        "A bound full decision must contain no blocking issues.",
+    )
+    check(
+        "decision_warning_count",
+        0,
+        parsed_decision_counts["warning_count"],
+        parsed_decision_counts["warning_count"] == 0,
+        "The reviewed full-source decision requires zero warnings.",
+    )
+    for key, expected in observed_counts.items():
+        check(
+            f"decision_count_{key}",
+            expected,
+            parsed_decision_counts.get(key),
+            parsed_decision_counts.get(key) == expected,
+            "A2 coverage counts must equal values recomputed by the current P0 audit.",
+        )
+    expected_label_access = {
+        "bdi_label_access_count": 0,
+        "prediction_access_count": 0,
+        "checkpoint_access_count": 0,
+        "validation_test_threshold_callback_count": 0,
+    }
+    check(
+        "decision_label_access",
+        expected_label_access,
+        decision.get("label_access"),
+        decision.get("label_access") == expected_label_access,
+        "A2 must remain label-, prediction- and checkpoint-blind.",
+    )
+
+    a2_manifest_path = coverage_policy_decision.parent / "run_manifest.json"
+    evidence["run_manifest"]["path"] = str(a2_manifest_path)
+    a2_manifest: dict[str, Any] = {}
+    if a2_manifest_path.is_file():
+        evidence["run_manifest"]["sha256"] = _sha256_file(a2_manifest_path)
+        try:
+            loaded = json.loads(a2_manifest_path.read_text(encoding="utf-8-sig"))
+        except (OSError, UnicodeDecodeError, json.JSONDecodeError) as exc:
+            issues.append(
+                _issue_row("rich_coverage_policy_run_manifest_invalid", str(exc))
+            )
+        else:
+            if isinstance(loaded, dict):
+                a2_manifest = loaded
+            else:
+                issues.append(
+                    _issue_row(
+                        "rich_coverage_policy_run_manifest_invalid",
+                        "A2 run manifest is not a JSON object",
+                    )
+                )
+    else:
+        issues.append(
+            _issue_row(
+                "rich_coverage_policy_run_manifest_missing",
+                str(a2_manifest_path),
+            )
+        )
+
+    for code, expected, observed in (
+        (
+            "run_manifest_audit",
+            "PB-P0A2 mask-aware source/coverage policy validation",
+            a2_manifest.get("audit"),
+        ),
+        ("run_manifest_status", decision.get("status"), a2_manifest.get("status")),
+        ("run_manifest_read_only_inputs", True, a2_manifest.get("read_only_inputs")),
+        ("run_manifest_source_data_modified", False, a2_manifest.get("source_data_modified")),
+        ("run_manifest_model_modified", False, a2_manifest.get("model_modified")),
+        ("run_manifest_training_started", False, a2_manifest.get("training_started")),
+        ("run_manifest_full_rich_authorized", False, a2_manifest.get("full_rich_authorized")),
+        ("run_manifest_p0b_authorized", False, a2_manifest.get("p0b_authorized")),
+        ("run_manifest_training_authorized", False, a2_manifest.get("training_authorized")),
+    ):
+        check(
+            code,
+            expected,
+            observed,
+            observed is expected if isinstance(expected, bool) else observed == expected,
+            "The A2 run manifest must preserve its read-only, non-authorizing boundary.",
+        )
+
+    a2_inputs = a2_manifest.get("inputs", {}) if a2_manifest else {}
+    a2_outputs = a2_manifest.get("outputs", {}) if a2_manifest else {}
+    check(
+        "run_manifest_extraction_root",
+        str(openface_root),
+        a2_inputs.get("extraction_root"),
+        _paths_cross_platform_equivalent(
+            a2_inputs.get("extraction_root"), openface_root
+        ),
+        "A2 and P0 must audit the same immutable extraction root.",
+    )
+    expected_input_paths = {
+        "policy": coverage_policy,
+        "dataset_split": dataset_split_file,
+        "run_manifest": source_run_manifest,
+        "extraction_summary": source_run_manifest.parent / "extraction_summary.json",
+        "video_run_summary": source_run_manifest.parent / "video_run_summary.csv",
+        "input_frame_contract": source_run_manifest.parent / "input_frame_contract.csv",
+        "csv_content_manifest": source_run_manifest.parent / "csv_content_manifest.csv",
+    }
+    for label, expected_path in expected_input_paths.items():
+        entry = a2_inputs.get(label)
+        entry_path = entry.get("path") if isinstance(entry, dict) else ""
+        entry_sha256 = str(entry.get("sha256", "")).lower() if isinstance(entry, dict) else ""
+        actual_sha256 = _sha256_file(expected_path) if expected_path.is_file() else ""
+        check(
+            f"run_manifest_input_{label}_path",
+            str(expected_path),
+            entry_path,
+            _paths_cross_platform_equivalent(entry_path, expected_path),
+            "The A2 input path must resolve to the exact source used by P0.",
+        )
+        check(
+            f"run_manifest_input_{label}_sha256",
+            actual_sha256,
+            entry_sha256,
+            bool(actual_sha256) and entry_sha256 == actual_sha256,
+            "Every A2 input artifact must be bound by its current SHA-256.",
+        )
+
+    decision_output = a2_outputs.get(coverage_policy_decision.name)
+    decision_output_path = (
+        decision_output.get("path") if isinstance(decision_output, dict) else ""
+    )
+    decision_output_sha256 = (
+        str(decision_output.get("sha256", "")).lower()
+        if isinstance(decision_output, dict)
+        else ""
+    )
+    check(
+        "run_manifest_output_decision_path",
+        str(coverage_policy_decision),
+        decision_output_path,
+        _paths_cross_platform_equivalent(
+            decision_output_path, coverage_policy_decision
+        ),
+        "The adjacent A2 run manifest must identify the supplied decision.",
+    )
+    check(
+        "run_manifest_output_decision_sha256",
+        observed_decision_sha256,
+        decision_output_sha256,
+        bool(observed_decision_sha256)
+        and decision_output_sha256 == observed_decision_sha256,
+        "The A2 run manifest must bind the supplied decision bytes.",
+    )
+
+    coverage_implementation_path = Path(__file__).with_name(
+        "privileged_behavior_coverage_policy.py"
+    ).resolve()
+    implementation = a2_manifest.get("implementation", {}) if a2_manifest else {}
+    implementation_path = (
+        implementation.get("path") if isinstance(implementation, dict) else ""
+    )
+    implementation_sha256 = (
+        str(implementation.get("sha256", "")).lower()
+        if isinstance(implementation, dict)
+        else ""
+    )
+    current_implementation_sha256 = (
+        _sha256_file(coverage_implementation_path)
+        if coverage_implementation_path.is_file()
+        else ""
+    )
+    check(
+        "run_manifest_implementation_path",
+        str(coverage_implementation_path),
+        implementation_path,
+        _paths_cross_platform_equivalent(
+            implementation_path, coverage_implementation_path
+        ),
+        "P0B requires an A2 decision generated by the reviewed implementation.",
+    )
+    check(
+        "run_manifest_implementation_sha256",
+        current_implementation_sha256,
+        implementation_sha256,
+        bool(current_implementation_sha256)
+        and implementation_sha256 == current_implementation_sha256,
+        "Stale A2 decisions from earlier validator code must be regenerated.",
+    )
+
+    evidence["decision"].update(
+        {
+            "status": decision.get("status"),
+            "scope": decision.get("scope"),
+            "policy_sha256": decision.get("policy_sha256"),
+            "next_action": decision.get("next_action"),
+        }
+    )
     evidence["status"] = "PASS" if not issues else "BLOCKED"
     return issues, fidelity, evidence
 
@@ -1752,6 +2360,9 @@ def run_privileged_behavior_p0(
     source_run_manifest,
     source_video_contract,
     output_dir,
+    coverage_policy_decision=None,
+    coverage_policy_decision_sha256=None,
+    coverage_policy=None,
     confidence_threshold: float = 0.8,
     max_pose_velocity_dt_seconds: float = 0.1,
     project_root=None,
@@ -1763,6 +2374,16 @@ def run_privileged_behavior_p0(
     openface_root = Path(openface_root).expanduser().resolve()
     source_run_manifest = Path(source_run_manifest).expanduser().resolve()
     source_video_contract = Path(source_video_contract).expanduser().resolve()
+    coverage_policy_decision = (
+        Path(coverage_policy_decision).expanduser().resolve()
+        if coverage_policy_decision is not None
+        else None
+    )
+    coverage_policy = (
+        Path(coverage_policy).expanduser().resolve()
+        if coverage_policy is not None
+        else None
+    )
     project_root = Path(project_root or Path(__file__).resolve().parents[2]).resolve()
 
     if not 0.0 <= float(confidence_threshold) <= 1.0:
@@ -1791,6 +2412,17 @@ def run_privileged_behavior_p0(
     total_openface_rows = 0
     rich_provenance: dict[str, Any] = {
         "mode": "not_applicable_landmark_or_partial_schema",
+        "status": "NOT_APPLICABLE",
+    }
+    coverage_policy_binding: dict[str, Any] = {
+        "required": False,
+        "provided": {
+            "decision": coverage_policy_decision is not None,
+            "decision_sha256": bool(
+                str(coverage_policy_decision_sha256 or "").strip()
+            ),
+            "policy": coverage_policy is not None,
+        },
         "status": "NOT_APPLICABLE",
     }
     total_image_frames = 0
@@ -2014,6 +2646,10 @@ def run_privileged_behavior_p0(
                     schema_sha256 = ""
                 csv_evidence[video_id] = {
                     "csv_rows": int(projection["row_count"]),
+                    "success_count": sum(
+                        _parse_finite_float(row.get("success")) == 1.0
+                        for row in projection["rows"]
+                    ),
                     "schema_sha256": schema_sha256,
                     "csv_size_bytes": (
                         openface_csv.stat().st_size
@@ -2251,6 +2887,45 @@ def run_privileged_behavior_p0(
         )
         issue_rows.extend(strict_issues)
         fidelity_rows.extend(strict_fidelity)
+        observed_coverage_counts = {
+            "video_count": len(all_audits),
+            "frame_count": sum(
+                audit.coverage.total_frame_count for audit in all_audits
+            ),
+            "quality_valid_count": sum(
+                audit.coverage.quality_valid_count for audit in all_audits
+            ),
+            "au_valid_count": sum(
+                audit.coverage.au_valid_count for audit in all_audits
+            ),
+            "head_valid_pair_count": sum(
+                audit.coverage.pose_velocity_valid_count for audit in all_audits
+            ),
+        }
+        binding_issues, binding_fidelity, coverage_policy_binding = (
+            _validate_full_coverage_decision_binding(
+                coverage_policy_decision=coverage_policy_decision,
+                coverage_policy_decision_sha256=coverage_policy_decision_sha256,
+                coverage_policy=coverage_policy,
+                dataset_split_file=dataset_split_file,
+                openface_root=openface_root,
+                source_run_manifest=source_run_manifest,
+                source_video_contract=source_video_contract,
+                legacy_strict_status=str(
+                    rich_provenance.get("legacy_strict_status_observed", "")
+                ),
+                decision_required=bool(
+                    rich_provenance.get("mask_aware_decision_required")
+                ),
+                observed_counts=observed_coverage_counts,
+                confidence_threshold=float(confidence_threshold),
+            )
+        )
+        issue_rows.extend(binding_issues)
+        fidelity_rows.extend(binding_fidelity)
+        rich_provenance["coverage_policy_binding"] = coverage_policy_binding
+        if binding_issues:
+            rich_provenance["status"] = "BLOCKED"
     else:
         fidelity_rows.append(
             _fidelity_row(
@@ -2261,6 +2936,15 @@ def run_privileged_behavior_p0(
                 "Legacy landmark-only or partial-rich inputs remain schema-BLOCKED; strict rich extractor provenance is enforced only when every exact split video has the complete selected schema.",
             )
         )
+        if any(coverage_policy_binding["provided"].values()):
+            issue_rows.append(
+                _issue_row(
+                    "rich_coverage_policy_not_applicable",
+                    "A2 full-source evidence may only be supplied for an exact all-rich source",
+                )
+            )
+            coverage_policy_binding["status"] = "INVALID_FOR_NONRICH_SOURCE"
+            rich_provenance["coverage_policy_binding"] = coverage_policy_binding
 
     statistics = None
     statistics_reason = "rich-schema exact contract is incomplete"
@@ -2483,6 +3167,40 @@ def run_privileged_behavior_p0(
                 "accessed_columns": list(SOURCE_CLOCK_COLUMNS),
                 "raw_video_path_accessed": False,
                 "raw_openface_csv_path_accessed": False,
+            },
+            "coverage_policy": {
+                "provided": coverage_policy is not None,
+                "path": str(coverage_policy) if coverage_policy else "",
+                "sha256": (
+                    _sha256_file(coverage_policy)
+                    if coverage_policy is not None and coverage_policy.is_file()
+                    else ""
+                ),
+            },
+            "coverage_policy_decision": {
+                "provided": coverage_policy_decision is not None,
+                "path": (
+                    str(coverage_policy_decision)
+                    if coverage_policy_decision
+                    else ""
+                ),
+                "expected_sha256": str(
+                    coverage_policy_decision_sha256 or ""
+                ).strip().lower(),
+                "sha256": (
+                    _sha256_file(coverage_policy_decision)
+                    if coverage_policy_decision is not None
+                    and coverage_policy_decision.is_file()
+                    else ""
+                ),
+            },
+            "coverage_policy_run_manifest": {
+                "path": coverage_policy_binding.get("run_manifest", {}).get(
+                    "path", ""
+                ),
+                "sha256": coverage_policy_binding.get("run_manifest", {}).get(
+                    "sha256", ""
+                ),
             },
         },
         "parameters": {
