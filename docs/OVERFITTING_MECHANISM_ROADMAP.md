@@ -13,26 +13,26 @@
 
 ## 当前路线总览
 
-本文档的当前权威目标正式更新为 **Auditable and Falsifiable Coarse-Grained Task-Nuisance Information Separation：可审计、可证伪的粗粒度任务-干扰信息分流**。机制审计已经说明：单个 artifact 不能解释全部过拟合，简单输入处理也无法同时改善 identity retrieval、severity bias、CCC 和 task consistency。因此下一步不再尝试把所有潜在机制逐项显式建模，也不预设语义解耦已经成立，而是把过拟合机制转化为能够被外部审计和反证的粗粒度信息分流结构。
+本文档的当前权威目标是以既有shortcut/task-nuisance审计为证据底座，验证 **AU-only Global-Local Alignment（GLA）** 是否能让RGB模型更稳定地利用抑郁相关面部行为。机制审计已经说明：单个artifact、identity adversarial、Stage C信息分流、参数正则或简单输入处理都不能单独解释并修复全部过拟合。因此Stage A--D和task-nuisance结果现作为历史证据、匹配基线与外部风险审计保留，不再作为`GLA-FULL`内部模块。
 
 ```text
 已完成证据层：input artifact / temporal / identity / calibration / geometry audits
         ↓
-Stage A: Shortcut 证据收口
+历史Stage A: Shortcut证据收口
         layer-wise identity probe + error-identity coupling + artifact/quality audits as evaluation
         ↓
-Stage B: Identity-adversarial task representation
+历史Stage B: Identity-adversarial task representation
         H0 -> z_dep, with verifiable shortcut suppression
         ↓
-Stage C: Coarse task-nuisance information separation
+历史Stage C: Coarse task-nuisance information separation
         H0 -> z_dep, z_nuisance
         z_id only after the base split passes C3 and is re-authorized
         ↓
-Stage D: Falsification and robustness validation
+历史Stage D: Falsification and robustness validation
         multi-attacker / leakage matrix / severity-balanced loss / group-wise robustness
         ↓
-Current intervention: face-valid clips + three semantic local/global views + train-only AU/head
-        P0E maximal eligible profile -> GLA-FULL first
+Current intervention: face-valid clips + three semantic local/global views + train-only AU only
+        AU-only P0E maximal eligible profile -> headless GLA-FULL first
         -> dependency-aware subtraction -> bounded additive confirmation -> paired multi-seed
 ```
 
@@ -40,18 +40,20 @@ Current intervention: face-valid clips + three semantic local/global views + tra
 
 | 机制问题 | 证据来源 | 新路线中的处理 |
 |---|---|---|
-| subject/static appearance shortcut | identity retrieval、input variants、case frames | identity-adversarial baseline；`z_dep` identity risk evaluation；`z_id` 仅作 post-C3 待审扩展 |
-| 身份-抑郁交叠 | 表情基线、头动/眼动习惯、个体行为风格 | 不显式建 `z_m`；通过 `z_dep` utility、identity risk 和 `z_nuisance` leakage 联合评估 |
-| severity label imbalance / middle-score collapse | severity bias、calibration summary、pred_std compression | severity-balanced regression 作为对照或支线 |
+| subject/static appearance shortcut | identity retrieval、input variants、case frames | 外部identity probe/retrieval和匹配历史基线；GLA-FULL不含identity-adversarial或`z_id` |
+| 身份-抑郁交叠 | 表情基线、历史头动/眼动习惯、个体行为风格 | 不在GLA中建立专用latent或对抗头；通过BDI utility、外部identity risk和AU target risk联合评估 |
+| severity label imbalance / middle-score collapse | severity bias、calibration summary、pred_std compression | 作为外部报告和历史匹配对照；GLA-FULL不加入ordinal或新的severity支线 |
 | input artifact / black boundary / OpenFace quality | black artifact、alignment geometry、confidence、bbox、valid ratio | 审计变量、post-hoc probes、case study 和 group-wise evaluation；不默认建 `z_art` |
 | temporal/task context | temporal sampling、task consistency | 混杂监控和 task consistency evaluation；不显式建 `z_ctx` |
-| dynamic facial behavior | literature / landmark dynamics / local crops | 眼眉/鼻颊/嘴部三语义区共享backbone；P0E合格的AU/head只作train-only辅助目标，val/test保持RGB-only target access |
+| dynamic facial behavior | literature / landmark dynamics / local crops | 眼眉/鼻颊/嘴部三语义区共享backbone；P0E合格AU只作train-only辅助目标，head/gaze永久排除，val/test保持RGB-only target access |
 
-读本文档时，应把前面 Layer 0-6 理解为证据地图，把“当前推进路线”理解为当前模型路线。若旧段落中的“下一步”与本总览冲突，以本总览和 `RGB_OVERFITTING_AUDIT_PLAN.md` 的最新 task-nuisance Stage A-D 为准。
+读本文档时，应把前面Layer 0--6理解为证据地图，把“当前推进路线”理解为当前模型路线。若旧段落中的“下一步”与本总览冲突，以本总览、`GLOBAL_LOCAL_AU_EXPERIMENT_PLAN.md`和`TODO.md`顶部权威入口为准。
 
 ### 2026-07-30 全模型优先混合消融转折
 
-PB-P0A3权威full-rich v2和A2完整coverage已经通过，但P0B-P0E、扩展AU合同、三语义区crop manifest、模型和训练仍未授权。完整候选不再由global-only逐级前向堆叠，而是在P0E冻结最大依赖闭合eligible profile后先运行`GLA-FULL`与匹配reference；只要没有技术失败就完成`-HEAD -> -AU10/17 -> -AU4/6/7 -> -all AU -> -locals`的S1--S5阶梯。FULL科学失败时该阶梯只作诊断并停止扩展；科学通过时才做grid、no-cross、subject-deranged shuffled-aux和幸存组有限加回。
+PB-P0A3权威full-rich v2、PB-P0B-COMPAT commit `485b176`和当前实现重新生成的A2 full v3 coverage已经通过，但P0B core、P0C-P0E、扩展AU合同、三语义区crop manifest、模型和训练仍未运行或授权。当前P0E只允许输出`REGION_ELIGIBLE`、`AU_GROUP_ELIGIBLE(core/extension_A/extension_B)`、`CROSS_REGION_ELIGIBLE`、`AU_ELIGIBLE`、`GLA_PROFILE_ELIGIBLE`和最大AU-only依赖闭合profile，并记录`excluded_by_design: [head_motion_auxiliary]`与`P1_CODE_AUTHORIZED=false`；禁止`HEAD_ELIGIBLE/JOINT_ELIGIBLE`。完整候选不再由global-only逐级前向堆叠，而是在P0E冻结profile后先运行headless `GLA-FULL`与匹配reference；只要没有技术失败就按`-AU10/17 -> -AU4/6/7 -> -all AU -> -locals`完成反向阶梯。FULL科学失败时该阶梯只作诊断并停止扩展；科学通过时才做grid、no-cross、subject-deranged shuffled-AU、`GLA-FULL-NO-EXPOSURE-AUG`和幸存组有限加回。
+
+`GLA-FULL`只含BDI回归、global/local共享backbone与projection、global-residual validity-aware帧级融合、单层GRU、masked temporal mean和AU辅助头；不含ordinal分类、identity-adversarial或Stage C task-nuisance。预处理只负责几何、裁切、validity、质量评估与provenance，不对曝光或颜色做像素修改。光度随机化只发生在train Dataset：方向感知曝光增强和普通ColorJitter按视图独立采样，但同一视图整段序列参数一致；validation/test完全关闭。空间flip/affine仍须跨视图和时间同步，不能把“逐视图独立”扩展到几何变换。
 
 FULL优先只改变训练实验的验证顺序，不绕过任何数据、几何、来源、物理保真、风险或代码授权门禁。每个代码/运行包必须先按根`AGENTS.md`报告边界、架构/数据流、文件、命令、验证、风险和agent分工，结束该轮并等待明确授权。历史role-swap意味着最终只能报告locked post-selection benchmark，不能声称untouched test。
 
@@ -67,7 +69,7 @@ provenance-final与3帧raw-warp smoke已完成；下一门禁是用`FACE-S1`量�
 
 ## 1. 研究目标
 
-当前目标不再是寻找“某一个 artifact 导致过拟合”，而是建立一套可解释、可审计、可证伪、可复用的机制审计与信息分流协议：
+本路线图的长期职责不再是寻找“某一个artifact导致过拟合”，而是维护一套可解释、可审计、可证伪、可复用的机制证据。下列信息分流协议是历史诊断框架；当前主动模型目标是上方冻结的AU-only GLA，并以`GLOBAL_LOCAL_AU_EXPERIMENT_PLAN.md`和`TODO.md`顶部为执行入口：
 
 ```text
 OpenFace aligned face RGB model failure
@@ -106,7 +108,7 @@ Shortcut learning 研究指出，深度模型可能学习在标准测试条件�
 
 ### 面部行为表征
 
-抑郁识别更合理的视觉信号应来自稳定面部行为动态，而不是冗余RGB外观。本项目用AU/FACS提供可复核的面部动作语义分区，用temporal landmark逐帧定位并保持区域完整；进入模型的仍是局部RGB。AU biomarker数值、AU序列和AU监督不进入本项目模型。
+抑郁识别更合理的视觉信号应来自稳定面部行为动态，而不是冗余RGB外观。本项目用AU/FACS提供可复核的面部动作语义分区，用temporal landmark逐帧定位并保持区域完整；进入模型的推理输入仍只有global/local RGB与valid mask。AU biomarker数值和AU序列不作为模型输入，只有P0E合格的clip/video级AU描述符可在train阶段作为辅助目标；validation/test不读取目标。
 
 参考：
 
@@ -195,7 +197,7 @@ Shortcut learning 研究指出，深度模型可能学习在标准测试条件�
 - severity group calibration report；
 - 结果显示简单线性校准只轻微改善 MAE/RMSE，Pearson 不变，CCC 下降，severe 低估几乎不变。
 
-下一步：
+当时登记的后续项（历史，不是当前下一步）：
 
 - 将 calibration verification 扩展到所有关键 input / temporal ablation；
 - 构建 multi-run calibration summary，并与 identity retrieval / prediction summary 合并；
@@ -354,7 +356,9 @@ Shortcut learning 研究指出，深度模型可能学习在标准测试条件�
 - 如果模型容量降低改善 train/val gap 但 test 不变，说明表征信号不足；
 - 如果局部 artifact augmentation 改善特定 case，说明 shortcut source 明确。
 
-## 5. 实验决策树
+## 5. 历史机制诊断决策树（非当前执行入口）
+
+本节用于解释既有审计为何展开，不再生成模型实现或实验任务；当前执行顺序见`TODO.md`顶部GLA任务。
 
 ### Step A: 先确认结论有效性
 
@@ -404,7 +408,9 @@ AU / landmark-delta / pose-gaze subset generalizes?
   no  -> 继续特征去身份化、容量约束和质量分层
 ```
 
-## 6. 推荐执行顺序
+## 6. 历史推荐执行顺序（已被GLA路线取代）
+
+以下P0-P2保留为既有证据闭环记录，不得与当前GLA的P0B-P0E、GLA-CODE或FULL优先矩阵混用。
 
 ### P0: 已实现能力的结果闭环
 
@@ -521,11 +527,37 @@ center_mask_soft_boundary_v2
 
 因此，当前机制地图应把 RGB failure 表述为多因素 shortcut 与 severity compression 的交叉，而不是单个 artifact 的因果链。
 
-## 11. 当前推进路线：粗粒度 Task-Nuisance 主线
+## 11. 当前推进路线：AU-only GLA主线
 
-当前推进路线已经从细粒度 RPDF-Net 收敛为可审计、可证伪的粗粒度 task-nuisance 信息分流。该转移不是否定前一阶段，而是把 identity-adversarial MTL、severity-balanced regression、input artifact audit、identity retrieval 和 calibration summary 全部纳入证据层、对照基线和稳健性验证，同时避免给每个难以验证的潜在因素分配独立 latent，或把辅助损失收敛误写成语义解耦结论。
+当前推进路线已经从细粒度RPDF-Net和粗粒度task-nuisance信息分流收敛为独立AU-only GLA。identity-adversarial MTL、Stage C、severity-balanced regression、input artifact audit、identity retrieval和calibration summary继续作为历史证据、外部对照和稳健性审计，但均不装入`GLA-FULL`。当前路线也不把AU辅助损失收敛误写成语义解耦或身份信息已被删除。
 
-### Step 1: Shortcut 证据收口
+### Step 1: AU-only资格闭环
+
+完成P0B core/coverage、逐AU物理保真、AU descriptor风险、三语义区几何资格和P0E。head-motion/pose与gaze只保留历史诊断，不参与profile。任何缺失、hash/join错误或风险失败都在模型运行前删除对应AU组，而不是训练后解释为消融收益。
+
+### Step 2: 独立headless GLA实现
+
+```text
+[B,T,4,C,H,W] + frame/view masks + frame_ids/pair_mask
+-> one shared backbone -> shared projection
+-> global-residual validity-aware fusion
+-> one-layer GRU -> masked temporal mean -> BDI regression
+regional/cross-regional summaries -> train-only grouped AU heads
+```
+
+该路径不继承MTL-Lite训练类，不包含ordinal、identity-adversarial、Stage C、head-motion或gaze。预处理不做曝光/颜色像素处理；train-only逐视图光度增强保持各自序列时间一致，validation/test无增强。
+
+### Step 3: FULL优先混合消融
+
+seed42先比较匹配`GLA-C-REF`与最大AU-only `GLA-FULL`，随后按固定依赖顺序删除B、A、全部AU和locals；只有FULL科学通过才进入grid、no-cross、shuffled-AU、有限加回和paired multi-seed。所有条件复用global增强随机流；对应local/grid槽位复用按view派生的增强流，避免删除AU组改变随机数消费。
+
+### Step 4: 外部反证与稳健性验证
+
+必须继续报告identity probe/retrieval、severity compression、task consistency、输入质量分组、AU梯度冲突和subject-cluster bootstrap。identity风险上升、shuffled-AU复现收益或multi-seed方向不稳均停止扩展。
+
+以下历史Step 1--4保留为Stage A--D证据形成过程，不是当前执行入口。
+
+### 历史Step 1: Shortcut证据收口
 
 目标：在实现信息分流模块前，证明可验证 shortcut 是否真的进入预测。
 
@@ -543,7 +575,7 @@ A4 severity imbalance / prediction compression summary
 - A4 支撑 severity-balanced baseline 或支线；
 - existing identity retrieval / calibration / alignment / black artifact summaries 作为证据底座。
 
-### Step 2: Identity-adversarial Task Representation
+### 历史Step 2: Identity-adversarial Task Representation
 
 第一版先验证最小上层干预，不直接启用复杂因子分解：
 
@@ -560,7 +592,7 @@ subject_attacker = GRL(z_dep) -> subject_id
 - severity bias、task consistency 和 train-val gap 是否不恶化；
 - 若 A1 成立但 A2 不成立，identity adversarial 只作为对照而非强 suppression 主线。
 
-### Step 3: Coarse Task-Nuisance Information Separation
+### 历史Step 3: Coarse Task-Nuisance Information Separation
 
 第二阶段只验证粗粒度单级分流：
 
@@ -581,7 +613,7 @@ subject_attacker = GRL(z_dep) -> subject_id
 
 不显式建 `z_m`、`z_art`、`z_ctx`、`z_quality`。这些因素用 probes 和分组评估验证，不作为第一版 latent。
 
-### Step 4: 反证与稳健性验证
+### 历史Step 4: 反证与稳健性验证
 
 最终模型不是一次性打开所有模块，而是逐项验证风险：
 
@@ -612,7 +644,7 @@ task consistency 不恶化
 
 ## 13. 研究路线细化：必要性、可行性与中长期边界
 
-当前 task-nuisance 路线的必要性来自三点：
+当前AU-only GLA路线的必要性来自三点：
 
 1. 已有输入消融说明，单一黑边、单一边界或单一 temporal sampling 都不能解释全部失败模式；
 2. identity retrieval、severity calibration 和 task consistency 结果说明，模型失败同时涉及身份记忆、prediction compression 和任务语境混杂；
@@ -623,16 +655,16 @@ task consistency 不恶化
 1. 现有 MTL-Lite / DeiT pipeline 已能训练和导出 prediction，为 layer-wise embedding audit 提供入口；
 2. 现有 identity retrieval、severity calibration、alignment geometry 和 black artifact 脚本已经形成 Stage A 的大部分数据基础；
 3. OpenFace CSV 和 aligned frames 可以产生 artifact/quality/context 审计变量；
-4. GRL、deep imbalanced regression、multi-attacker evaluation 和 coarse factor separation loss 都可以作为低侵入支线逐步接入。
+4. 现有AU来源/coverage合同、共享backbone组件、mask-aware pooling和外部identity/severity/task诊断可以复用；GRL和coarse factor separation只保留为历史对照，不接入GLA-FULL。
 
 中长期边界：
 
 ```text
-已完成：Stage A/Stage B、C0 规格冻结和 P0 seed/EarlyStopping
-短期：C1 代码已本地实现；运行服务器 `C-REF/C-BN` smoke 与 100-step train-only calibration
-中期：完成 C2 seed-42 screening 与 C3 三 seed validation gate
-中长期：仅当信息分流在外部审计和多 seed 下稳定优于 paired `C-REF` 后，再考虑更复杂结构
-长期：根据支线证据选择 severity-balanced、multi-attacker 或 dynamic feature
+历史已完成：Stage A/Stage B/C及其utility、identity、regularization、severity和split-sensitivity审计
+短期：完成AU-only P0E与独立headless GLA代码披露/实现；数据生成、smoke和训练分别授权
+中期：运行匹配`GLA-C-REF`、最大eligible `GLA-FULL`和固定反向减法阶梯
+中长期：只有FULL、有限加回和外部风险审计在paired multi-seed下方向一致，才冻结简化候选
+长期：一次locked post-selection benchmark后决定是否进行预注册repeated subject-disjoint folds
 ```
 
-论文叙事的关键不是“提出更多模块”，而是“每个模块都有前置证据、进入条件、独立审计、反证条件和停止规则”。若某个支线只改善 MAE，却恶化 identity risk、severe bias、CCC 或 task consistency，则它应被作为机制反例记录，而不是进入最终主模型；若 Stage C 不优于 paired-seed `C-REF` 或多 seed 不稳定，则应明确报告当前信息分流假设未获支持。
+论文叙事的关键不是“提出更多模块”，而是“每个组件都有前置证据、进入条件、独立审计、反证条件和停止规则”。若某个AU组或local路线只改善MAE，却恶化identity risk、severe bias、CCC或task consistency，则它应被作为机制反例记录，而不是进入最终模型；若headless GLA不优于paired-seed `GLA-C-REF`或多seed不稳定，则应明确报告当前global/local+AU假设未获支持。

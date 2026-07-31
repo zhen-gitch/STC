@@ -1,6 +1,8 @@
 # MTL-Lite 模型基座设计
 
-本文档描述项目从旧的大型端到端模型迁移到 **MTL-Lite 轻量级多任务抑郁预测模型基座** 的代码结构、模块边界、接口定义和实施路线。当前论文路线以 `docs/DOCS_GUIDE.md` 和 `docs/TODO.md` 为准；MTL-Lite 是训练和诊断基座，不单独覆盖当前 task-nuisance 路线。
+本文档描述项目从旧的大型端到端模型迁移到 **MTL-Lite 轻量级多任务抑郁预测模型基座** 的代码结构、模块边界、接口定义和历史实施路线。当前论文路线以 `docs/DOCS_GUIDE.md`、`docs/TODO.md` 和 `docs/GLOBAL_LOCAL_AU_EXPERIMENT_PLAN.md` 为准；MTL-Lite、identity-adversarial和Stage C均作为历史训练/诊断基座保留，不是当前`GLA-FULL`的继承父类或内部组件。
+
+> **当前GLA边界**：新路线使用独立model/dataset/runner/script路径，只保留BDI回归、global/local共享backbone、帧级融合、时序编码与train-only AU辅助头。head-motion与gaze永久排除，ordinal分类、identity-adversarial和Stage C task-nuisance不进入`GLA-FULL`。旧MTL-Lite公共文件、配置和checkpoint语义保持不变。
 
 ## 1. 架构决策
 
@@ -39,13 +41,13 @@ MTL-Lite 主流程：
 
 基座作用：
 
-使用有序严重程度辅助监督约束共享时序表征，为 AVEC2014 面部视频小样本场景提供稳定、可消融的 BDI 预测基线。当前 task-nuisance 路线在该基座之上继续审计和改进表征。
+使用有序严重程度辅助监督约束共享时序表征，为 AVEC2014 面部视频小样本场景提供稳定、可消融的 BDI 预测历史基线。当前AU-only GLA只把它用于匹配对照和外部审计，不继承该模型、训练类、ordinal head或task-nuisance分支。
 
 ### 2.1 OpenFace 行为表征对照与已登记受控分支（暂未实施）
 
 当前输入帧已经经过 OpenFace 裁剪和对齐。后续模型设计需要承认 aligned face 中仍可能包含身份纹理、裁剪伪影、姿态残留、追踪质量和视频质量等非抑郁捷径。仅依赖 RGB backbone 可能不足以学习跨 subject 稳定的抑郁相关行为线索。
 
-OpenFace 行为结构特征可以作为独立对照和证据来源，但不再作为当前 task-nuisance 路线的直接开发目标。下面是历史候选结构，不代表当前实现顺序：
+OpenFace行为结构特征可以作为独立对照和证据来源，但不再作为当前AU-only GLA的直接输入或独立行为分支。下面是历史候选结构，不代表当前实现顺序：
 
 ```text
 aligned RGB frames
@@ -64,37 +66,38 @@ aligned RGB frames
 
 该方向的历史研究依据见`docs/RESEARCH_NOTES.md`。Stage A-D已经收口；当前执行顺序以`docs/TODO.md`顶部GLA任务和`GLOBAL_LOCAL_AU_EXPERIMENT_PLAN.md`为准。
 
-2026-07-28登记的默认关闭训练期特权监督分支已推进到PB-P0A3 full-rich v2和A2完整coverage PASS，完整来源规格见`PRIVILEGED_BEHAVIOR_ALIGNMENT_PLAN.md`。P0B-P0E、扩展AU合同、模型接入和训练仍未授权。它不是behavior late fusion，也不把OpenFace向量拼入模型输入；通过P0E的AU/head只作train-only分组辅助目标。gaze、`pose_T*`、landmark/geometry/quality语义目标和完整embedding MSE仍排除；validation/test/inference只读取RGB视图与mask，不读取行为目标。
+2026-07-28登记的默认关闭训练期特权监督分支已推进到PB-P0A3 full-rich v2、PB-P0B-COMPAT commit `485b176`和当前实现重新生成的A2 full v3 coverage PASS，完整来源规格见`PRIVILEGED_BEHAVIOR_ALIGNMENT_PLAN.md`。其中AU12/14/15+head合同和pose/head结果现在只保留为历史来源与诊断证据。P0B core、P0C-P0E、扩展AU合同、模型接入和训练仍未运行或授权；P0E只裁决region、分组AU、cross-region和`AU_ELIGIBLE`，不再产生`HEAD_ELIGIBLE/JOINT_ELIGIBLE`。GLA不是behavior late fusion，也不把OpenFace向量拼入模型输入；通过P0E的AU只作train-only分组辅助目标。gaze、全部pose/head目标、landmark/geometry/quality语义目标和完整embedding MSE均排除；validation/test/inference只读取RGB视图与mask，不读取行为目标。
 
 候选结构为：
 
 ```text
-shared RGB representation
-  -> existing BDI head
-  -> optional AU auxiliary head, train only
-  -> optional head-motion auxiliary head, train only
+[B,T,4,C,H,W] + frame/view masks + frame_ids/pair_mask
+  -> independent GLA model with one shared backbone and projection
+  -> global-residual validity-aware frame fusion
+  -> one-layer GRU -> masked temporal mean -> BDI regression head
+  -> regional/cross-regional AU auxiliary heads, train only
 ```
 
-PB-P0A3权威v2已对300/300视频、493,141行完成full-rich提取，A2为`PASS_FULL_SOURCE_COVERAGE`。landmark-only `BLOCKED`保留为历史证据。source-video contract冻结为30 FPS并只提供`t=(frame_id-1)/30`；aligned `-fdir timestamp=0`不得用于速度，旋转差必须wrap且只跨连续有效帧计算，历史raw OpenFace AU/pose值禁止访问。下一步先披露并授权P0B mask-aware兼容代码包；只有P0B-P0E、扩展AU和三语义区crop合同通过且再次披露/授权后，才允许修改`src/models/mtl_lite.py`或相关dataset/trainer。
+PB-P0A3权威v2已对300/300视频、493,141行完成full-rich提取，当前实现重新生成的A2 full v3为`PASS_FULL_SOURCE_COVERAGE`。landmark-only `BLOCKED`和head/pose统计保留为历史证据。source-video contract冻结为30 FPS并只提供`t=(frame_id-1)/30`；aligned `-fdir timestamp=0`不得用于速度，历史raw OpenFace AU/pose值禁止访问。下一步仍须先运行P0B core并完成AU-only P0C-P0E、扩展AU和三语义区crop合同，冻结manifest、SHA与最大eligible profile；随后才能另行披露并授权独立GLA代码。代码、合成测试、真实数据smoke和训练均为彼此独立的授权边界。当前路线不得为GLA修改`src/models/mtl_lite.py`、旧dataset或旧runner。
 
 非抑郁捷径验证的具体实施方案见 `docs/SHORTCUT_AUDIT_DESIGN.md`。该框架应作为模型改动前的离线诊断层，优先验证 OpenFace 质量、姿态、gaze、裁剪伪影和预测误差之间的关系。
 
 ### 2.2 当前输入增强边界（2026-07-30）
 
-当前项目不把AU intensity/presence数值、AU序列或AU特征作为模型输入。AU/FACS定义局部RGB语义边界；通过PB-P0E的聚合AU/head动态可作为train-only辅助目标。OpenFace在数据侧提供验证后的68点landmark坐标和检测质量证据，用于逐帧定位完整区域。未来默认关闭候选为：
+当前项目不把AU intensity/presence数值、AU序列或AU特征作为模型输入。AU/FACS定义局部RGB语义边界；通过AU-only PB-P0E的聚合AU动态可作为train-only辅助目标。OpenFace在数据侧提供验证后的68点landmark坐标和检测质量证据，用于逐帧定位完整区域。未来默认关闭候选为：
 
 ```text
 all deterministic face-valid temporal clips
 global aligned face
 + eye-brow / nose-cheek / mouth-lower-face RGB crops
   located by aligned-space landmarks
--> one shared MTL-Lite backbone
--> frame-level validity-aware fusion
--> temporal encoder / BDI head
--> optional train-only regional/cross-regional AU and head heads
+-> one shared backbone and projection in an independent GLA model
+-> global-residual validity-aware frame fusion
+-> one-layer GRU -> masked temporal mean -> BDI head
+-> optional train-only regional/cross-regional AU heads
 ```
 
-clip数增加不改变独立subject数；dataset/trainer必须支持每video clip loss归一或video-bag聚合。local/global来自相同frame和clip并共享空间增强；landmark polygon只用于crop envelope与coverage gate，模型只接收RGB与valid mask。默认关闭时现有dataset和forward行为必须不变。实验顺序为最大P0E-eligible FULL优先、依赖感知减法和有限加法复核；完整规格见`GLOBAL_LOCAL_AU_EXPERIMENT_PLAN.md`。
+clip数增加不改变独立subject数；GLA dataset/trainer必须支持每video clip loss归一或video-bag聚合。local/global来自相同frame和clip；空间增强跨视图与时间同步。预处理只负责几何、裁切、validity、质量评估和provenance，不做曝光/颜色像素处理。train-only方向感知曝光增强与普通ColorJitter按视图独立采样、在单个视图的整段序列内保持一致；validation/test关闭，且增强参数不作为模型输入。landmark polygon只用于crop envelope与coverage gate，模型只接收RGB与valid mask。独立GLA路径不会改变现有dataset和MTL-Lite forward行为。实验顺序为最大AU-only P0E-eligible FULL优先、依赖感知减法和有限加法复核；完整规格见`GLOBAL_LOCAL_AU_EXPERIMENT_PLAN.md`。
 
 ## 3. 推荐目录结构
 
@@ -456,7 +459,7 @@ src/diagnostics/
 
 ### 阶段 7：历史消融实验记录
 
-目标：记录 MTL-Lite 基座阶段曾规划或完成的输入、行为和损失消融。当前 task-nuisance 路线不再按该列表顺序扩展模型；新的执行顺序见 `docs/TODO.md` 的 Stage A/B/C/D。
+目标：记录MTL-Lite基座阶段曾规划或完成的输入、行为和损失消融。当前AU-only GLA不再按该列表或历史Stage A/B/C/D顺序扩展模型；唯一主动执行顺序见`docs/TODO.md`顶部GLA任务和`docs/GLOBAL_LOCAL_AU_EXPERIMENT_PLAN.md`。
 
 顺序：
 
@@ -493,7 +496,7 @@ scripts/train_behavior_baseline.py
 configs/behavior_baseline.yaml
 ```
 
-该路线用于判断结构化行为变量是否可以解释当前 RGB 模型的有效信号。它不依赖 RGB visual backbone，不应并入 `MTLLiteDepressionModel`。在当前路线下，它作为独立对照和 Stage A 证据来源；late fusion 继续暂缓，除非后续证据证明行为特征子集稳定且 task-nuisance 路线仍需要补充。
+该路线用于判断结构化行为变量是否可以解释当前RGB模型的有效信号。它不依赖RGB visual backbone，不应并入`MTLLiteDepressionModel`或当前GLA。它只作为独立历史对照和Stage A证据来源；late fusion不是当前候选，若未来重启必须重新立项、披露并授权。
 
 ### 阶段 8：Shortcut Audit Framework
 
@@ -536,7 +539,7 @@ python scripts/train_mtl_lite.py --override configs/mtl_lite_debug_smoke.yaml
 python scripts/diagnose_mtl_lite.py --run-dir <LOG_DIR>/default/mtl_lite/version_0 --ckpt best
 ```
 
-## 13. Stage B 设计规格（B0 规格冻结）
+## 13. 历史Stage B设计规格（B0规格冻结）
 
 本节是 Stage B 的最小设计规格，对应 `docs/TODO.md` 的 **B0-spec-first** 任务包与 `docs/RGB_OVERFITTING_AUDIT_PLAN.md` 的 Stage B 实施路线。B0 阶段只冻结设计、配置草案与测试计划；**不修改 `src/models/mtl_lite.py`**，模型代码在 B1/B2 才落地。
 
@@ -765,7 +768,7 @@ E3  identity-adversarial MTL + severity-balanced regression
 
 Stage B 的 B0-B5 已全部完成并关闭，E2 是唯一弱有效结构，但 identity/artifact 风险未解。Stage C 的 C0/P0 已完成；C1 最小代码已在本地实现，当前等待服务器 smoke 与 train-only calibration。完整接口、配置矩阵、seed 和停止条件见 `docs/STAGE_C_RUNBOOK.md`。
 
-## 14. Stage C 最小扩展边界
+## 14. 历史Stage C最小扩展边界
 
 Stage B 已完成并判定进入 Stage C。当前 `shared_features` 是 `H0`，维度为 `PROCESS_TEMPORAL.HIDDEN_DIM=192`。Stage C 第一版在池化之后、task head 之前加入单级 `TaskNuisanceBlock`：
 
