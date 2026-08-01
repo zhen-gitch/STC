@@ -1,0 +1,148 @@
+{
+  "policy_id": "pb_p0c_core_au_fidelity_v1",
+  "policy_version": 1,
+  "status": "FROZEN",
+  "created_date": "2026-07-31",
+  "label_blind": true,
+  "scope": {
+    "au_group": "core",
+    "au_columns": [
+      "AU12_r",
+      "AU14_r",
+      "AU15_r"
+    ],
+    "quality_columns": [
+      "frame",
+      "success",
+      "confidence"
+    ],
+    "forbidden_value_columns": [
+      "pose_Rx",
+      "pose_Ry",
+      "pose_Rz",
+      "pose_Tx",
+      "pose_Ty",
+      "pose_Tz",
+      "gaze_0_x",
+      "gaze_0_y",
+      "gaze_0_z",
+      "gaze_1_x",
+      "gaze_1_y",
+      "gaze_1_z",
+      "gaze_angle_x",
+      "gaze_angle_y",
+      "AU04_r",
+      "AU06_r",
+      "AU07_r",
+      "AU10_r",
+      "AU17_r"
+    ],
+    "head_motion_in_eligibility": false,
+    "gaze_in_eligibility": false,
+    "extension_au_in_eligibility": false
+  },
+  "source_contract": {
+    "feature_profile": "quality_2d_pose_au_no_gaze_no_hog_v1",
+    "feature_arguments": [
+      "-2Dfp",
+      "-pose",
+      "-aus"
+    ],
+    "confidence_threshold": 0.8,
+    "quality_valid_definition": "success == 1 and confidence >= confidence_threshold",
+    "joint_valid_definition": "raw quality-valid and aligned quality-valid with finite in-range values for the selected AU",
+    "au_value_minimum": 0.0,
+    "au_value_maximum": 5.0,
+    "expected_video_count": 300,
+    "expected_frame_count": 493141,
+    "require_exact_video_set": true,
+    "require_exact_frame_join": true,
+    "frame_offset_allowed": false,
+    "interpolation_allowed": false,
+    "imputation_allowed": false,
+    "smoothing_allowed": false,
+    "required_dataset_split_sha256": "979dc7c5ea622a6b4575bf1d6f89393bf9563fe8f3cdc5bec80fff73787e2e24",
+    "required_source_video_contract_sha256": "12f50c2311b9d89dde81e27fa83891226ca5f447ed7d3d56fe38cf673a1c5a31",
+    "required_aligned_run_manifest_sha256": "95bc6f08638c6b2ee381aa8725108aab3f259b3883d5b893f9a30abe74b16aba",
+    "required_p0b_run_manifest_sha256": "e2dfda24fe653d5b318077faa1dc83b2549be802c40c2d7d1a452b2196a6d1ae",
+    "required_p0b_selected_target_manifest_sha256": "028ce8c11715fc48019d255c8d1aaf0d38d282ad896c582ccbf44997b23ee076",
+    "required_feature_extraction_sha256": "a29ba49cfc59039bfe5e2f141898b2a110da420f6f520d6a923a86ac78cd96ae",
+    "required_model_sha256": "7efbef33dbc3e54197960300827657f9fe7a42c0953ef52c2af054a6fdbc3598",
+    "required_openface_readme_sha256": "4ccdd65f992124db8127688a545a9344b537bdeb2d97371cfddfd65fc68a1d93",
+    "required_au_predictor_manifest_sha256": "b65b923db38e75ee53ea7f85d614882f2f834571c257c7e0c3637d348a0192d6"
+  },
+  "statistics": {
+    "aggregation_order": [
+      "video",
+      "subject",
+      "physical_split"
+    ],
+    "subject_id_definition": "first two underscore-delimited video_id tokens (NNN_M)",
+    "task_sequence_concatenation_allowed": false,
+    "subject_task_aggregation": "median of estimable task-video metrics",
+    "split_aggregation": "median of subject metrics",
+    "minimum_matched_frames_per_video": 120,
+    "minimum_unique_values_per_side": 3,
+    "minimum_train_subjects": 30,
+    "minimum_train_videos_per_task": 20,
+    "spearman": {
+      "tie_method": "average_rank",
+      "minimum_subject_median": 0.7,
+      "bootstrap_samples": 10000,
+      "bootstrap_seed": 42,
+      "bootstrap_confidence_level": 0.95,
+      "minimum_bootstrap_lower_bound": 0.5,
+      "lower_bound_comparison": "strict_greater_than"
+    },
+    "direction": {
+      "reference_raw_absolute_delta_minimum": 0.1,
+      "aligned_absolute_delta_minimum": 0.05,
+      "minimum_events_per_video": 20,
+      "minimum_train_subjects": 20,
+      "minimum_subject_median_rate": 0.75,
+      "require_exact_consecutive_frames": true
+    },
+    "amplitude": {
+      "definition": "q95_minus_q05_on_joint_valid_values",
+      "minimum_raw_amplitude": 0.1,
+      "minimum_median_ratio": 0.5,
+      "maximum_median_ratio": 2.0,
+      "bounds_inclusive": true
+    },
+    "lag": {
+      "minimum_lag_frames": -5,
+      "maximum_lag_frames": 5,
+      "positive_lag_semantics": "aligned[t + lag] follows raw[t]",
+      "canonical_zero_tolerance": 0.02,
+      "required_canonical_peak_lag": 0,
+      "strict_argmax_reported_separately": true
+    },
+    "cross_talk": {
+      "enabled": true,
+      "decision_role": "REPORT_ONLY",
+      "threshold": null
+    }
+  },
+  "split_policy": {
+    "eligibility_split": "train",
+    "validation_test_policy": "REPORT_ONLY_NO_THRESHOLD_CALLBACK",
+    "labels_accessed": false
+  },
+  "decision_contract": {
+    "audit_pass_status": "PASS",
+    "audit_blocked_status": "BLOCKED",
+    "au_pass_status": "PASS",
+    "au_metric_fail_status": "FAIL_METRIC",
+    "au_evidence_blocked_status": "BLOCKED_EVIDENCE",
+    "au_not_evaluated_status": "NOT_EVALUATED",
+    "group_eligible_status": "ELIGIBLE",
+    "group_metric_fail_status": "INELIGIBLE_METRIC",
+    "group_evidence_blocked_status": "BLOCKED_INCOMPLETE_EVIDENCE",
+    "group_not_evaluable_status": "NOT_EVALUABLE",
+    "training_authorized": false,
+    "p0d_authorized": false,
+    "p0e_authorized": false,
+    "pass_next_action": "REQUEST_SEPARATE_P0D_AUTHORIZATION",
+    "stop_next_action": "STOP_AND_REVIEW_P0C_EVIDENCE"
+  }
+}

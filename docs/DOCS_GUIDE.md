@@ -75,8 +75,9 @@
 
 1. `docs/GLOBAL_LOCAL_AU_EXPERIMENT_PLAN.md`（当前权威训练设计）
 2. `docs/PRIVILEGED_BEHAVIOR_ALIGNMENT_PLAN.md`（现有AU12/14/15+head历史来源/P0基础设施；当前只继承AU证据）
-3. `docs/RGB_OVERFITTING_AUDIT_PLAN.md` 的主动干预摘要
-4. 若要继续P0B-P0E、扩展AU合同或未来模型实现，再读取`docs/MTL_LITE_DESIGN.md`和`docs/TODO.md`
+3. `docs/P0C_AU_FIDELITY_SPEC.md`（core AU raw/aligned物理保真policy、统计、CLI和运行授权边界）
+4. `docs/RGB_OVERFITTING_AUDIT_PLAN.md` 的主动干预摘要
+5. 若要继续P0B-P0E、扩展AU合同或未来模型实现，再读取`docs/MTL_LITE_DESIGN.md`和`docs/TODO.md`
 
 ### 需要分析视频有效片段、无效片段与长视频切片
 
@@ -123,6 +124,7 @@
 | `VALIDITY_AWARE_TEMPORAL_SLICING_PLAN.md` | 当前输入切片设计 | face-valid片段定义、全片段利用、video-level聚合、AU语义保持的landmark局部增强 | 原始问题长表、完整运行历史 |
 | `GLOBAL_LOCAL_AU_EXPERIMENT_PLAN.md` | 当前global/local+AU训练设计权威；仅文档、未实施 | 三语义区、共享backbone、跨区域AU、FULL优先混合消融、指标、停止条件和实施路线 | 既有P0代码已经支持的声明、历史运行日志 |
 | `PRIVILEGED_BEHAVIOR_ALIGNMENT_PLAN.md` | 现有PB-P0 AU12/14/15+head来源/代码历史权威；当前GLA只继承AU证据 | 历史AU/head来源合同、P0数据门禁、pilot和既有实现边界；说明AU-only P0E覆盖关系 | 把历史head/pose写成当前GLA组件、三语义区未来训练结构、扩展AU已实现的声明 |
+| `P0C_AU_FIDELITY_SPEC.md` | 当前core AU P0C执行规格 | raw/aligned OpenFace物理保真、mask、统计、机器状态、CLI输入输出和分阶段授权 | 扩展AU来源合同、P0D/P0E、模型实现或训练授权 |
 | `SHORTCUT_AUDIT_DESIGN.md` | 当前诊断规格 | 诊断脚本、输出字段、audit 设计规格 | 当前状态总结、论文长篇叙事 |
 | `STAGE_C_RUNBOOK.md` | Stage C历史复现权威 | 历史信息分流接口、配置矩阵、seed、审计协议、停止条件和实施命令 | 当前GLA任务、Stage B历史结果、长篇文献论证 |
 | `EXPERIMENT_SCRIPT_MANUAL.md` | 当前命令手册 | 常用运行命令和脚本调用模板 | 实验结果解释、机制判断 |
