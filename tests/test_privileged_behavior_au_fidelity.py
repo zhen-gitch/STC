@@ -13,6 +13,7 @@ from src.diagnostics.privileged_behavior_au_fidelity import (
     AuFidelityError,
     OpenFaceSequence,
     _read_openface_sequence,
+    _resolve_aligned_status_compatibility,
     aggregate_au_fidelity_metrics,
     build_au_fidelity_decision,
     compute_video_au_fidelity,
@@ -50,6 +51,72 @@ def _write_csv(path, fieldnames, rows):
 def _write_json(path, payload):
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps(payload, indent=2), encoding="utf-8")
+
+
+def _mask_aware_p0b_evidence(
+    *,
+    video_count,
+    frame_count,
+    legacy_pass_count,
+):
+    decision_sha256 = "a" * 64
+    policy_sha256 = "b" * 64
+    p0b_run = {
+        "status": "PASS",
+        "training_authorized": False,
+        "counts": {
+            "video_count": video_count,
+            "frame_count": frame_count,
+            "core_audited_video_count": video_count,
+            "rich_schema_video_count": video_count,
+            "exact_join_video_count": video_count,
+            "blocking_issue_count": 0,
+        },
+        "inputs": {
+            "coverage_policy_decision": {
+                "provided": True,
+                "expected_sha256": decision_sha256,
+                "sha256": decision_sha256,
+            },
+            "coverage_policy": {
+                "provided": True,
+                "sha256": policy_sha256,
+            },
+        },
+    }
+    selected = {
+        "rich_provenance": {
+            "mode": "strict_rich",
+            "status": "PASS",
+            "legacy_strict_status_observed": "FAIL",
+            "legacy_strict_pass_count": legacy_pass_count,
+            "legacy_strict_fail_count": video_count - legacy_pass_count,
+            "legacy_strict_status_used_as_gate": False,
+            "mask_aware_decision_required": True,
+            "coverage_policy_binding": {
+                "required": True,
+                "provided": {
+                    "decision": True,
+                    "decision_sha256": True,
+                    "policy": True,
+                },
+                "status": "PASS",
+                "decision": {
+                    "expected_sha256": decision_sha256,
+                    "observed_sha256": decision_sha256,
+                    "status": "PASS_FULL_SOURCE_COVERAGE",
+                    "scope": "full",
+                    "policy_sha256": policy_sha256,
+                },
+                "policy": {"sha256": policy_sha256},
+                "observed_counts": {
+                    "video_count": video_count,
+                    "frame_count": frame_count,
+                },
+            },
+        }
+    }
+    return p0b_run, selected
 
 
 def _sequence(values, *, invalid=()):
@@ -143,6 +210,104 @@ def test_frozen_policy_is_core_au_only_and_label_blind():
     assert statistics["lag"]["minimum_lag_frames"] == -5
     assert statistics["lag"]["maximum_lag_frames"] == 5
     assert statistics["lag"]["canonical_zero_tolerance"] == 0.02
+
+
+def test_all_pass_aligned_content_does_not_require_compatibility_evidence():
+    result = _resolve_aligned_status_compatibility(
+        {"video": {"status": "PASS"}},
+        {},
+        {},
+        {},
+    )
+
+    assert result == {
+        "enabled": False,
+        "reason": "all_aligned_content_status_pass",
+        "aligned_content_status_counts": {"PASS": 1},
+        "accepted_legacy_fail_count": 0,
+    }
+
+
+def test_legacy_fail_requires_exact_mask_aware_p0b_binding():
+    p0b_run, selected = _mask_aware_p0b_evidence(
+        video_count=2,
+        frame_count=16,
+        legacy_pass_count=1,
+    )
+    policy = {"source_contract": {"expected_video_count": 2, "expected_frame_count": 16}}
+    content = {
+        "pass_video": {"status": "PASS"},
+        "legacy_fail_video": {"status": "FAIL"},
+    }
+
+    result = _resolve_aligned_status_compatibility(
+        content,
+        p0b_run,
+        selected,
+        policy,
+    )
+
+    assert result["enabled"] is True
+    assert result["accepted_aligned_status"] == "FAIL"
+    assert result["accepted_legacy_fail_count"] == 1
+    assert result["aligned_content_status_counts"] == {"FAIL": 1, "PASS": 1}
+
+
+def test_legacy_fail_rejects_incomplete_or_weakened_mask_aware_binding():
+    policy = {"source_contract": {"expected_video_count": 2, "expected_frame_count": 16}}
+    content = {
+        "pass_video": {"status": "PASS"},
+        "legacy_fail_video": {"status": "FAIL"},
+    }
+    mutations = (
+        (
+            lambda selected: selected.pop("rich_provenance"),
+            "P0B rich provenance must be an object",
+        ),
+        (
+            lambda selected: selected["rich_provenance"].update(
+                {"legacy_strict_status_used_as_gate": True}
+            ),
+            "P0B legacy strict gate mismatch",
+        ),
+        (
+            lambda selected: selected["rich_provenance"]["coverage_policy_binding"][
+                "decision"
+            ].update({"status": "FAIL"}),
+            "P0B coverage policy decision status mismatch",
+        ),
+    )
+
+    for mutate, match in mutations:
+        p0b_run, selected = _mask_aware_p0b_evidence(
+            video_count=2,
+            frame_count=16,
+            legacy_pass_count=1,
+        )
+        mutate(selected)
+        with pytest.raises(AuFidelityError, match=match):
+            _resolve_aligned_status_compatibility(
+                content,
+                p0b_run,
+                selected,
+                policy,
+            )
+
+
+def test_aligned_content_rejects_unknown_status_even_with_mask_aware_binding():
+    p0b_run, selected = _mask_aware_p0b_evidence(
+        video_count=1,
+        frame_count=8,
+        legacy_pass_count=0,
+    )
+
+    with pytest.raises(AuFidelityError, match="unsupported statuses"):
+        _resolve_aligned_status_compatibility(
+            {"video": {"status": "ERROR"}},
+            p0b_run,
+            selected,
+            {"source_contract": {"expected_video_count": 1, "expected_frame_count": 8}},
+        )
 
 
 def test_video_metrics_use_joint_mask_and_never_bridge_invalid_frame():
@@ -528,7 +693,7 @@ def test_synthetic_end_to_end_binds_manifests_and_exact_pairs(tmp_path):
             "schema_sha256": schema,
             "csv_size_bytes": aligned_csv.stat().st_size,
             "csv_sha256": _sha(aligned_csv),
-            "status": "PASS",
+            "status": "FAIL" if video_id == video_ids[0] else "PASS",
         }
         common_raw = {
             "video_id": video_id,
@@ -649,23 +814,14 @@ def test_synthetic_end_to_end_binds_manifests_and_exact_pairs(tmp_path):
     )
 
     p0b_run_path = tmp_path / "p0b_run.json"
-    _write_json(
-        p0b_run_path,
-        {
-            "status": "PASS",
-            "training_authorized": False,
-            "counts": {
-                "video_count": 6,
-                "frame_count": 48,
-                "core_audited_video_count": 6,
-                "exact_join_video_count": 6,
-                "blocking_issue_count": 0,
-            },
-        },
+    p0b_run, selected = _mask_aware_p0b_evidence(
+        video_count=6,
+        frame_count=48,
+        legacy_pass_count=5,
     )
+    _write_json(p0b_run_path, p0b_run)
     selected_path = tmp_path / "selected.json"
-    _write_json(
-        selected_path,
+    selected.update(
         {
             "status": "PASS",
             "training_authorized": False,
@@ -679,8 +835,9 @@ def test_synthetic_end_to_end_binds_manifests_and_exact_pairs(tmp_path):
                 "feature_file_open_count": 0,
                 "feature_value_access_count": 0,
             },
-        },
+        }
     )
+    _write_json(selected_path, selected)
 
     policy = json.loads(POLICY_PATH.read_text(encoding="utf-8"))
     policy["source_contract"].update(
@@ -743,6 +900,10 @@ def test_synthetic_end_to_end_binds_manifests_and_exact_pairs(tmp_path):
     assert manifest["access_contract"]["pose_value_access_count"] == 0
     assert manifest["access_contract"]["extension_au_value_access_count"] == 0
     assert manifest["access_contract"]["openface_value_access_counts"]["raw:AU12_r"] == 48
+    compatibility = manifest["aligned_mask_aware_compatibility"]
+    assert compatibility["enabled"] is True
+    assert compatibility["accepted_legacy_fail_count"] == 1
+    assert compatibility["aligned_content_status_counts"] == {"FAIL": 1, "PASS": 5}
     assert (output_dir / "tables" / "au_fidelity_issues.csv").read_text().count("\n") == 1
 
 

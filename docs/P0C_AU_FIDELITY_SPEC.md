@@ -4,6 +4,8 @@
 
 Implementation package: `CODE-20260731-PB-P0C-CORE-AU-FIDELITY-v1`.
 
+Mask-aware compatibility package: `CODE-20260805-PB-P0C-MASKAWARE-COMPAT-v1`.
+
 This package implements the frozen policy, a raw-video OpenFace extraction entry point, a read-only fidelity audit, its CLI, tests, and this specification. It does not run OpenFace, generate raw-reference data, run the formal audit, modify a dataset/model/runner/training config, commit, push, or authorize P0D/P0E/training.
 
 The first version evaluates only the currently authorized core group:
@@ -29,6 +31,20 @@ AU12_r / AU14_r / AU15_r
 | OpenFace AU predictor manifest | `b65b923db38e75ee53ea7f85d614882f2f834571c257c7e0c3637d348a0192d6` |
 
 The expected full source is exactly 300 videos and 493,141 frames. A formal audit accepts only a full, structurally passing, clean-checkout raw-reference manifest. The raw and aligned runs must also bind identical complete OpenFace binary and model inventory manifests, not only the executable and top-level model hashes. Debug output cannot be relabeled as full evidence.
+
+### 2.1 Mask-aware aligned compatibility
+
+The aligned-rich v2 extractor uses one legacy `status` field for both structural failures and a per-video `success_ratio<0.995` coverage failure. P0B and A2 subsequently established that this legacy coverage status is not a structural gate: the frozen P0B selected-target manifest binds the same aligned run, records `legacy_strict_status_used_as_gate=false`, and binds a full-scope `PASS_FULL_SOURCE_COVERAGE` mask-aware decision.
+
+P0C therefore accepts an aligned content-manifest row with `status=FAIL` only when all of the following fail-closed evidence is present in the policy-hash-bound P0B manifests:
+
+- rich provenance is `strict_rich/PASS`, the observed legacy status is `FAIL`, and the legacy pass/fail counts cover the complete expected video set;
+- the mask-aware decision is required, provided, full-scope, hash-consistent, and `PASS_FULL_SOURCE_COVERAGE`;
+- the coverage-policy hash is consistent between the selected-target and P0B run manifests;
+- mask-aware observed counts equal 300 videos and 493,141 frames;
+- the aligned content-manifest `PASS/FAIL` counts exactly equal the frozen P0B legacy counts.
+
+This compatibility rule only bypasses the overloaded legacy coverage flag. It does not bypass CSV size/hash, row count, schema, exact frame sequence, selected-value domain, binary/model provenance, or joint-mask checks. Unsupported aligned statuses remain blockers. Raw-reference content rows and the raw extraction summary remain strict `PASS` requirements. An all-`PASS` aligned source does not require this compatibility exception.
 
 ## 3. Ownership and data flow
 
@@ -148,6 +164,8 @@ run_manifest.json
 ```
 
 `run_manifest.json` records command, branch/commit/dirty state, all input and implementation hashes, output hashes, CPU/float64 metric precision, access counts, and the explicit no-model/no-training boundary.
+
+When the compatibility rule is evaluated, `run_manifest.json` also records the compatibility package ID, whether the exception was enabled, aligned status counts, accepted legacy-fail count, mask-aware decision status/SHA, coverage-policy SHA, and the fact that the legacy strict status was not used as a gate.
 
 ### 7.1 Command templates
 

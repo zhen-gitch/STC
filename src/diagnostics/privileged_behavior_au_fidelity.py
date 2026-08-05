@@ -458,6 +458,195 @@ def _validate_p0b_binding(
     _require_equal(raw_openface.get("feature_value_access_count"), 0, "P0B raw OpenFace value access")
 
 
+def _validate_mask_aware_aligned_compatibility(
+    p0b_run: Mapping[str, Any],
+    selected: Mapping[str, Any],
+    policy: Mapping[str, Any],
+) -> dict[str, Any]:
+    """Validate the frozen evidence that makes legacy aligned FAIL non-structural."""
+
+    source = _mapping(policy.get("source_contract"), "source_contract")
+    expected_videos = _exact_int(source.get("expected_video_count"), "expected video count")
+    expected_frames = _exact_int(source.get("expected_frame_count"), "expected frame count")
+    p0b_counts = _mapping(p0b_run.get("counts"), "P0B counts")
+    _require_equal(
+        p0b_counts.get("rich_schema_video_count"),
+        expected_videos,
+        "P0B rich schema video count",
+    )
+
+    rich = _mapping(selected.get("rich_provenance"), "P0B rich provenance")
+    _require_equal(rich.get("mode"), "strict_rich", "P0B rich provenance mode")
+    _require_equal(rich.get("status"), "PASS", "P0B rich provenance status")
+    _require_equal(
+        rich.get("legacy_strict_status_observed"),
+        "FAIL",
+        "P0B legacy strict status",
+    )
+    _require_equal(
+        rich.get("legacy_strict_status_used_as_gate"),
+        False,
+        "P0B legacy strict gate",
+    )
+    _require_equal(
+        rich.get("mask_aware_decision_required"),
+        True,
+        "P0B mask-aware decision requirement",
+    )
+    legacy_pass_count = _exact_int(
+        rich.get("legacy_strict_pass_count"),
+        "P0B legacy strict pass count",
+    )
+    legacy_fail_count = _exact_int(
+        rich.get("legacy_strict_fail_count"),
+        "P0B legacy strict fail count",
+    )
+    _require_equal(
+        legacy_pass_count + legacy_fail_count,
+        expected_videos,
+        "P0B legacy strict video count",
+    )
+    if legacy_fail_count <= 0:
+        raise AuFidelityError("P0B mask-aware compatibility requires legacy strict failures")
+
+    binding = _mapping(
+        rich.get("coverage_policy_binding"),
+        "P0B coverage policy binding",
+    )
+    _require_equal(binding.get("required"), True, "P0B coverage policy requirement")
+    _require_equal(binding.get("status"), "PASS", "P0B coverage policy binding status")
+    provided = _mapping(binding.get("provided"), "P0B coverage policy provided inputs")
+    for field in ("decision", "decision_sha256", "policy"):
+        _require_equal(provided.get(field), True, f"P0B coverage policy provided {field}")
+
+    decision = _mapping(binding.get("decision"), "P0B coverage policy decision")
+    _require_equal(
+        decision.get("status"),
+        "PASS_FULL_SOURCE_COVERAGE",
+        "P0B coverage policy decision status",
+    )
+    _require_equal(decision.get("scope"), "full", "P0B coverage policy decision scope")
+    expected_decision_sha256 = _require_hash(
+        decision.get("expected_sha256"),
+        "P0B expected coverage decision hash",
+    )
+    observed_decision_sha256 = _require_hash(
+        decision.get("observed_sha256"),
+        "P0B observed coverage decision hash",
+    )
+    _require_equal(
+        observed_decision_sha256,
+        expected_decision_sha256,
+        "P0B coverage decision hash",
+    )
+
+    policy_binding = _mapping(binding.get("policy"), "P0B coverage policy")
+    coverage_policy_sha256 = _require_hash(
+        policy_binding.get("sha256"),
+        "P0B coverage policy hash",
+    )
+    _require_equal(
+        _require_hash(decision.get("policy_sha256"), "P0B decision policy hash"),
+        coverage_policy_sha256,
+        "P0B coverage decision policy hash",
+    )
+
+    observed_counts = _mapping(
+        binding.get("observed_counts"),
+        "P0B coverage policy observed counts",
+    )
+    _require_equal(
+        observed_counts.get("video_count"),
+        expected_videos,
+        "P0B mask-aware video count",
+    )
+    _require_equal(
+        observed_counts.get("frame_count"),
+        expected_frames,
+        "P0B mask-aware frame count",
+    )
+
+    p0b_inputs = _mapping(p0b_run.get("inputs"), "P0B inputs")
+    run_decision = _mapping(
+        p0b_inputs.get("coverage_policy_decision"),
+        "P0B run coverage policy decision",
+    )
+    _require_equal(run_decision.get("provided"), True, "P0B run coverage decision provided")
+    _require_equal(
+        _require_hash(run_decision.get("expected_sha256"), "P0B run expected decision hash"),
+        observed_decision_sha256,
+        "P0B run expected coverage decision hash",
+    )
+    _require_equal(
+        _require_hash(run_decision.get("sha256"), "P0B run coverage decision hash"),
+        observed_decision_sha256,
+        "P0B run coverage decision hash",
+    )
+    run_policy = _mapping(
+        p0b_inputs.get("coverage_policy"),
+        "P0B run coverage policy",
+    )
+    _require_equal(run_policy.get("provided"), True, "P0B run coverage policy provided")
+    _require_equal(
+        _require_hash(run_policy.get("sha256"), "P0B run coverage policy hash"),
+        coverage_policy_sha256,
+        "P0B run coverage policy hash",
+    )
+
+    return {
+        "enabled": True,
+        "evidence_source": "frozen_p0b_selected_target_manifest",
+        "accepted_aligned_status": "FAIL",
+        "legacy_strict_status_observed": "FAIL",
+        "legacy_strict_status_used_as_gate": False,
+        "legacy_strict_pass_count": legacy_pass_count,
+        "legacy_strict_fail_count": legacy_fail_count,
+        "mask_aware_decision_status": "PASS_FULL_SOURCE_COVERAGE",
+        "mask_aware_decision_sha256": observed_decision_sha256,
+        "mask_aware_policy_sha256": coverage_policy_sha256,
+    }
+
+
+def _resolve_aligned_status_compatibility(
+    aligned_content: Mapping[str, Mapping[str, Any]],
+    p0b_run: Mapping[str, Any],
+    selected: Mapping[str, Any],
+    policy: Mapping[str, Any],
+) -> dict[str, Any]:
+    status_counts = Counter(str(record.get("status")) for record in aligned_content.values())
+    unexpected = sorted(set(status_counts) - {"PASS", "FAIL"})
+    if unexpected:
+        raise AuFidelityError(f"aligned content manifest has unsupported statuses: {unexpected}")
+    if status_counts.get("FAIL", 0) == 0:
+        return {
+            "enabled": False,
+            "reason": "all_aligned_content_status_pass",
+            "aligned_content_status_counts": dict(sorted(status_counts.items())),
+            "accepted_legacy_fail_count": 0,
+        }
+
+    compatibility = _validate_mask_aware_aligned_compatibility(
+        p0b_run,
+        selected,
+        policy,
+    )
+    _require_equal(
+        status_counts.get("PASS", 0),
+        compatibility["legacy_strict_pass_count"],
+        "aligned/P0B legacy strict PASS count",
+    )
+    _require_equal(
+        status_counts.get("FAIL", 0),
+        compatibility["legacy_strict_fail_count"],
+        "aligned/P0B legacy strict FAIL count",
+    )
+    return {
+        **compatibility,
+        "aligned_content_status_counts": dict(sorted(status_counts.items())),
+        "accepted_legacy_fail_count": status_counts["FAIL"],
+    }
+
+
 def _validate_input_manifests(
     *,
     policy: Mapping[str, Any],
@@ -469,7 +658,11 @@ def _validate_input_manifests(
     p0b_selected: Mapping[str, Any],
     expected_video_ids: Iterable[str],
     raw_extractor_script: Path,
-) -> tuple[dict[str, dict[str, Any]], dict[str, dict[str, Any]]]:
+) -> tuple[
+    dict[str, dict[str, Any]],
+    dict[str, dict[str, Any]],
+    dict[str, Any],
+]:
     source = _mapping(policy.get("source_contract"), "source_contract")
     expected_videos = _exact_int(source.get("expected_video_count"), "expected video count")
     expected_frames = _exact_int(source.get("expected_frame_count"), "expected frame count")
@@ -558,18 +751,23 @@ def _validate_input_manifests(
     _require_equal(raw_summary.get("generated_image_count"), 0, "raw summary generated images")
     _require_equal(raw_summary.get("provenance_stable"), True, "raw summary provenance stability")
 
-    return (
-        _read_content_manifest(
-            aligned_content_path,
-            expected_video_ids,
-            "aligned CSV content manifest",
-        ),
-        _read_content_manifest(
-            raw_content_path,
-            expected_video_ids,
-            "raw CSV content manifest",
-        ),
+    aligned_content = _read_content_manifest(
+        aligned_content_path,
+        expected_video_ids,
+        "aligned CSV content manifest",
     )
+    raw_content = _read_content_manifest(
+        raw_content_path,
+        expected_video_ids,
+        "raw CSV content manifest",
+    )
+    aligned_status_compatibility = _resolve_aligned_status_compatibility(
+        aligned_content,
+        p0b_run,
+        p0b_selected,
+        policy,
+    )
+    return aligned_content, raw_content, aligned_status_compatibility
 
 
 def _read_openface_sequence(
@@ -1816,6 +2014,7 @@ def run_privileged_behavior_au_fidelity(
         {
             "audit": "PB-P0C core AU raw/aligned physical fidelity run",
             "implementation_package_id": "CODE-20260731-PB-P0C-CORE-AU-FIDELITY-v1",
+            "compatibility_package_id": "CODE-20260805-PB-P0C-MASKAWARE-COMPAT-v1",
             "created_utc": datetime.now(timezone.utc).isoformat(),
             "status": "RUNNING",
             "command_line": command_line or " ".join(sys.argv),
@@ -1849,6 +2048,12 @@ def run_privileged_behavior_au_fidelity(
     raw_schema_counts: Counter[str] = Counter()
     processed_video_count = 0
     processed_frame_count = 0
+    aligned_status_compatibility: dict[str, Any] = {
+        "enabled": False,
+        "reason": "input_contract_not_evaluated",
+        "aligned_content_status_counts": {},
+        "accepted_legacy_fail_count": 0,
+    }
 
     input_hashes: dict[str, str] = {}
     try:
@@ -1906,7 +2111,7 @@ def run_privileged_behavior_au_fidelity(
             p0b_selected_target_manifest,
             "P0B selected-target manifest",
         )
-        aligned_content, raw_content = _validate_input_manifests(
+        aligned_content, raw_content, aligned_status_compatibility = _validate_input_manifests(
             policy=policy,
             aligned_manifest=aligned_manifest,
             raw_manifest=raw_manifest,
@@ -1933,10 +2138,15 @@ def run_privileged_behavior_au_fidelity(
                 aligned_csv = aligned_openface_root / f"{video_id}.csv"
                 raw_csv = raw_openface_root / f"{raw_video_id}.csv"
                 try:
-                    if str(aligned_content[video_id].get("status")) != "PASS":
+                    aligned_status = str(aligned_content[video_id].get("status"))
+                    aligned_status_accepted = aligned_status == "PASS" or (
+                        aligned_status == "FAIL"
+                        and aligned_status_compatibility.get("enabled") is True
+                    )
+                    if not aligned_status_accepted:
                         raise AuFidelityError(
-                            f"aligned content manifest status is not structural PASS for {video_id}: "
-                            f"{aligned_content[video_id].get('status')}"
+                            f"aligned content manifest status is not accepted for {video_id}: "
+                            f"{aligned_status}"
                         )
                     if str(raw_content[video_id].get("status")) != "PASS":
                         raise AuFidelityError(
@@ -2111,6 +2321,7 @@ def run_privileged_behavior_au_fidelity(
     run_manifest = {
         "audit": "PB-P0C core AU raw/aligned physical fidelity run",
         "implementation_package_id": "CODE-20260731-PB-P0C-CORE-AU-FIDELITY-v1",
+        "compatibility_package_id": "CODE-20260805-PB-P0C-MASKAWARE-COMPAT-v1",
         "created_utc": datetime.now(timezone.utc).isoformat(),
         "status": decision["audit_status"],
         "eligibility_status": decision["eligibility_status"],
@@ -2170,6 +2381,7 @@ def run_privileged_behavior_au_fidelity(
             "validation_test_eligibility_callback_count": 0,
             "count_semantics": "selected value projection/use counts; CSV tokenization is not value access",
         },
+        "aligned_mask_aware_compatibility": aligned_status_compatibility,
         "counts": decision["counts"],
         "schema_sha256_video_counts": {
             "raw": dict(raw_schema_counts),
