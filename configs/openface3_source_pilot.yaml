@@ -1,0 +1,7 @@
+# OpenFace3 RGB source compatibility pilot. Merge on top of avec2014_base.yaml.
+DATASET:
+  IMAGE_SOURCE: "openface3"
+  OPENFACE3_ROOT: "/home/zhen/code/trans/outputs/openface3/20260727-avec2014-formal-features-masked-v2"
+  OPENFACE3_VERIFY_HASHES: True
+  OPENFACE3_MIN_CONTIGUOUS_FRAMES: 2
+  OPENFACE3_MIN_RETAINED_VALID_RATIO: 0.95

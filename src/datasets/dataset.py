@@ -19,6 +19,7 @@ from torchvision.io import read_image, ImageReadMode
 from torchvision.transforms import v2  # 视频级的图像增强
 
 from src.datasets.input_variants import apply_input_variant, normalize_input_variant
+from src.datasets.openface3_source import OpenFace3Frame, OpenFace3Source
 from src.datasets.photometric_normalization import (
     apply_photometric_normalization,
     resolve_photometric_normalization_config,
@@ -74,6 +75,24 @@ def load_data_list(dataset_split_file_path:str, images_folder_path:str, dataset)
         data.append(full_folder_path)
     return data
 
+
+def load_video_ids(dataset_split_file_path: str, dataset: str) -> list[str]:
+    """Load split video identifiers without assuming an image-root layout."""
+    file_path = Path(dataset_split_file_path).expanduser().resolve()
+    if not file_path.exists():
+        raise FileNotFoundError(f"Dataset split file not found: {file_path}")
+    with file_path.open("r", encoding="utf-8") as handle:
+        full_data_list = json.load(handle)
+    if dataset not in full_data_list:
+        raise KeyError(f"Dataset split does not contain {dataset!r}")
+    video_ids = []
+    for video_id in full_data_list[dataset]:
+        normalized = Path(str(video_id)).name
+        if normalized.endswith("_aligned"):
+            normalized = normalized[: -len("_aligned")]
+        video_ids.append(normalized)
+    return video_ids
+
 def generate_soft_spatial_mask(h=112, w=112, center_y=0.45, center_x=0.5, sigma_y=0.35, sigma_x=0.35, device='cpu'):
     """
     自适应生成一幅 2D 软性椭圆空间掩码矩阵 [H, W]
@@ -113,7 +132,47 @@ class AVECDataset(Dataset):
         self.LABEL_DIR = configs.LABEL_DIR
         self.IMAGE_DIR = configs.IMAGE_DIR
         self.DATASET_SPLIT_FILE = configs.DATASET_SPLIT_FILE
-        self.data = load_data_list(self.DATASET_SPLIT_FILE, self.IMAGE_DIR, dataset)
+        self.image_source = str(
+            _get_config_value(configs, "DATASET", "IMAGE_SOURCE", "legacy")
+        ).lower()
+        if self.image_source not in {"legacy", "openface3"}:
+            raise ValueError(
+                "DATASET.IMAGE_SOURCE must be 'legacy' or 'openface3', "
+                f"got {self.image_source!r}"
+            )
+        self.openface3_source = None
+        if self.image_source == "openface3":
+            openface3_root = _get_config_value(
+                configs, "DATASET", "OPENFACE3_ROOT", None
+            )
+            if not openface3_root:
+                raise ValueError(
+                    "DATASET.OPENFACE3_ROOT is required when IMAGE_SOURCE='openface3'"
+                )
+            self.openface3_source = OpenFace3Source(
+                openface3_root,
+                verify_hashes=bool(
+                    _get_config_value(
+                        configs, "DATASET", "OPENFACE3_VERIFY_HASHES", True
+                    )
+                ),
+                min_contiguous_frames=int(
+                    _get_config_value(
+                        configs, "DATASET", "OPENFACE3_MIN_CONTIGUOUS_FRAMES", 2
+                    )
+                ),
+                min_retained_valid_ratio=float(
+                    _get_config_value(
+                        configs,
+                        "DATASET",
+                        "OPENFACE3_MIN_RETAINED_VALID_RATIO",
+                        0.95,
+                    )
+                ),
+            )
+            self.data = load_video_ids(self.DATASET_SPLIT_FILE, dataset)
+        else:
+            self.data = load_data_list(self.DATASET_SPLIT_FILE, self.IMAGE_DIR, dataset)
         self.class_step = configs.PROCESS_TEMPORAL.CLASS_STEP
         self.sample_step = configs.PROCESS_TEMPORAL.SAMPLE_STEP
         self.max_len = int(configs.PROCESS_TEMPORAL.MAX_SEQ_LEN // self.sample_step)
@@ -160,7 +219,10 @@ class AVECDataset(Dataset):
         return v_tensor
 
     def _select_frame_paths(self, video_dir):
-        frame_paths = sorted(video_dir.glob('*.jpg'))
+        if self.image_source == "openface3":
+            frame_paths = self.openface3_source.frame_entries(str(video_dir))
+        else:
+            frame_paths = sorted(video_dir.glob('*.jpg'))
         indices = select_temporal_indices(
             len(frame_paths),
             sample_step=self.sample_step,
@@ -180,7 +242,10 @@ class AVECDataset(Dataset):
 
     def _read_video_frames(self, frame_paths):
         tensor_frames = []
-        for frame_path in frame_paths:
+        for frame in frame_paths:
+            frame_path = frame.path if isinstance(frame, OpenFace3Frame) else frame
+            if isinstance(frame, OpenFace3Frame):
+                self.openface3_source.verify_frame(frame)
             img_tensor = read_image(str(frame_path), mode=ImageReadMode.RGB)
             tensor_frames.append(img_tensor)
         return torch.stack(tensor_frames, dim=0)
@@ -248,7 +313,11 @@ class AVECDataset(Dataset):
         training starts.
         """
         for video_dir in self.data:
-            video_id = Path(video_dir).expanduser().resolve().name
+            video_id = (
+                str(video_dir)
+                if self.image_source == "openface3"
+                else Path(video_dir).expanduser().resolve().name
+            )
             _, label = self._label_value_for_video_id(video_id)
             yield label
 
@@ -256,9 +325,13 @@ class AVECDataset(Dataset):
         return len(self.data)
 
     def __getitem__(self, idx):
-        video_dir = Path(self.data[idx]).expanduser().resolve()
-        video_id = video_dir.name
-        frame_paths, mask = self._select_frame_paths(video_dir)
+        if self.image_source == "openface3":
+            video_id = str(self.data[idx])
+            frame_paths, mask = self._select_frame_paths(video_id)
+        else:
+            video_dir = Path(self.data[idx]).expanduser().resolve()
+            video_id = video_dir.name
+            frame_paths, mask = self._select_frame_paths(video_dir)
 
         raw_video_tensor = self._read_video_frames(frame_paths)  # [S, 3, H, W]
         video_output = self._build_video_output(raw_video_tensor)

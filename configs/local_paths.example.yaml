@@ -12,6 +12,9 @@ DATASET_SPLIT_FILE: "/path/to/AVEC2014/dataset_split.json"
 # and temporal_sampling only need IMAGE_DIR and still run.
 DATASET:
   OPENFACE_ROOT: null
+  # OpenFace3 formal aligned RGB root, for example:
+  # /home/zhen/code/trans/outputs/openface3/20260727-avec2014-formal-features-masked-v2
+  OPENFACE3_ROOT: null
 
 # Primary output root for all experiments.
 # Runs are written as <LOG_DIR>/<EXPERIMENT_GROUP>/<EXPERIMENT_NAME>/version_N/.
