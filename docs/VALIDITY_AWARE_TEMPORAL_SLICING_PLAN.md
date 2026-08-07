@@ -2,7 +2,7 @@
 
 > 文档职责：冻结本项目“人脸可用片段挖掘、训练样本扩增、video-level聚合、AU语义保持的landmark局部裁切”的设计边界。原始/派生视频问题见 `AVEC2014_SOURCE_DATA_QUALITY.md`，脚本字段见 `SHORTCUT_AUDIT_DESIGN.md`，当前状态见 `CURRENT_STATUS.md`。
 
-> **2026-07-30职责收敛**：本文继续作为face-valid时间切片与crop数据合同权威；局部视图已由历史四区改为眼眉、鼻颊、嘴部三语义区，train-only AU/head辅助监督和FULL优先混合消融统一由`GLOBAL_LOCAL_AU_EXPERIMENT_PLAN.md`管理。本文旧L0/L1/L2矩阵只保留历史背景，不再是训练执行入口。
+> **2026-08-05职责收敛**：本文继续作为face-valid时间切片与crop数据合同权威；局部视图为眼眉、鼻颊、嘴部三语义区。AU/FACS只定义区域语义，不读取AU数值、不建立AU辅助监督；68点landmark负责aligned-space定位、containment、稳定性和view validity。当前模型路线统一由`GLOBAL_LOCAL_AU_EXPERIMENT_PLAN.md`第0节管理。本文旧L0/L1/L2和AU-loss内容只保留历史背景，不再是训练执行入口。
 
 ## 2026-07-17 路线修订
 
@@ -18,7 +18,7 @@ AU在本项目中的边界必须分成“语义先验”和“模型数据”两
 
 - **保留**AU/FACS作为局部RGB视图的语义分区依据，避免任意几何裁切破坏抑郁相关面部动作区域；
 - **不使用**逐帧AU intensity/presence数值、AU序列或AU特征作为推理输入；
-- **允许**通过PB-P0E资格门禁的聚合AU动态作为train-only辅助目标；validation/test隐藏目标root仍必须运行；
+- **不再允许于当前主路线**把聚合或逐帧AU数值作为train-only辅助目标；P0C已否决当前core组，未来重启须独立注册；
 - 68点landmark只负责在每一帧动态定位完整语义区域，landmark坐标本身也不送入模型。
 
 当前项目的数据流为：
@@ -27,8 +27,8 @@ AU在本项目中的边界必须分成“语义先验”和“模型数据”两
 完整aligned face global view
 + 由68点landmark逐帧定位的眼眉/鼻颊/嘴部三个语义局部RGB crop
 -> 同一个shared backbone -> 帧级validity-aware fusion -> temporal encoder / BDI head
--> 可选train-only区域/跨区域AU辅助head
--> validation/test使用同一冻结RGB视图合同，但不读取AU/head target
+-> 仅severity-balanced BDI regression
+-> validation/test使用同一冻结且未增强的RGB视图合同
 ```
 
 `FACE-*`命名用于人脸可用性和时间片段，`LM-*`命名用于landmark定位与局部RGB数据路径；它们不表示取消AU语义分区。历史 `AU-T* / AU-M*` 输出继续作为frame、coordinate、failure、exposure和区域跟踪审计证据。
@@ -56,7 +56,7 @@ AU在本项目中的边界必须分成“语义先验”和“模型数据”两
 | `person_absent` | 原视频人物离场或画面无人物 | 永久否，硬边界 |
 | `unreadable_or_missing` | 文件缺失、不可解码或frame contract失败 | 永久否，硬边界 |
 
-曝光状态是独立轴：`stable_log/tone_only_overexposed/keep_raw` 不直接决定face usability，也不能用逐帧亮度变化切掉低头、转头或表情片段。曝光变换只服从已冻结的segment manifest。
+曝光状态是独立审计轴：历史`stable_log/tone_only_overexposed/keep_raw`不直接决定face usability，也不能用逐帧亮度变化切掉低头、转头或表情片段。当前GLA不读取确定性tone派生图；这些状态只保留给质量分组、历史复现和raw-vs-exposure诊断。
 
 ## FACE-S1 人脸可用性审计
 
@@ -208,11 +208,11 @@ nose_cheek: 鼻梁、鼻翼、双侧颧部和鼻唇沟上段
 mouth_lower_face: 完整嘴唇、双侧嘴角、鼻唇沟下段和少量下巴
 ```
 
-每个语义组必须先冻结对应的68点landmark集合、polygon/外包络、相对margin、最小面积和越界规则，并通过aligned-space overlay确认。相邻区域只允许约5%--10%边界容错。局部view使用能覆盖完整语义polygon及margin的真实矩形RGB crop后resize；AU强度不决定裁切位置，也不生成AU heatmap。通过PB-P0E的AU12/14/15、AU4/6/7、AU10/17可按GLA方案作为train-only辅助目标，其中AU6和AU14允许跨相邻区域token预测。
+每个语义组必须先冻结对应的68点landmark集合、polygon/外包络、相对margin、最小面积和越界规则，并通过aligned-space overlay确认。三个主体RGB区域必须互不重复，安全margin通过移动相邻区域的公共边界实现。局部view使用能覆盖完整语义polygon及margin的真实矩形RGB crop后resize；AU强度不决定裁切位置，也不生成AU heatmap或训练目标。
 
 ### 语义完整性gate
 
-每个frame-region只有同时满足下列条件才可进入local loss：
+每个frame-region只有同时满足下列条件才可标记为有效local view：
 
 - frame join和aligned-space landmark mapping有效；
 - 语义区域所需关键landmark集合完整，polygon顺序和几何关系合法；
@@ -220,15 +220,15 @@ mouth_lower_face: 完整嘴唇、双侧嘴角、鼻唇沟下段和少量下巴
 - 有效像素面积、in-frame coverage和resize后最小有效尺度达到train-only冻结阈值；
 - 大姿态或遮挡下只使用实际可见区域，不镜像、复制或合成隐藏侧。
 
-任一条件失败时跳过该region的local loss并记录原因，global view仍保留。左右landmark可用于定位、可见性和coverage计算，但不产生左右AU输入、左右预测或左右loss。
+任一条件失败时将该region的view mask置为invalid并记录原因，global view仍保留。左右landmark只用于定位、可见性和coverage计算，不产生左右AU输入、左右预测或左右loss。
 
 global和local必须：
 
 - 来自同一frame和同一时间clip；
-- 复用同一随机flip/affine/color参数；
+- flip/affine等空间参数跨global/local视图和时间共享；曝光与ColorJitter可按view独立采样，但在该view全序列固定；
 - 共享同一个backbone、temporal encoder和BDI head；
-- local无效时跳过对应local loss，不伪造或镜像隐藏区域；
-- validation/test使用冻结的global+有效local视图合同，但不读取AU/head target；global-only部署必须另立蒸馏/一致性实验。
+- local无效时通过view mask退回有效视图，不伪造或镜像隐藏区域；
+- validation/test使用冻结的global+有效local clean-view合同且不增强；global-only部署必须另立蒸馏/一致性实验。
 
 ### 控制组
 
@@ -240,7 +240,7 @@ GLA-RGB-GRID: global + three equal-area fixed/grid crops
 GLA-RGB-FULL: global + three semantic landmark-guided RGB crops
 ```
 
-`GLA-RGB-FULL`必须与`GLA-RGB-GRID`匹配局部view数量、面积/长宽比、padding、valid mask、loss scale、模型和训练预算。只有语义视图稳定优于grid，才能支持“语义区域布局优于任意局部裁切”；若二者近似，只能主张一般局部多裁切正则有效。完整运行顺序和AU/head消融以GLA文档为准。
+`GLA-RGB-FULL`必须与`GLA-RGB-GRID`匹配局部view数量、面积/长宽比、padding、valid mask、loss scale、模型和训练预算。只有语义视图稳定优于grid，才能支持“语义区域布局优于任意局部裁切”；若二者近似，只能主张一般局部多裁切正则有效。完整运行顺序以GLA文档第0节为准；旧AU-only消融已经退役，head与gaze也不进入当前矩阵。
 
 ## 实验矩阵
 
@@ -262,17 +262,20 @@ GLA-RGB-FULL: global + three semantic landmark-guided RGB crops
 | L1 | global + equal-area grid | 历史global-only部署假设 |
 | L2 | global + four AU-semantic landmark-guided RGB crops | 历史global-only部署假设 |
 
-L0/L1/L2只用于解释历史设计演进，不得继续运行。当前三语义区、统一train/val/test RGB合同和FULL优先混合消融见`GLOBAL_LOCAL_AU_EXPERIMENT_PLAN.md`；时间片段S0-S4是否恢复也必须先并入同一策略manifest，避免与视图/AU因素形成未注册笛卡尔积。
+L0/L1/L2只用于解释历史设计演进，不得继续运行。当前三语义区、统一train/val/test RGB合同和FULL优先混合消融见`GLOBAL_LOCAL_AU_EXPERIMENT_PLAN.md`第0节；时间片段S0-S4是否恢复也必须先并入同一策略manifest，避免与视图、采样和增强因素形成未注册笛卡尔积。
 
-## 与曝光处理的关系
+## 与曝光审计和训练期光度增强的关系
 
-曝光调整和face segment选择共享同一原始问题档案，但决策互相独立：
+face segment选择、历史曝光审计和当前光度增强共享同一原始问题档案，但职责严格分离：
 
-- 曝光曲线按reviewed acquisition segment固定，不因姿态/遮挡逐帧变化；
-- face usability按可见人脸几何决定，不因亮度被映射到安全带就自动通过；
-- `keep_raw`视频仍可从其中选择有效脸片段；
-- tone normalization不能把已剪切纹理称为恢复，也不能把无脸帧变为有效脸；
-- 每个clip记录其包含的exposure segment和派生版本，支持raw/repaired配对实验。
+- 当前GLA训练输入固定为原始aligned RGB global view及其眼眉/鼻颊/嘴部语义crop；P1/P2确定性归一化、reviewed tone curve、tone overlay、完整曝光mirror及其OpenFace重提取均为历史/诊断路线，不构成当前输入；
+- face usability只按可见人脸、presence和几何质量决定，不因历史亮度映射进入安全带而自动通过；`keep_raw`视频仍可正常选择有效脸片段；
+- 空间几何增强的参数在global/local全部视图与整个时间序列上共享，避免区域错位和时序闪烁；
+- 曝光增强和标准ColorJitter允许按view独立作Bernoulli采样，但一旦选定，该view的曲线/颜色参数必须在整段序列固定，禁止逐帧随机；
+- 标准ColorJitter固定为`brightness=0, contrast=0.2, saturation=0.2, hue=0.05, p=0.5`，亮度变化只由单独的方向感知曝光模块承担；
+- 方向感知曝光主方案固定`clean-group probability=0.25`、`per-view apply probability=0.50`、`overshoot probability=0.25`，不得用BDI或validation/test结果回调；
+- 所有光度增强只在train启用；validation、test和inference对同一原始aligned RGB合同严格no-op；
+- 历史tone normalization不能把已剪切纹理称为恢复，也不能把无脸帧变为有效脸。曝光segment/status可继续写入clip审计元数据，用于分组报告，但不选择训练图像root。
 
 ## 通过条件与停止规则
 
@@ -291,7 +294,7 @@ L0/L1/L2只用于解释历史设计演进，不得继续运行。当前三语义
 - clip数增加但video-level utility、train-val gap和clip dispersion不改善时，不继续提高overlap；
 - identity risk、severe bias或task consistency恶化时不判成功；
 - `GLA-RGB-FULL`不优于`GLA-RGB-GRID`时停止“语义裁切特异性”主张；
-- 不引入learned selector、区域专属backbone或多模型对齐来规避负结果；train-only AU/head小头只按GLA eligibility和消融合同存在。
+- 不引入learned selector、区域专属backbone、多模型对齐或AU辅助头来规避负结果；head/gaze/pose/identity/ordinal/Stage C按设计排除。
 
 ## 下一实施顺序
 
@@ -302,7 +305,7 @@ L0/L1/L2只用于解释历史设计演进，不得继续运行。当前三语义
 5. 根据clip数量、时长、subject/task分布冻结主window/stride；
 6. 实现S1 clip loss + video normalization；
 7. 实现S2同模型video bag聚合；
-8. 冻结三语义区landmark映射、完整性gate和train-only overlay；不得据此直接实现模型；
-9. P0E和crop manifest汇合后，按`AGENTS.md`先披露并授权GLA默认关闭实现；
-10. 训练严格采用`GLA-FULL`优先、依赖感知减法、有限加法复核和paired multi-seed；
+8. 按`REGION-P0A`到`REGION-P0D`冻结三语义区landmark映射、完整性gate、train-only pilot/policy、人工overlay和全量crop manifest；不得据此直接实现模型；
+9. region资格通过后，按`AGENTS.md`先披露并授权默认关闭的`GLA-RGB`实现；
+10. 训练严格采用`GLA-RGB-FULL`优先、三个leave-one-region-out、GRID语义反证、条件性曝光增强控制和paired multi-seed；
 11. 协议冻结前保持benchmark关闭；历史role-swap使其只能称locked post-selection benchmark。

@@ -5,7 +5,26 @@
 This log records completed project maintenance, smoke validation, and experiment
 workflow milestones. Keep entries concise and reproducible.
 
+## 2026-08-05
+
+### AU-guided landmark-localized RGB route
+
+- Approved planning route `PLAN-20260805-AU-GUIDED-LANDMARK-RGB-v1` and synchronized it under docs-only package `DOC-20260805-AU-GUIDED-LANDMARK-RGB-v1`.
+- Clarified the main hypothesis: AU/FACS defines eye-brow, nose-cheek, and mouth/lower-face semantics; aligned-space 68-point landmarks determine geometry, containment, stability, and view validity; the model learns only global/local RGB.
+- Closed P0B as technically complete and preserved P0C as a valid negative result: the mask-aware audit passed technically, but AU12/14/15 were `INELIGIBLE_METRIC`. This blocks current AU numerical supervision, not semantic region cropping.
+- Removed extension-A/B AU numerical qualification, PB-P0D/P0E, AU heads, AU loss, and the old `GLA-FULL` from the current execution chain. They remain historical or require a separately registered future branch.
+- Registered the new sequence: region contract code -> physical-train geometry pilot -> policy freeze -> full region audit -> default-off four-view dataset/model -> smoke -> `GLA-C-REF` versus `GLA-RGB-FULL` -> region/grid controls -> paired multi-seed -> locked benchmark.
+- No code, config, schema, data, experiment, commit, or push was authorized by this documentation package.
+
 ## 2026-07-30
+
+### DOC-20260730-GLA-HEADLESS-PHOTOAUG-v2 documentation freeze
+
+- Authorized scope was documentation only. The current GLA candidate is now headless and AU-only: global face plus eye-brow, nose-cheek and mouth-lower-face views use one shared backbone, shared projection, global-residual validity-aware fusion, one-layer GRU, masked temporal mean and BDI regression. Head motion and gaze are excluded; pose/head extraction and coverage remain historical audit evidence.
+- Auxiliary supervision is limited to core AU12/14/15, extension A AU4/6/7 and extension B AU10/17, including cross-region AU6 and AU14. The frozen loss is `L_BDI + ramp * lambda_AU * L_AU_fixed_denominator`; AU gradients end at the shared backbone/projection and AU heads rather than entering fusion, GRU or the BDI head.
+- Deterministic P1/P2 tone normalization, color normalization and exposure-derived mirrors no longer form the current GLA input route. Physical-train online augmentation keeps spatial transforms shared across views/time, while exposure and ordinary ColorJitter may be sampled independently by view and remain fixed over that view's complete sequence. Validation/test/inference remain unaugmented; padding and invalid pixels remain unchanged.
+- The subtraction ladder is now `S0 GLA-FULL -> S1 GLA-S1-NO-AU-B -> S2 GLA-S2-CORE-AU -> S3 GLA-RGB-FULL -> S4 GLA-C-REF`; `GLA-FULL-NO-EXPOSURE-AUG` is a matched strategy control. Seed42 is capped at 12 full fits.
+- No code, config, dataset, split, label, generated data or generated run/log artifact was changed; no smoke, training, commit or push was run. Future P0B code, P0 runs, GLA implementation, smoke, training, commit and push each remain separately gated by named disclosure and explicit authorization.
 
 ### PB-P0A3 authoritative full-rich v2 and full coverage decision
 
@@ -16,9 +35,9 @@ workflow milestones. Keep entries concise and reproducible.
 - Legacy extraction summary remains expected `FAIL` at 259 strict PASS / 41 strict FAIL and 486,640/493,141 OpenFace successes. It is diagnostic only under the frozen mask-aware policy. Val/test are report-only; P0B and training remain unauthorized.
 - Known report bug: the full PASS decision still writes `next_action=STOP_AND_REVIEW_POLICY_OR_SOURCE_ISSUES`. Known compatibility risk: current P0 core may still require legacy extraction/content rows to be strict PASS. Both require a separately disclosed and authorized code package before P0B; hash/schema/join/provenance/value-domain gates must remain unchanged.
 
-### Full-model-first hybrid ablation strategy and agent disclosure gate
+### Full-model-first hybrid ablation strategy and agent disclosure gate (initial plan; head axis superseded)
 
-- Future GLA training now follows maximum P0E-eligible `GLA-FULL` seed42 screening, dependency-aware subtraction (`-HEAD -> -AU10/17 -> -AU4/6/7 -> -all AU -> -locals`), bounded single-group additive confirmation, paired seeds43/44, and one locked post-selection benchmark package.
+- This initial plan included dependency-aware subtraction `-HEAD -> -AU10/17 -> -AU4/6/7 -> -all AU -> -locals`. The earlier head axis is retained here only as decision history and is superseded by the headless S0--S4 contract recorded above.
 - Grid, no-cross and subject-deranged shuffled-aux controls remain mandatory. A component absent from P0E is `SKIPPED_INELIGIBLE`, not an ablation result. `GLA-FULL` is unrelated to the legacy full model and Stage C `C-FULL`.
 - This entry is docs/governance only. No dataset/model/runner/config was changed and no P0B, smoke, training, benchmark, commit or push was authorized or run.
 - Root `AGENTS.md` now requires a named implementation package disclosure before every code/config/test/data/run/commit/push package. The agent must report boundaries, architecture/data flow, interfaces, split/test access, exact commands/resources/outputs, validation, risks and sub-agent roles, end the turn, and wait for explicit authorization of that package.

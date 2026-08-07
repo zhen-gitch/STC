@@ -4,45 +4,68 @@
 
 ## 状态日期
 
-2026-07-30
+2026-08-05
 
 ## 阅读提示
 
 本文档是状态快照，不是执行清单。当前路线只看本节到“推荐验证命令”；2026-06-13 之后的日期章节是历史记录和证据归档，若与当前快照冲突，以本文开头和 `TODO.md` 的权威入口为准。
 
-## 当前权威快照：可审计、可证伪的粗粒度信息分流主线
+## 当前权威快照：AU-guided landmark-localized global-local RGB
 
-当前项目目标正式设定为 **Auditable and Falsifiable Coarse-Grained Task-Nuisance Information Separation：可审计、可证伪的粗粒度任务-干扰信息分流**。这一调整继承已有 RGB input ablation、identity retrieval、severity calibration、temporal sampling、alignment geometry 和 black artifact 审计结果，但进一步收紧论文主张：`z_dep / z_nuisance` 是待检验的信息分流假设，不是预先成立的语义解耦结论；只对 subject identity 等可验证捷径变量进行弱监督或对抗约束。
+当前路线以`PLAN-20260805-AU-GUIDED-LANDMARK-RGB-v1`为准：AU/FACS只定义眼眉、鼻颊、嘴部三个语义区域，68点landmark负责几何定位、语义完整性、稳定性和validity，模型只学习完整对齐人脸与三个局部RGB。AU intensity/presence不作为输入、目标或loss。
+
+| 维度 | 当前结论 |
+|---|---|
+| 当前架构 | `global + eye_brow + nose_cheek + mouth_lower_face -> one shared backbone -> global-residual validity-aware fusion -> one-layer GRU -> masked temporal mean -> BDI regression` |
+| AU职责 | 仅作为FACS区域语义依据；不读取`AUxx_r/AUxx_c`，不建AU head，不计算AU loss |
+| landmark职责 | aligned-space逐帧定位crop、语义containment、时间稳定性、view validity和失败原因；坐标不进入模型 |
+| 数据状态 | aligned rich v2、P0A2、P0B已通过300视频/493,141帧来源、schema、exact join与coverage合同 |
+| P0C状态 | 技术`PASS`、core AU组`INELIGIBLE_METRIC`；只否决当前AU数值监督，不否决FACS语义裁切 |
+| 几何状态 | T0A frame合同通过；历史T0B为260 REVIEW_REQUIRED/40 FAIL，115 PASS/5 UNCERTAIN仅AI辅助复核，正式region policy/crop manifest尚未冻结 |
+| 已实现边界 | 当前dataset/model仍为单路`[B,T,3,H,W]`；没有四视图Dataset、region manifest reader、融合器或GLA-RGB训练入口 |
+| 主实验 | `GLA-RGB-FULL`先对匹配`GLA-C-REF`，再做NO-EYE/NO-NOSE/NO-MOUTH、GRID和条件性NO-EXPOSURE-AUG |
+| 当前下一步 | 单独披露并授权region contract代码；先做train-only几何pilot与full region audit，再决定模型代码 |
+| 明确排除 | AU数值监督、gaze、head/pose auxiliary、identity adversarial、ordinal、Stage C和确定性tone-normalized输入 |
+| 训练授权 | `false`；region数据生成、模型代码、smoke、正式训练、commit和push均未授权 |
+
+P0C权威证据位于`logs/privileged_behavior_alignment/p0c_core_au_fidelity_full_a29ba49c_rawref_rerun_v2/`：AU12/14/15主体rho为0.687658/0.707231/0.688936，方向一致率为0.609809/0.555556/0.489960。幅度和lag基本保留，但方向失败在val/test重复，因此不得事后降低阈值并继续AU辅助监督。原始raw-reference只保留审计用途，不进入训练。
+
+region主路线不要求再次运行OpenFace AU提取。未来预处理只读取aligned RGB、68点landmark、success/confidence，并生成带SHA的逐帧crop/validity manifest；默认不物化局部JPEG。低coverage视频不删除，local无效时由view mask退回global。
+
+## 历史快照：2026-07-30 headless GLA与AU辅助监督（已被上节取代）
+
+既有task-nuisance、identity、severity、temporal、alignment和输入伪迹实验继续作为机制证据，但Stage C已经被utility gate否证。2026-07-30当时曾计划用headless global-local-AU（GLA）完整候选检验“语义局部RGB + AU辅助监督”；该路线现已由本文顶部的RGB-only region-first路线取代。
 
 ### 当前摘要
 
 | 维度 | 当前结论 |
 |---|---|
-| 项目目标 | 可审计、可证伪的粗粒度 task-nuisance 信息分流 |
-| 第一版 latent | `z_dep`、`z_nuisance` |
-| 可选 latent | `z_id` 不进入第一版；基础方案通过 C3 后才重新论证 |
-| 不做 | 不显式建 `z_art/z_ctx/z_pose/z_quality`，不做多级 RPDF |
-| 当前输入路线 | 完整对齐帧 + 眼眉/鼻颊/嘴部三个语义局部帧；同一backbone编码、帧级validity-aware融合后进入原时序模块 |
-| AU方案 | 核心AU12/14/15，扩展A为AU4/6/7，扩展B为AU10/17；AU6跨眼眉+鼻颊，AU14跨鼻颊+嘴部；gaze继续排除 |
+| 项目目标 | 以全模型优先的可证伪实验判断headless GLA能否缓解严重过拟合并改善抑郁线索建模 |
+| 当前架构 | `global + eye_brow + nose_cheek + mouth_lower_face -> one shared backbone -> shared projection -> global-residual validity-aware fusion -> one-layer GRU -> masked temporal mean -> BDI regression` |
+| 输入与增强 | 原始对齐RGB及冻结语义crop；不做确定性曝光/颜色校正。仅physical train在线增强：空间变换跨视图/时序共享，曝光与普通颜色可按view独立但各自在完整序列内固定；validation/test/inference恒不增强 |
+| AU方案 | 仅train-only辅助监督：core AU12/14/15，extension A AU4/6/7，extension B AU10/17；AU6跨眼眉+鼻颊，AU14跨鼻颊+嘴部 |
+| 明确排除 | head-motion、gaze、ordinal、identity adversarial、Stage C nuisance/reconstruction和确定性tone-normalized训练输入均不进入首个`GLA-FULL` |
 | 已实现边界 | PB-P0来源/schema代码仍只覆盖AU12/14/15；三语义区dataset/model、扩展AU合同和训练配置尚未实现 |
 | 数据门禁 | PB-P0A3权威full-rich v2已完成300视频、493,141行、单一182列schema；A2完整判定为`PASS_FULL_SOURCE_COVERAGE`、0 blocker/0 warning，strict逐视频0.995仅保留为诊断 |
-| 实验策略 | `GLA-FULL`最大合格候选优先 -> 依赖感知反向减法 -> 幸存因素有限加法复核 -> paired multi-seed -> locked post-selection benchmark |
-| 当前下一步 | P0B前先披露并等待授权修复A2 `next_action`报告bug及旧P0对mask-aware来源的兼容性；当前`P0B/model/training_authorized=false` |
-| 审计判据 | BDI metrics、identity risk、nuisance/BDI leakage、shortcut probe risk、severity bias、task consistency、train-val gap |
-| 主张边界 | reconstruction/decorrelation 收敛或单一 attacker 下降不等于语义解耦成功 |
+| 实验策略 | `S0 GLA-FULL -> S1 NO-AU-B -> S2 CORE-AU -> S3 RGB-FULL -> S4 C-REF`，再做有限加回、必要控制、paired multi-seed和locked post-selection benchmark；seed42上限12个full fit |
+| 当时下一步 | docs-only规格同步后披露P0B兼容代码；该步骤及后续P0B/P0C现已完成，结果和新入口见本文顶部 |
+| 审计判据 | BDI metrics、identity risk、AU/BDI梯度、severity bias、task consistency、train-val gap、曝光分组鲁棒性和成本 |
+| 主张边界 | AU监督只约束融合前区域视觉表征；photometric augmentation只检验不变性，不能声称恢复已剪切/量化丢失的图像信息 |
 | 反证条件 | `GLA-FULL`不优于匹配`GLA-C-REF`、减法/加法证据不一致、multi-seed不稳定或风险改善伴随utility/group robustness恶化时停止增加复杂度 |
 
 “可审计”要求每个表示出口和训练约束都对应可独立复现的外部测量；“可证伪”要求在编码和运行前冻结强 baseline、统一指标、multi-seed 规则和停止条件。负结果应作为机制结论保留，而不是通过继续堆叠 latent、门控或损失规避。
 
-### 2026-07-30 PB-P0A3完成与全模型优先混合消融决策
+### 2026-07-30 PB-P0A3完成、headless GLA与photometric augmentation决策
 
 权威full-rich来源为`/mnt/d/Project/dataset/AVEC2014/openface_aligned_behavior_of220_a29ba49c_v2`。该run完成300/300视频、493,141/493,141行、单一182列schema，大小587 MB，耗时10,064.6秒；无HOG、tracked video或重新生成aligned图。extractor来自clean Windows `dev@2538248`，脚本SHA-256为`64375c6575066619cb21ce94d213e7457446df961a8d9565bd554eee68db3cc5`，source-contract SHA-256为`12f50c2311b9d89dde81e27fa83891226ca5f447ed7d3d56fe38cf673a1c5a31`。失败且不完整的v1目录只保留失败证据，禁止resume、复用或进入P0B。
 
-A2权威完整判定在`logs/privileged_behavior_alignment/p0a2_mask_aware_policy_full_a29ba49c_v2/`，状态为`PASS_FULL_SOURCE_COVERAGE`。quality/AU-valid为486,441帧，head-valid为485,863对；physical train总体、Freeform、Northwind分别为0.989273、0.983944、0.996984，task gap约0.01304；最低train视频仍有180个AU-valid帧和179个head pair。val/test只报告，且决策明确`P0B/training_authorized=false`。legacy extractor summary的259 PASS / 41 FAIL及总体0.986817仍是预期诊断，不再作为mask-aware资格门禁。
+A2权威完整判定在`logs/privileged_behavior_alignment/p0a2_mask_aware_policy_full_a29ba49c_v2/`，状态为`PASS_FULL_SOURCE_COVERAGE`。quality/AU-valid为486,441帧，历史head-valid为485,863对；physical train总体、Freeform、Northwind分别为0.989273、0.983944、0.996984，task gap约0.01304；最低train视频仍有180个AU-valid帧。head计数只保留为来源/质量审计，不参与当前GLA资格。val/test只报告，且决策明确`P0B/training_authorized=false`。legacy extractor summary的259 PASS / 41 FAIL及总体0.986817仍是预期诊断，不再作为mask-aware资格门禁。
 
 当前发现两个P0B前代码问题：A2在full PASS时仍把`next_action`写成`STOP_AND_REVIEW_POLICY_OR_SOURCE_ISSUES`；既有P0核心可能仍要求legacy extraction summary/content逐视频strict `PASS`，从而误拒有效v2来源。下一代码包只能在先向用户披露边界、架构/数据流、文件、命令、验证和风险并获得明确授权后实施；修复不得弱化hash、schema、exact join、数值域或provenance门禁。
 
-后续训练策略改为`GLA-FULL`优先的混合消融。`GLA-FULL`严格等于P0E批准的最大依赖闭合global/local+AU/cross-region/head profile，不是legacy full model或Stage C的`C-FULL`。seed42先运行完整候选与匹配reference；只要没有技术失败就按`-HEAD -> -AU10/17 -> -AU4/6/7 -> -all AU -> -locals`完成S1--S5。若FULL科学失败，该阶梯只作诊断并跳过controls、加法、multi-seed和benchmark；科学通过时才执行grid、no-cross、shuffled-aux及幸存组有限加回。只有减法和加法证据一致的简化候选进入seeds43/44。由于历史上已运行val/test role swap，最终评估只能称为locked post-selection benchmark，不能再声称test从未参与历史选择。
+后续训练策略改为headless `GLA-FULL`优先的混合消融。`GLA-FULL`严格等于AU-only P0E批准的最大依赖闭合global/local+AU/cross-region profile，不是legacy full model或Stage C的`C-FULL`。seed42先运行完整候选与匹配reference；只要没有技术失败就按`AU-B -> AU-A -> all core AU -> locals`完成S0--S4：`GLA-FULL / GLA-S1-NO-AU-B / GLA-S2-CORE-AU / GLA-RGB-FULL / GLA-C-REF`。若FULL科学失败，该阶梯只作诊断并跳过controls、加法、multi-seed和benchmark；科学通过时才执行grid、no-cross、shuffled-aux、`GLA-FULL-NO-EXPOSURE-AUG`及幸存组有限加回。seed42最多12个full fit；只有减法和加法证据一致的简化候选进入seeds43/44。由于历史上已运行val/test role swap，最终评估只能称为locked post-selection benchmark，不能再声称test从未参与历史选择。
+
+2026-07-30当时的输入方案不使用确定性P1/P2 tone normalization或曝光派生mirror。physical train保留整组clean路径；每个view可独立采样普通`ColorJitter(contrast=0.2, saturation=0.2, hue=0.05, brightness=0, p=0.5)`和方向感知曝光变化，但同一view的完整帧序列固定同一参数。欠曝只向正常/略过曝移动，过曝只向正常/略欠曝移动，正常样本可弱双向扰动；空间flip/affine仍跨四视图和时间共享。validation/test/inference使用原始输入，padding/invalid像素保持不变；当时设想的AU target来自未增强来源且不重跑OpenFace，该target路径现已退役。
 
 ### 2026-07-29 三语义区共享backbone与跨区域AU方案（历史顺序，以2026-07-30混合消融为准）
 
@@ -68,7 +91,7 @@ PB-P0已实现future full-rich来源的strict-rich provenance门禁：source git
 
 后续可行性复核又发现两个更早的阻塞。第一，PB核心代码、extractor和测试已冻结在`dev`提交`2685fa4`，独立docs-only follow-up也已完成且未amend；但Windows侧`/mnt/d/Project/stc`仍停在`40034f4`且没有PB extractor，当前R0只剩Windows clean sync验收。第二，同版aligned-landmark full只有259/300视频达到逐视频0.995，41/300未达到，train/val/test=`13/14/14`，整体success为`486640/493141=0.986817`，其中5个视频低于0.90。直接运行300视频rich极可能只是在4.5--6小时后复现final FAIL。
 
-上述R0、fresh debug2、pilot20和A2当时均已完成。A2选择了versioned mask-aware分支：100%视频/行/schema/hash/provenance仍为硬门禁，`success==1 && confidence>=0.8`仅决定valid mask和coverage；val/test永远只报告。当时下一可申请动作是PB-P0A3；该动作现已完成，最新状态见本文顶部2026-07-30段落。P0B之后仍须完成matched raw/aligned物理保真、最终聚合描述符的train-only normalization及identity/task/exposure/quality风险，再生成region、分组AU/head、cross-region资格与带SHA的完整`eligible_component_profile`，不能从P0B直接跳到模型。
+上述R0、fresh debug2、pilot20和A2当时均已完成。A2选择了versioned mask-aware分支：100%视频/行/schema/hash/provenance仍为硬门禁，`success==1 && confidence>=0.8`仅决定valid mask和coverage；val/test永远只报告。当时下一可申请动作是PB-P0A3；该动作以及后续P0B/P0C现均已完成。P0C对AU数值监督给出负资格结论，原P0D/P0E链已终止；最新状态与`REGION-P0A-CODE`入口见本文顶部2026-08-05快照。
 
 新的`scripts/run_openface_aligned_behavior_features.ps1`固定使用原始模型aligned JPG、OpenFace 2.2.0和`-2Dfp -pose -aus`，不请求gaze、HOG、tracked video或aligned图再生成。历史两视频`debug2c`目录`/mnt/d/Project/dataset/AVEC2014/openface_aligned_behavior_of220_debug2c_20260728`为`2/2 PASS`：1,920张JPG与1,920行CSV完全一致，1,920帧`success=1`，182列且单一schema，gaze/HOG/tracked/regenerated计数均为0；核心合同实测AU有效1,920帧、head velocity有效1,918帧。这些计数只验证旧脚本的schema、mask和差分入口，不是当前strict-rich preflight、全量rich extraction或物理保真/identity-risk证据。
 
@@ -220,7 +243,7 @@ Stage C 的完整实施规格已写入 `docs/STAGE_C_RUNBOOK.md`。`C-REF / C-BN
 
 ### 2026-07-14 单模型AU语义区域路线（历史四区/RGB-only方案）
 
-本节只保留历史设计演进；其四区、无AU监督和global-only推理假设已由本文顶部2026-07-30三语义区、train-only AU/head和FULL优先混合消融取代。
+本节只保留历史设计演进；其四区和global-only推理假设先被2026-07-30三语义区AU辅助方案取代，随后该AU辅助方案又被本文顶部2026-08-05的三语义区RGB-only、四视图推理和`GLA-RGB-FULL`路线取代。
 
 目标不是训练多个区域模型，也不是在推理时做多分支融合，而是让同一个 MTL-Lite backbone、时序编码器和 BDI head 在训练时同时处理全局脸与全部有效 AU 语义局部视图。各视图沿 batch 维展开并共享全部参数；validation/test/inference 只输入全脸。若 global-only inference 得到改善，才能说明局部训练改变了同一模型的表示偏好，而不是依赖额外推理模型。
 

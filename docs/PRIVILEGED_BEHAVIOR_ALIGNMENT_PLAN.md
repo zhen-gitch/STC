@@ -1,24 +1,26 @@
 # PRIVILEGED_BEHAVIOR_ALIGNMENT_PLAN.md
 
-> **2026-07-30方案演进**：本文档主体继续记录已经实现并冻结的AU12/14/15+head PB-P0来源、schema、pilot和门禁合同；这些head/pose内容只保留为历史实现和诊断证据，不得回写为当前GLA组件。未来训练设计已由`GLOBAL_LOCAL_AU_EXPERIMENT_PLAN.md`统一接管：完整脸+眼眉/鼻颊/嘴部三语义区共享backbone，最大P0E-eligible、严格AU-only的`GLA-FULL`优先筛选，再做依赖感知减法与幸存因素有限加法复核。扩展AU必须另行版本化升级source manifest、schema、coverage、normalization、risk audit和测试；当前PB-P0实现状态仍仅覆盖历史AU12/14/15+head合同。
+> **2026-08-05状态覆盖**：本文件保留AU/head特权监督的历史研究设计和P0证据，不再是当前模型主路线。P0B已通过；P0C mask-aware v2技术`PASS`但`AU12_r/AU14_r/AU15_r`组为`INELIGIBLE_METRIC`，因此当前禁止继续PB-P0D/P0E、AU auxiliary head、PB-P1或PB-P2。AU/FACS现在只作为眼眉、鼻颊、嘴部语义分区依据，landmark负责几何定位，模型只学习RGB。若未来重新引入AU数值监督，必须重新注册独立版本，不能复用当前失败组或事后降低阈值。
 
-> 文档职责：保存“抑郁相关AU与头部运动作为训练期特权监督”的历史研究假设、数据合同、实验矩阵和既有证据，并为当前GLA的AU-only资格门禁提供来源背景。当前已完成PB-P0基础设施、landmark-only v2阻断审计、PB-P0A3 full-rich v2、PB-P0B-COMPAT和当前实现的A2 full v3判定；P0B core、P0C-P0E、GLA实现和训练仍以`TODO.md`与再次授权为准。
+> **2026-07-30方案演进**：本文档主体继续记录已经实现并冻结的AU12/14/15+head PB-P0来源、schema、pilot和门禁合同；这些head/pose内容只保留为历史实现和诊断证据，不得回写为当前GLA组件。2026-07-30当时曾规划最大P0E-eligible、严格AU-only的`GLA-FULL`；该方案已被`GLOBAL_LOCAL_AU_EXPERIMENT_PLAN.md`第0节的`GLA-RGB-FULL`取代。扩展AU数值审计不再是当前任务，当前PB-P0实现只保存历史AU12/14/15+head合同。
 
-## 0. 当前状态与决策
+> 文档职责：保存“抑郁相关AU与头部运动作为训练期特权监督”的历史研究假设、数据合同、实验矩阵和既有证据。PB-P0基础设施、landmark-only v2阻断审计、PB-P0A3 full-rich v2、PB-P0B和P0C均已完成；P0C负资格结论使P0D/P0E和AU监督训练链退出当前路线。当前region/GLA-RGB状态以`TODO.md`和`GLOBAL_LOCAL_AU_EXPERIMENT_PLAN.md`第0节为准。
+
+## 0. 2026-07-30历史状态与决策
 
 状态日期：2026-07-30。
 
-- 用户已授权并完成PB-P0数据合同基础设施、no-gaze aligned-JPG提取入口、fresh debug2、pilot20、PB-P0A2 mask-aware policy、PB-P0A3权威full-rich v2、PB-P0B-COMPAT、A2 full v3重跑和当前权威landmark-only v2阻断审计；既有授权不包含P0B core、P0C-P0E、GLA模型改动或训练。
+- 截至该历史快照，用户已授权并完成PB-P0数据合同基础设施、no-gaze aligned-JPG提取入口、fresh debug2、pilot20、PB-P0A2 mask-aware policy、PB-P0A3权威full-rich v2、PB-P0B-COMPAT、A2 full v3重跑和landmark-only v2阻断审计；当时既有授权不包含P0B core、P0C-P0E、GLA模型改动或训练。
 - PB核心实现、extractor、测试与本方案已冻结在提交 `2685fa4`；本次文档同步作为其上的独立 docs-only follow-up 完成，未 amend 或改写核心提交。
 - PB-P0A3权威v2已完成300/300视频、493,141行、单一182列schema和全部hash/provenance闭环；A2完整判定为`PASS_FULL_SOURCE_COVERAGE`、0 blocker/0 warning。legacy strict 0.995仍为259 PASS / 41 FAIL的诊断，不参与mask-aware资格判定。
-- 当前未创建训练配置、未修改dataset/model/runner，也未启动训练。landmark-only P0仍是历史`BLOCKED`证据；rich v2已具备P0B输入来源，但P0B尚未运行或授权。
-- 当前训练设计已由`GLOBAL_LOCAL_AU_EXPERIMENT_PLAN.md`收敛为三语义区共享backbone、AU-only与FULL优先混合消融；head-motion和gaze均不进入GLA输入、目标、损失、资格字段或实验因素。本文件现有代码中的旋转head dynamics仅是历史PB合同，不是当前模型能力。
-- AU4/6/7/10/17属于待升级合同的计划候选，不得由现有PB-P0结果自动批准。
+- 当时尚未创建训练配置、修改dataset/model/runner或启动训练。后续P0B已通过，P0C技术`PASS`但core AU组为`INELIGIBLE_METRIC`；landmark-only P0仍只作历史`BLOCKED`证据。
+- 2026-07-30训练设计曾收敛为三语义区共享backbone、AU-only与FULL优先混合消融；2026-08-05已进一步改为RGB-only `GLA-RGB-FULL`。head-motion、gaze和AU数值均不进入当前模型输入、目标、损失、资格字段或实验因素。
+- AU4/6/7/10/17曾是待升级合同候选；当前不再进行其数值资格审计，除非未来重新注册独立AU监督路线。
 - gaze 已明确移除：不作为输入、辅助目标、关系对齐条件、超参数或消融因素。即使来源 CSV 含 gaze 列，也必须由白名单保证其不会进入目标张量。
-- OpenFace 行为目标只在训练期使用；validation、test 和部署必须能够在没有 OpenFace root 的条件下仅使用 RGB 运行。
-- 当前`GLA-FULL`只包含BDI回归主路径、global/local共享视觉路径和P0E合格AU辅助头；不包含ordinal分类、identity-adversarial分支或Stage C task-nuisance模块。以上历史模块只作为外部基线和诊断证据保留。
+- 当时的OpenFace行为目标被限定为train-only；当前路线完全不读取这些目标，train/validation/test/deployment均只使用RGB与冻结mask合同。
+- 历史`GLA-FULL`曾包含P0E合格AU辅助头；当前`GLA-RGB-FULL`只有global/local共享视觉路径和BDI回归，不包含AU、ordinal、identity-adversarial或Stage C模块。
 
-> **历史解释规则**：下文第1--3节、既有A2/P0产物中的head字段，以及第5--7节的AU+head P1/P2草案均按当时合同原样保留，不能作为当前GLA实施入口。凡涉及当前资格、模型或运行，以第4.6节的AU-only覆盖说明和`GLOBAL_LOCAL_AU_EXPERIMENT_PLAN.md`为准。
+> **历史解释规则**：下文第1--7节、既有A2/P0产物中的head字段以及AU+head P1/P2草案均按当时合同保留，不能作为当前GLA实施入口。凡涉及当前资格、模型或运行，以本文顶部2026-08-05状态覆盖和`GLOBAL_LOCAL_AU_EXPERIMENT_PLAN.md`第0节为准。
 
 本方案中的“对齐”优先指 **分组辅助预测**，而不是把 RGB embedding 与完整 OpenFace 向量直接做强 MSE 同构对齐。
 
@@ -254,7 +256,7 @@ P0 通过条件：
 
 2026-07-31当前权威来源/coverage结论：full-rich v2完成300/300视频、493,141行、单一182列schema和全部hash/provenance闭环；兼容实现从commit `485b176`重新生成A2 full v3，状态为`PASS_FULL_SOURCE_COVERAGE`、0 blocker/0 warning，decision SHA-256为`a669a35b67c017cd510a5d771b08fc283b21687e7131531c8e4f3f2a2384e120`。quality/AU-valid为486,441帧，历史head-valid为485,863对；physical train总体/Freeform/Northwind分别为0.989273/0.983944/0.996984，task gap约0.01304。该结论不等于P0B core、物理保真、风险或训练资格通过。
 
-### 4.6 后续执行路线：兼容修复与A2 v3已完成，下一门禁为P0B core
+### 4.6 历史执行路线：兼容修复与A2 v3完成后曾以P0B core为下一门禁
 
 pilot20直接证实strict逐视频0.995不可行：20视频中16 PASS / 4 FAIL，失败为`205_1_Freeform=0.990909`、`206_1_Freeform=0.920000`、`207_2_Freeform=0.698148`、`208_1_Freeform=0.979227`。A3随后已按冻结mask-aware合同完成，完整train coverage通过；legacy strict结果继续保留为诊断。
 
@@ -338,7 +340,7 @@ P0D对exact `behavior_descriptor_v1`的保守风险门槛候选为：identity/se
 
 | 路线 | 冻结来源 | 用途 | 不得授权 |
 |---|---|---|---|
-| T0b/local crop | 原始aligned JPG + landmark-only `-2Dfp -mloc` | 坐标与区域裁切门禁 | 当前GLA AU target |
+| T0b/local crop | 原始aligned JPG + landmark-only `-2Dfp -mloc` | 坐标与区域裁切门禁 | 历史GLA AU target设计 |
 | PB | 原始aligned JPG + `-2Dfp -pose -aus` no-gaze | 历史AU+head来源；当前只允许AU白名单进入P0E | exposure收益或local-crop坐标 |
 | Exposure | 历史derived mirror + full diagnostic profile | raw-vs-exposure诊断证据 | 当前GLA像素输入或AU目标 |
 | FACE | 人工复签后的usability/clip/local-crop manifests | RGB输入路线 | PB数据合同自动PASS |
@@ -394,7 +396,7 @@ L = L_{\mathrm{BDI}} + r(e)
 
 ## 6. 固定实验矩阵
 
-> **历史矩阵，禁止作为当前执行入口。** 2026-07-30起，未来训练统一采用`GLOBAL_LOCAL_AU_EXPERIMENT_PLAN.md`中的`GLA-FULL`优先混合消融。下列`PB-*`条件只保留早期AU12/14/15+head假设和负对照设计证据，不授权运行，也不得与新的GLA run ID混用。
+> **历史矩阵，禁止作为当前执行入口。** 2026-07-30当时曾计划采用`GLA-FULL`优先混合消融；该计划现已被`GLOBAL_LOCAL_AU_EXPERIMENT_PLAN.md`第0节的`GLA-RGB-FULL`取代。下列`PB-*`条件只保留早期AU12/14/15+head假设和负对照设计证据，不授权运行，也不得与新的GLA-RGB run ID混用。
 
 首轮以PB-P0D冻结的matched RGB reference和sampling manifest为基座；当前推荐是独立的原始aligned `C-REF/E2`协议，不等待或混入尚未冻结的FACE local-crop。必须保持backbone、split、采样、severity loss、optimizer、precision、训练预算和EarlyStopping不变，并记录不可变reference ID与manifest SHA，避免方案等待期间基座变化后仍沿用过时名称。
 
@@ -494,7 +496,7 @@ P2获单独授权后只允许比较：
 
 ## 10. 历史P1/P2最小实现草案（已被独立GLA路径取代）
 
-PB-P0 已实现独立的 schema/frame/valid-mask/pose-dynamics/train-only-statistics 历史合同、只读 CLI 和 aligned-JPG no-gaze 提取入口，且没有接入训练数据路径。下列直接修改MTL-Lite的P1/P2接入草案已经退役，只为解释早期设计保留，不得执行。当前实现必须使用独立GLA model/dataset/runner/script路径；只有AU-only `PB-P0E`给出最终training-target contract与风险门禁通过，并再次获得用户授权后，才允许真实数据接入或运行。
+PB-P0 已实现独立的 schema/frame/valid-mask/pose-dynamics/train-only-statistics 历史合同、只读 CLI 和 aligned-JPG no-gaze 提取入口，且没有接入训练数据路径。下列直接修改MTL-Lite的P1/P2接入草案已经退役，只为解释早期设计保留，不得执行。当前实现入口改为独立的region manifest与GLA-RGB model/dataset/runner路径；必须先完成region资格并分别获得代码、数据和运行授权，不再等待或生成AU-only `PB-P0E`。
 
 - 新增 `src/datasets/privileged_behavior.py`：exact manifest、frame join、白名单、mask、描述符和 train-only normalization；
 - 修改 `src/datasets/dataset.py`：复用 RGB 选帧结果，可选返回嵌套 `privileged_behavior`，默认关闭时保持旧 batch contract；

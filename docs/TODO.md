@@ -6,9 +6,27 @@
 
 本节是当前下一步的权威任务入口。下方较早的阶段任务和 P0/P1/P2 列表保留为历史记录或背景任务；若与本节冲突，以本节为准。
 
-### 当前目标
+### 2026-08-05当前路线：region-first，AU数值监督退出主线
 
-按 **Auditable and Falsifiable Coarse-Grained Task-Nuisance Information Separation：可审计、可证伪的粗粒度任务-干扰信息分流** 组织后续工作。当前不再尝试显式枚举全部潜在干扰因子，也不预设 `z_dep / z_nuisance` 已实现语义解耦；执行顺序是先证明可验证 shortcut 是否进入预测，再比较最小干预 baseline，最后把粗粒度信息分流作为可被实验否定的结构假设。
+- [x] `PB-P0B-CORE`：300/300视频、493,141帧、core/schema/exact join/physical-train statistics和0 blocker已完成；不构成训练授权。
+- [x] `PB-P0C-CORE-AU-FIDELITY`：mask-aware v2技术审计`PASS`，但AU12/14/15组为`INELIGIBLE_METRIC`。该结果冻结为AU数值监督负证据，不再阻塞landmark语义裁切。
+- [x] `ROUTE-AU-GUIDED-LANDMARK-RGB`：批准`PLAN-20260805-AU-GUIDED-LANDMARK-RGB-v1`；AU只定义语义区域，landmark负责定位，模型只学习RGB。
+- [ ] `REGION-P0A-CODE`：下一候选代码包。实现只读aligned-space landmark/region合同、三语义区非重叠box、mask-aware validity、overlay和manifest；不得读取AU值、BDI、prediction或checkpoint。
+- [ ] `REGION-P0B-PILOT`：单独授权后在physical train比较static canonical/raw dynamic/stabilized dynamic，冻结人工复核包；不生成训练数据。
+- [ ] `REGION-P0C-POLICY`：只根据train无标签几何分布和人工复核冻结margin、尺度、containment、coverage、IoU和jump门槛。
+- [ ] `REGION-P0D-FULL`：单独授权后对300视频/493,141帧应用冻结policy，val/test只报告，输出region eligibility和逐帧manifest；默认不物化局部JPEG。
+- [ ] `GLA-RGB-CODE`：region通过后另行授权默认关闭的四视图Dataset、共享backbone、global-residual融合和runner；不添加AU/head/gaze/identity/ordinal/Stage C路径。
+- [ ] `GLA-RGB-SMOKE`：import/config/one-batch/backward/AMP/DDP/显存/FLOPs和100-step train-only smoke；不读取test。
+- [ ] `GLA-RGB-S42`：先运行匹配`GLA-C-REF-S42`和`GLA-RGB-FULL-S42`，再按预注册规则运行NO-EYE/NO-NOSE/NO-MOUTH、GRID及条件性NO-EXPOSURE-AUG。
+- [ ] `GLA-RGB-MULTI/LOCKED`：只有seed42通过后运行paired seeds43/44及一次locked post-selection benchmark。
+
+当前禁止继续执行旧`PB-P0D/P0E -> AU head -> GLA-FULL`链。extension AU4/6/7/10/17虽然物理列存在，但不再需要数值资格审计；只有未来重新注册AU监督分支时才恢复。
+
+### 2026-07-30历史任务地图（以下不再是当前执行入口）
+
+### 历史目标
+
+既有task-nuisance、identity和输入伪迹实验继续作为机制证据。2026-07-30当时的实施入口曾收敛为 **headless GLA全模型优先混合消融**，候选包含global/三个语义local和train-only AU辅助监督；该方案现已由上方2026-08-05 RGB-only region-first路线取代。
 
 ```text
 Stage A Shortcut 证据收口
@@ -25,16 +43,18 @@ Stage A Shortcut 证据收口
 | B. Identity-adversarial baseline | 只抑制可验证身份捷径是否足够？ | 已完成：E2 弱有效，E1/E3 无效，identity 泄漏全局未解，进入 Stage C（结论见 `CURRENT_STATUS.md` 2026-07-10 B5） |
 | C. Coarse task-nuisance 信息分流 | `z_dep / z_nuisance` 是否在等参数条件下优于共享表征和 GRL baseline？ | seed-42 utility gate 已否证当前 96 维 bottleneck/split 家族，停止进入 C3 |
 | D. Falsification / robustness | 信息分流失败来自 bottleneck、泄漏未降还是优化不稳定？ | 已完成 identity-gradient、正则化、连续加权和 split sensitivity 收口；不授权维度 sweep |
-| E. GLA组件资格门禁 | 哪些三语义区、AU组、跨区域关系和head轴具备进入完整候选的资格？ | PB-P0A3/A2 full coverage已通过；下一项是披露并授权P0B兼容性修复，再完成P0B-P0E、扩展AU合同和crop manifest |
-| F. 全模型优先混合消融 | 最大合格`GLA-FULL`是否有能力改善泛化，各组件的删除与加回证据是否一致？ | 策略已冻结为FULL筛选 -> 依赖感知减法 -> 有限加法复核 -> multi-seed；模型代码和任何训练均未授权 |
+| E. 历史GLA组件资格门禁 | 三语义区、AU组和跨区域关系能否进入AU-only候选？ | P0B已通过，P0C core组`INELIGIBLE_METRIC`，因此该AU资格链终止并转入上方region-only门禁 |
+| F. 历史全模型优先混合消融 | 最大合格`GLA-FULL`是否有能力改善泛化？ | AU版本未进入训练；当前改用上方`GLA-RGB-FULL`、区域减法与GRID反证 |
 
 阅读规则：只执行新任务时读到“暂缓项”为止即可；后续章节主要是历史任务、已完成基础设施和旧阶段记录。
 
-### PB/GLA后续权威路线：A3已完成，先取得组件资格再决定模型实现
+### 2026-07-30历史PB/GLA路线（冻结，不得执行）
+
+> 下列未勾选项保存当时的任务设计，不再表示待执行授权。P0B/P0C的实际完成状态和P0D/P0E/AU训练链的退役结论见本文件顶部权威入口。
 
 当前三语义区训练设计见`docs/GLOBAL_LOCAL_AU_EXPERIMENT_PLAN.md`；现有AU12/14/15来源与P0实现合同见`docs/PRIVILEGED_BEHAVIOR_ALIGNMENT_PLAN.md`。当前任务状态：
 
-- [x] `PB-SPEC`：冻结研究问题、文献依据、AU/head白名单、gaze排除决定、P0/P1/P2边界、实验矩阵和停止条件。
+- [x] `PB-SPEC`：历史AU/head研究问题、来源合同和P0边界已冻结；当前GLA已在后续文档决策中移除head，gaze继续排除。
 - [x] `PB-P0-INFRA`：exact `video_id + task_name + frame_id`合同、no-gaze extractor、strict provenance、coverage和physical-train normalization基础设施完成；65项测试通过。
 - [x] `PB-P0-LANDMARK-V2`：当前权威landmark-only审计完成，300/300 exact join、493,141帧，因缺六个rich源列而预期`BLOCKED`。
 - [x] `PB-R0-CORE`：PB核心实现、extractor、测试与方案冻结为提交`2685fa4`。
@@ -46,28 +66,29 @@ Stage A Shortcut 证据收口
 - [x] `PB-P0A3-FULL-RICH`：权威v2完成300/300视频、493,141/493,141行、单一182列schema、587 MB、10,064.6秒和全部hash/provenance闭环；A2 full判定为`PASS_FULL_SOURCE_COVERAGE`、0 blocker/0 warning。失败且不完整的v1禁止resume、复用或进入P0B。
 - [ ] `PB-P0B-CODE-COMPAT`：**当前下一代码候选，尚未授权**。先提交具名实施披露并等待用户确认；修复A2 full PASS却输出错误`next_action=STOP...`的报告分支，并审计/修复旧P0核心对mask-aware v2来源的兼容性。只放宽legacy coverage状态的误用，不得弱化hash/schema/join/provenance/数值域门禁。
 - [ ] `PB-P0B-CORE`：上述代码兼容包验证并另行获得运行授权后，对不可变v2 root运行P0审计和A2 coverage校验器；要求CLI `status=PASS`、300/300 core/schema/join、physical-train统计、九项产物、0 blocker和coverage decision PASS。当前CLI默认只拒绝`std==0`常量列；任何非零实用方差阈值必须版本化。P0B PASS仍不是训练授权。
-- [ ] `PB-P0C-FIDELITY`：新增独立matched-version raw/aligned AU/pose物理保真审计。HEAD仅保留通过轴；若Rx或Ry失败则删除整个HEAD，若仅Rz失败则只允许预登记的Rx/Ry版本。禁止回退历史raw rich CSV作监督。
+- [ ] `PB-P0C-FIDELITY`：新增独立matched-version raw/aligned AU物理保真审计，只裁决core/extension A/extension B候选AU。pose/head保真结果仅保留为历史质量、姿态分组和shortcut审计证据，禁止回退历史raw rich CSV作监督。
 - [ ] `PB-P0D-TARGET-RISK`：冻结实际P1视频/clip描述符、重新拟合physical-train normalization，并对同一描述符执行identity/session、task、exposure和quality风险审计；不读取BDI/prediction/checkpoint。
-- [ ] `PB-P0E-ELIGIBILITY`：新增机器可读聚合器，汇总core、coverage、fidelity和risk，输出`REGION_ELIGIBLE`、按组AU/head资格、`CROSS_REGION_ELIGIBLE`、`AU_ELIGIBLE/HEAD_ELIGIBLE/JOINT_ELIGIBLE`、完整`eligible_component_profile`及其SHA，并保持`P1_CODE_AUTHORIZED=false`。`GLA-FULL`严格等于该P0E最大依赖闭合集；某组失败时必须重新登记精简矩阵，不能静默继续联合方案。
-- [ ] `PB-P1-CODE`：仅在P0E通过且再次授权后实现默认关闭的dataset target path、AU/head辅助头、train-only masked loss和配置/测试。
+- [ ] `PB-P0E-ELIGIBILITY`：新增AU-only机器可读聚合器，输出`REGION_ELIGIBLE`、`AU_GROUP_ELIGIBLE(core/extension_A/extension_B)`、`CROSS_REGION_ELIGIBLE`、`AU_ELIGIBLE`、`GLA_PROFILE_ELIGIBLE`、完整`eligible_component_profile`及其SHA，并记录`excluded_by_design: [head_motion_auxiliary]`和`P1_CODE_AUTHORIZED=false`。`GLA-FULL`严格等于该P0E最大依赖闭合集；某组失败时必须重新登记精简矩阵，不能静默继续联合方案。
+- [ ] `PB-P1-CODE`：仅在P0E通过且再次授权后实现默认关闭的dataset AU target path、AU辅助头、train-only fixed-denominator masked loss和配置/测试；不得加入head或gaze分支。
 - [ ] `PB-P1-RUN`：旧PB六条件screen不再作为运行入口；PB-P1只提供GLA所需的默认关闭训练基础设施，任何smoke、校准和正式训练均转交下方`GLA-*`矩阵并分别授权。历史role-swap只保留为既有split-sensitivity证据。
 - [ ] `PB-P2-REL`：仅在GLA最终候选至少3个paired seed通过，且联合辅助profile优于其matched单组/减法对照后重新授权；先单独验证2--4秒短窗口预测，不与关系损失同时实现。
 
-pilot20已经直接证实strict逐视频0.995会失败；A2因此采用冻结的mask-aware合同，而不是临时降阈值或删视频。pilot中的3项future-full风险已在授权full前评审，并由完整physical train结果正式裁决。该分支不加入gaze，也不与曝光、低信息熵、identity adversarial、continuous severity weighting或新的RGB增强同时改变；任何训练因素必须串行隔离。
+pilot20已经直接证实strict逐视频0.995会失败；A2因此采用冻结的mask-aware合同，而不是临时降阈值或删视频。pilot中的3项future-full风险已在授权full前评审，并由完整physical train结果正式裁决。旧PB来源/coverage实验没有加入gaze、曝光处理或新RGB增强；当前GLA则预注册一套跨所有条件固定的train-only photometric augmentation，不能把它反写成旧PB实验已经使用的因素。
 
 完整full已经消除了pilot的3项future-full风险：physical train总体/Freeform/Northwind coverage均通过，task gap约0.01304。该PASS只消除来源coverage阻塞，不自动批准P0B、扩展AU、P0C/P0D/P0E、模型或训练。
 
-### 全模型优先混合消融执行包（当前均未授权）
+### 全模型优先混合消融执行包（除已勾选文档包外均未授权）
 
+- [x] `GLA-HEADLESS-PHOTOAUG-DOCS`：`DOC-20260730-GLA-HEADLESS-PHOTOAUG-v2`仅同步实现前文档；冻结head/gaze排除、AU-only损失、四视图张量/mask合同、按view独立且时间固定的train-only曝光/普通颜色增强、S0--S4阶梯和12-fit上限。未授权代码、数据生成、smoke、训练、commit或push。
 - [ ] `GLA-DISCLOSE`：每个代码/数据/smoke/训练包先按根`AGENTS.md`报告package ID、边界、架构/数据流/tensor/mask/loss、文件、兼容性、split/test访问、命令、算力、输出、验证、风险和agent分工；结束该轮等待用户明确授权。
 - [ ] `GLA-ELIGIBILITY`：完成PB-P0B/P0C/P0D、扩展AU合同、三语义区crop manifest和P0E；输出最大eligible profile及SHA，未通过组标为`SKIPPED_INELIGIBLE`。
 - [ ] `GLA-STRATEGY-MANIFEST`：在任何full fit前冻结run ID、相邻比较、MAE/CCC与风险阈值、loss固定分母、最大run数、停止分支和locked benchmark包。
-- [ ] `GLA-CODE`：单独授权后实现默认关闭的四视图共享backbone、validity-aware帧级融合、分组/跨区域AU及可选head小头，并保持旧配置/API/checkpoint兼容。
+- [ ] `GLA-CODE`：单独披露并授权后，以独立路径实现默认关闭的四视图共享backbone、global-residual validity-aware融合、单层GRU、分组/跨区域AU小头和train-only photometric augmentation；不继承旧head/Stage C逻辑，并保持旧配置/API/checkpoint兼容。
 - [ ] `GLA-SMOKE`：单独授权后执行import/config/one-batch、hidden-target val/test、AMP/DDP和100-step train-only校准；不读取benchmark。
-- [ ] `GLA-FULL-S42`：先运行匹配`GLA-C-REF`与最大合格`GLA-FULL`。source/hash/join、行为目标泄漏、NaN、mask/shape、AMP或DDP等技术失败立即停止；若仅触发预注册的科学utility/risk失败，则只完成S1--S5反向阶梯作诊断，跳过机制控制、加法复核、multi-seed和benchmark。
-- [ ] `GLA-SUB-S42`：只要没有技术失败，就按`-HEAD -> -AU10/17 -> -AU4/6/7 -> -all AU -> -locals`完成S1--S5独立训练阶梯。若FULL科学失败，该阶梯只作诊断且不运行controls；只有FULL科学通过时才运行grid、no-cross和subject-deranged shuffled-aux控制并进入后续加法复核。
+- [ ] `GLA-FULL-S42`：先运行匹配`GLA-C-REF`与最大合格`GLA-FULL`。source/hash/join、行为目标泄漏、NaN、mask/shape、AMP或DDP等技术失败立即停止；若仅触发预注册的科学utility/risk失败，则只完成S1--S4反向阶梯作诊断，跳过机制控制、加法复核、multi-seed和benchmark。
+- [ ] `GLA-SUB-S42`：只要没有技术失败，就按`AU-B -> AU-A -> all core AU -> locals`完成S0--S4独立训练阶梯：`GLA-FULL / GLA-S1-NO-AU-B / GLA-S2-CORE-AU / GLA-RGB-FULL / GLA-C-REF`。若FULL科学失败，该阶梯只作诊断且不运行controls；只有FULL科学通过时才运行grid、no-cross、subject-deranged shuffled-aux和`GLA-FULL-NO-EXPOSURE-AUG`控制并进入后续加法复核。
 - [ ] `GLA-ADD-S42`：只对减法幸存组做至多3个单组加回和1个reduced rebuild；不得扩展全组合或临时weight sweep。
-- [ ] `GLA-MULTI`：最终简化候选、直接matched ablation和必要anchors/controls运行paired seeds43/44，每seed最多5个full fit。
+- [ ] `GLA-MULTI`：seed42最多12个full fit；最终简化候选、直接matched ablation和必要anchors/controls再运行paired seeds43/44，每seed最多5个full fit。
 - [ ] `GLA-LOCKED-BENCHMARK`：冻结evaluation package后一次性读取原test；因历史role-swap，该结果只能称locked post-selection benchmark，不得触发重新选择或重跑同族配置。
 
 ### 历史编程实施控制（Stage A-C，非当前入口）
@@ -85,7 +106,7 @@ pilot20已经直接证实strict逐视频0.995会失败；A2因此采用冻结的
 
 #### 立即可编程任务包
 
-> 状态（2026-07-30）：**C2/C3 已停止；PB-P0A3/A2 full coverage已完成；当前入口改为上方GLA执行包**。任何旧四区、RGB-only AU或G0/G1/G2前向筛选只用于复现历史，不得覆盖`GLOBAL_LOCAL_AU_EXPERIMENT_PLAN.md`中的三语义区、train-only AU辅助监督和FULL优先混合消融。新dataset/model/config、P0B运行和训练均未授权。
+> 状态（2026-07-30历史）：**C2/C3 已停止；PB-P0A3/A2 full coverage已完成；当时入口改为GLA执行包**。任何旧四区、RGB-only AU或G0/G1/G2前向筛选只用于复现历史；当前不得覆盖`GLOBAL_LOCAL_AU_EXPERIMENT_PLAN.md`第0节的三语义区RGB-only、`GLA-RGB-FULL`优先混合消融。新region/dataset/model/config和任何运行仍须独立授权。
 
 > 正则化审计已完成：四组 best-val RMSE 基本重合且全部继续过拟合，关闭系数 sweep，EarlyStopping 保留为训练策略。
 
