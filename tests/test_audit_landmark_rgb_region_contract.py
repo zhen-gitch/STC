@@ -1,14 +1,19 @@
 import csv
+import hashlib
 import importlib.util
 import json
 from pathlib import Path
 
 import numpy as np
+import pytest
 from PIL import Image
 
 from src.diagnostics.landmark_rgb_region_contract import (
     CANDIDATE_MODES,
     POLICY_STATUS,
+    _select_overlay_groups,
+    load_pilot_selection_manifest,
+    load_split_map,
     run_landmark_rgb_region_contract,
 )
 
@@ -69,6 +74,55 @@ def _read_csv(path):
         return list(csv.DictReader(handle))
 
 
+def _sha256(path):
+    digest = hashlib.sha256()
+    digest.update(Path(path).read_bytes())
+    return digest.hexdigest()
+
+
+def _write_selection_manifest(tmp_path, split_path):
+    source_evidence = tmp_path / "source_evidence.csv"
+    source_evidence.write_text("metric,value\nusable,1\n", encoding="utf-8")
+    source_manifest = tmp_path / "source_run_manifest.json"
+    source_manifest.write_text('{"status":"PASS"}\n', encoding="utf-8")
+    subject_id = "203_1"
+    video_ids = [
+        f"{subject_id}_Freeform_video_aligned",
+        f"{subject_id}_Northwind_video_aligned",
+    ]
+    payload = {
+        "schema_version": "region_p0b_pilot_selection_v1",
+        "split": "train",
+        "expected_subject_count": 1,
+        "expected_video_count": 2,
+        "expected_frame_count": 6,
+        "expected_candidate_row_count": 54,
+        "expected_overlay_count": 6,
+        "selected_subject_ids": [subject_id],
+        "selected_video_ids": video_ids,
+        "dataset_split_sha256": _sha256(split_path),
+        "source_evidence": {
+            "path": str(source_evidence),
+            "sha256": _sha256(source_evidence),
+        },
+        "source_run_manifest": {
+            "path": str(source_manifest),
+            "sha256": _sha256(source_manifest),
+        },
+        "candidate_parameters": {
+            "confidence_threshold": 0.8,
+            "canonical_sample_step": 30,
+            "stabilization_window": 5,
+            "candidate_margin_ratio": 0.05,
+            "candidate_modes": list(CANDIDATE_MODES),
+            "overlay_frames_per_mode": 2,
+        },
+    }
+    path = tmp_path / "selection.json"
+    path.write_text(json.dumps(payload), encoding="utf-8")
+    return path, payload
+
+
 def test_parser_defaults_keep_policy_unfrozen():
     args = audit_landmark_rgb_region_contract.build_parser().parse_args(
         [
@@ -89,6 +143,162 @@ def test_parser_defaults_keep_policy_unfrozen():
     assert args.candidate_margin_ratio == 0.0
     assert args.candidate_mode is None
     assert args.overlay_frames_per_mode == 2
+    assert args.selection_manifest is None
+
+
+def test_committed_pilot_selection_is_paired_train_only_contract():
+    payload = json.loads(
+        (
+            PROJECT_ROOT / "configs" / "regions" / "region_p0b_pilot20_v1.json"
+        ).read_text(encoding="utf-8")
+    )
+
+    assert payload["split"] == "train"
+    assert len(payload["selected_subject_ids"]) == 10
+    assert len(set(payload["selected_subject_ids"])) == 10
+    assert len(payload["selected_video_ids"]) == 20
+    assert len(set(payload["selected_video_ids"])) == 20
+    for subject_id in payload["selected_subject_ids"]:
+        assert {
+            f"{subject_id}_Freeform_video_aligned",
+            f"{subject_id}_Northwind_video_aligned",
+        }.issubset(payload["selected_video_ids"])
+    assert payload["expected_frame_count"] == 38220
+    assert payload["expected_candidate_row_count"] == 343980
+    assert payload["expected_overlay_count"] == 60
+    assert payload["selection_algorithm"]["label_blind"] is True
+
+
+def test_selection_manifest_locks_sources_split_and_runtime_parameters(tmp_path):
+    video_ids = [
+        "203_1_Freeform_video_aligned",
+        "203_1_Northwind_video_aligned",
+    ]
+    split_path = tmp_path / "split.json"
+    split_path.write_text(
+        json.dumps({"train": video_ids, "val": [], "test": []}), encoding="utf-8"
+    )
+    selection_path, payload = _write_selection_manifest(tmp_path, split_path)
+    kwargs = {
+        "selection_manifest": selection_path,
+        "dataset_split_file": split_path,
+        "split_map": load_split_map(split_path),
+        "project_root": PROJECT_ROOT,
+        "confidence_threshold": 0.8,
+        "canonical_sample_step": 30,
+        "stabilization_window": 5,
+        "candidate_margin_ratio": 0.05,
+        "candidate_modes": CANDIDATE_MODES,
+        "overlay_frames_per_mode": 2,
+    }
+
+    loaded = load_pilot_selection_manifest(**kwargs)
+    assert loaded["video_ids"] == [
+        "203_1_Freeform_video",
+        "203_1_Northwind_video",
+    ]
+
+    payload["candidate_parameters"]["candidate_margin_ratio"] = 0.0
+    selection_path.write_text(json.dumps(payload), encoding="utf-8")
+    with pytest.raises(ValueError, match="runtime parameter mismatch"):
+        load_pilot_selection_manifest(**kwargs)
+
+    payload["candidate_parameters"]["candidate_margin_ratio"] = 0.05
+    payload["source_evidence"]["sha256"] = "0" * 64
+    selection_path.write_text(json.dumps(payload), encoding="utf-8")
+    with pytest.raises(ValueError, match="source SHA-256 mismatch"):
+        load_pilot_selection_manifest(**kwargs)
+
+    payload["source_evidence"]["sha256"] = _sha256(tmp_path / "source_evidence.csv")
+    payload["split"] = "val"
+    selection_path.write_text(json.dumps(payload), encoding="utf-8")
+    with pytest.raises(ValueError, match="physical-train only"):
+        load_pilot_selection_manifest(**kwargs)
+
+
+def test_overlay_selection_uses_one_high_risk_frame_per_video_and_mode():
+    rows = []
+    for mode in ("raw_dynamic", "static_canonical"):
+        for video_id in ("203_1_Freeform_video_aligned", "204_1_Freeform_video_aligned"):
+            for frame_id in (0, 1):
+                rows.append(
+                    {
+                        "split": "train",
+                        "candidate_mode": mode,
+                        "video_id": video_id,
+                        "frame_id": frame_id,
+                        "region": "eye_brow",
+                        "valid": frame_id == 0,
+                        "center_shift_ratio": 0.01 * frame_id,
+                        "adjacent_box_iou": 0.9 - 0.1 * frame_id,
+                        "confidence": 0.95,
+                    }
+                )
+
+    selected = _select_overlay_groups(rows, limit_per_mode=2)
+
+    assert len(selected) == 4
+    keys = [
+        (group[0]["candidate_mode"], group[0]["video_id"], group[0]["frame_id"])
+        for group, _reason in selected
+    ]
+    assert len({(mode, video_id) for mode, video_id, _frame_id in keys}) == 4
+    assert {frame_id for _mode, _video_id, frame_id in keys} == {1}
+    assert {reason for _group, reason in selected} == {"invalid_candidate"}
+
+
+def test_selection_manifest_drives_run_and_is_recorded(tmp_path):
+    video_ids = [
+        "203_1_Freeform_video_aligned",
+        "203_1_Northwind_video_aligned",
+    ]
+    split_path = tmp_path / "split.json"
+    split_path.write_text(
+        json.dumps({"train": video_ids, "val": [], "test": []}), encoding="utf-8"
+    )
+    selection_path, _payload = _write_selection_manifest(tmp_path, split_path)
+    image_root = tmp_path / "images"
+    landmark_root = tmp_path / "landmarks"
+    landmark_root.mkdir()
+    for video_id in video_ids:
+        video_dir = image_root / video_id
+        video_dir.mkdir(parents=True)
+        for frame_id in range(3):
+            Image.new("RGB", (112, 112), color=(120, 110, 100)).save(
+                video_dir / f"frame_det_00_{frame_id:06d}.jpg"
+            )
+        _write_landmark_csv(
+            landmark_root / f"{video_id}.csv", _semantic_points(), frame_count=3
+        )
+
+    run_landmark_rgb_region_contract(
+        dataset_split_file=split_path,
+        image_root=image_root,
+        aligned_landmark_root=landmark_root,
+        output_dir=tmp_path / "output",
+        confidence_threshold=0.8,
+        canonical_sample_step=30,
+        stabilization_window=5,
+        candidate_margin_ratio=0.05,
+        candidate_modes=CANDIDATE_MODES,
+        overlay_frames_per_mode=2,
+        project_root=PROJECT_ROOT,
+        selection_manifest=selection_path,
+    )
+
+    manifest = json.loads(
+        (tmp_path / "output" / "run_manifest.json").read_text(encoding="utf-8")
+    )
+    assert manifest["audit"].startswith("REGION-P0B")
+    assert manifest["pilot_selection"]["selected_video_ids"] == video_ids
+    assert manifest["pilot_selection"]["normalized_selected_video_ids"] == [
+        "203_1_Freeform_video",
+        "203_1_Northwind_video",
+    ]
+    overlays = _read_csv(
+        tmp_path / "output" / "tables" / "region_overlay_review.csv"
+    )
+    assert len(overlays) == 6
 
 
 def test_region_contract_run_writes_hashed_candidate_artifacts(tmp_path):

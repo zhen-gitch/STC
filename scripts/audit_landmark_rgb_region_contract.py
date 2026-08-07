@@ -30,6 +30,11 @@ def build_parser():
     parser.add_argument("--aligned-landmark-root", required=True)
     parser.add_argument("--output-dir", required=True)
     parser.add_argument("--video-id", action="append", default=None)
+    parser.add_argument(
+        "--selection-manifest",
+        default=None,
+        help="Versioned physical-train pilot selection and runtime parameter lock.",
+    )
     parser.add_argument("--max-videos", type=int, default=None)
     parser.add_argument("--confidence-threshold", type=float, default=0.8)
     parser.add_argument("--canonical-sample-step", type=int, default=30)
@@ -70,8 +75,9 @@ def main():
         candidate_modes=args.candidate_mode,
         overlay_frames_per_mode=args.overlay_frames_per_mode,
         project_root=PROJECT_ROOT,
+        selection_manifest=args.selection_manifest,
     )
-    print("[REGION-P0A] generated files:")
+    print("[REGION] generated files:")
     for path in generated:
         print(f"  - {path}")
 

@@ -36,6 +36,7 @@ REGION_ORDER = ("eye_brow", "nose_cheek", "mouth_lower_face")
 CANDIDATE_MODES = ("raw_dynamic", "static_canonical", "stabilized_dynamic")
 POLICY_STATUS = "POLICY_UNFROZEN"
 EXPECTED_IMAGE_SIZE = (112, 112)
+SELECTION_SCHEMA_VERSION = "region_p0b_pilot_selection_v1"
 
 # Zero-based standard 68-point indexing. The nose bridge is diagnostic rather
 # than strict because it vertically overlaps the eye/brow band in a strict
@@ -242,6 +243,113 @@ def load_split_map(dataset_split_file):
                 raise ValueError(f"video appears in multiple split entries: {video_id}")
             split_map[video_id] = split
     return split_map
+
+
+def _resolve_project_path(value, project_root):
+    path = Path(value).expanduser()
+    return path.resolve() if path.is_absolute() else (Path(project_root) / path).resolve()
+
+
+def load_pilot_selection_manifest(
+    selection_manifest,
+    dataset_split_file,
+    split_map,
+    project_root,
+    confidence_threshold,
+    canonical_sample_step,
+    stabilization_window,
+    candidate_margin_ratio,
+    candidate_modes,
+    overlay_frames_per_mode,
+):
+    """Validate a label-blind, train-only pilot selection and parameter lock."""
+
+    selection_manifest = Path(selection_manifest).expanduser().resolve()
+    payload = json.loads(selection_manifest.read_text(encoding="utf-8"))
+    if payload.get("schema_version") != SELECTION_SCHEMA_VERSION:
+        raise ValueError("unsupported REGION-P0B selection schema")
+    if payload.get("split") != "train":
+        raise ValueError("REGION-P0B selection manifest must be physical-train only")
+    expected_split_sha = str(payload.get("dataset_split_sha256", ""))
+    if expected_split_sha != _sha256_file(dataset_split_file):
+        raise ValueError("REGION-P0B dataset split SHA-256 mismatch")
+
+    for key in ("source_evidence", "source_run_manifest"):
+        source = payload.get(key)
+        if not isinstance(source, dict):
+            raise ValueError(f"REGION-P0B selection has no {key}")
+        source_path = _resolve_project_path(source.get("path", ""), project_root)
+        if not source_path.is_file():
+            raise ValueError(f"REGION-P0B selection source is missing: {source_path}")
+        if _sha256_file(source_path) != str(source.get("sha256", "")):
+            raise ValueError(f"REGION-P0B selection source SHA-256 mismatch: {key}")
+
+    raw_video_ids = payload.get("selected_video_ids")
+    raw_subject_ids = payload.get("selected_subject_ids")
+    if not isinstance(raw_video_ids, list) or not isinstance(raw_subject_ids, list):
+        raise ValueError("REGION-P0B selection ids must be lists")
+    video_ids = [normalize_video_id(value) for value in raw_video_ids]
+    subject_ids = [str(value) for value in raw_subject_ids]
+    if len(video_ids) != len(set(video_ids)) or len(subject_ids) != len(set(subject_ids)):
+        raise ValueError("REGION-P0B selection ids must be unique")
+    if len(video_ids) != int(payload.get("expected_video_count", -1)):
+        raise ValueError("REGION-P0B selected video count mismatch")
+    if len(subject_ids) != int(payload.get("expected_subject_count", -1)):
+        raise ValueError("REGION-P0B selected subject count mismatch")
+    if any(split_map.get(video_id) != "train" for video_id in video_ids):
+        raise ValueError("REGION-P0B selection contains a non-train or unknown video")
+
+    tasks_by_subject = defaultdict(set)
+    for video_id in video_ids:
+        subject_id, task_name = _subject_and_task(video_id)
+        tasks_by_subject[subject_id].add(task_name)
+    if set(tasks_by_subject) != set(subject_ids):
+        raise ValueError("REGION-P0B selected subject ids do not match selected videos")
+    if any(tasks != {"Freeform", "Northwind"} for tasks in tasks_by_subject.values()):
+        raise ValueError("REGION-P0B must preserve paired Freeform/Northwind tasks")
+
+    expected_counts = {}
+    for key in (
+        "expected_frame_count",
+        "expected_candidate_row_count",
+        "expected_overlay_count",
+    ):
+        value = payload.get(key)
+        if not isinstance(value, int) or isinstance(value, bool) or value < 0:
+            raise ValueError(f"REGION-P0B selection has invalid {key}")
+        expected_counts[key] = value
+
+    parameters = payload.get("candidate_parameters")
+    if not isinstance(parameters, dict):
+        raise ValueError("REGION-P0B selection has no candidate_parameters")
+    expected_parameters = {
+        "confidence_threshold": float(confidence_threshold),
+        "canonical_sample_step": int(canonical_sample_step),
+        "stabilization_window": int(stabilization_window),
+        "candidate_margin_ratio": float(candidate_margin_ratio),
+        "candidate_modes": list(candidate_modes),
+        "overlay_frames_per_mode": int(overlay_frames_per_mode),
+    }
+    for key, expected in expected_parameters.items():
+        actual = parameters.get(key)
+        if isinstance(expected, float):
+            try:
+                matches = math.isclose(float(actual), expected, rel_tol=0.0, abs_tol=1e-12)
+            except (TypeError, ValueError):
+                matches = False
+        else:
+            matches = actual == expected
+        if not matches:
+            raise ValueError(
+                f"REGION-P0B runtime parameter mismatch for {key}: {actual!r} != {expected!r}"
+            )
+    return {
+        "path": selection_manifest,
+        "sha256": _sha256_file(selection_manifest),
+        "payload": payload,
+        "video_ids": video_ids,
+        "expected_counts": expected_counts,
+    }
 
 
 def _landmark_csv_inventory(path):
@@ -752,15 +860,50 @@ def _select_overlay_groups(candidate_rows, limit_per_mode):
     for row in candidate_rows:
         if row["split"] == "train":
             grouped[(row["candidate_mode"], row["video_id"], row["frame_id"])].append(row)
+
+    def risk_key(item):
+        key, rows = item
+        invalid = not all(row["valid"] for row in rows)
+        shifts = [
+            float(row["center_shift_ratio"])
+            for row in rows
+            if row["center_shift_ratio"] is not None
+        ]
+        ious = [
+            float(row["adjacent_box_iou"])
+            for row in rows
+            if row["adjacent_box_iou"] is not None
+        ]
+        confidences = [
+            float(row["confidence"])
+            for row in rows
+            if row["confidence"] is not None
+        ]
+        return (
+            0 if invalid else 1,
+            -max(shifts, default=-1.0),
+            min(ious, default=2.0),
+            min(confidences, default=2.0),
+            key[1],
+            key[2],
+        )
+
+    representatives = {}
+    by_video = defaultdict(list)
+    for key, rows in grouped.items():
+        by_video[(key[0], key[1])].append((key, rows))
+    for mode_video, groups in by_video.items():
+        representatives[mode_video] = min(groups, key=risk_key)
+
+    by_mode = defaultdict(list)
+    for (mode, _video_id), representative in representatives.items():
+        by_mode[mode].append(representative)
+
     selected = []
-    counts = Counter()
-    for key, rows in sorted(grouped.items()):
-        mode = key[0]
-        if counts[mode] >= int(limit_per_mode):
-            continue
-        reason = "valid_control" if all(row["valid"] for row in rows) else "invalid_candidate"
-        selected.append((rows, reason))
-        counts[mode] += 1
+    for mode in sorted(by_mode):
+        for _key, rows in sorted(by_mode[mode], key=risk_key)[: max(0, int(limit_per_mode))]:
+            reason = "valid_control" if all(row["valid"] for row in rows) else "invalid_candidate"
+            selected.append((rows, reason))
     return selected
 
 
@@ -1081,6 +1224,7 @@ def run_landmark_rgb_region_contract(
     candidate_modes=None,
     overlay_frames_per_mode=2,
     project_root=None,
+    selection_manifest=None,
 ):
     """Generate candidate region-contract artifacts without approving policy."""
 
@@ -1101,12 +1245,39 @@ def run_landmark_rgb_region_contract(
     aligned_landmark_root = Path(aligned_landmark_root).expanduser().resolve()
     output_dir = Path(output_dir).expanduser().resolve()
     project_root = Path(project_root or Path(__file__).resolve().parents[2]).resolve()
-    output_dir.mkdir(parents=True, exist_ok=True)
 
     split_map = load_split_map(dataset_split_file)
+    selection = None
+    if selection_manifest is not None:
+        if video_ids:
+            raise ValueError("selection manifest cannot be combined with video ids")
+        if max_videos is not None:
+            raise ValueError("selection manifest cannot be combined with max videos")
+        selection = load_pilot_selection_manifest(
+            selection_manifest=selection_manifest,
+            dataset_split_file=dataset_split_file,
+            split_map=split_map,
+            project_root=project_root,
+            confidence_threshold=confidence_threshold,
+            canonical_sample_step=canonical_sample_step,
+            stabilization_window=stabilization_window,
+            candidate_margin_ratio=candidate_margin_ratio,
+            candidate_modes=modes,
+            overlay_frames_per_mode=overlay_frames_per_mode,
+        )
+        video_ids = selection["video_ids"]
+    output_dir.mkdir(parents=True, exist_ok=True)
     records = _inventory_sources(
         split_map, image_root, aligned_landmark_root, video_ids, max_videos
     )
+    if selection is not None:
+        expected = selection["expected_counts"]
+        frame_count = sum(len(record["frame_paths"]) for record in records)
+        if frame_count != expected["expected_frame_count"]:
+            raise ValueError(
+                f"REGION-P0B frame count mismatch: {frame_count} != "
+                f"{expected['expected_frame_count']}"
+            )
     canonical, canonical_count = _canonical_from_records(
         records, confidence_threshold, canonical_sample_step
     )
@@ -1132,6 +1303,13 @@ def run_landmark_rgb_region_contract(
         )
     )
     _add_temporal_metrics(candidate_rows)
+    if selection is not None:
+        expected_rows = selection["expected_counts"]["expected_candidate_row_count"]
+        if len(candidate_rows) != expected_rows:
+            raise ValueError(
+                f"REGION-P0B candidate row count mismatch: {len(candidate_rows)} != "
+                f"{expected_rows}"
+            )
     summaries = _summarize_candidates(candidate_rows)
     issues = _issue_rows(candidate_rows)
 
@@ -1177,6 +1355,13 @@ def run_landmark_rgb_region_contract(
     )
     issue_path = _write_csv(tables_dir / "region_issues.csv", issues, ISSUE_FIELDS)
     overlay_rows = _write_overlays(output_dir, candidate_rows, overlay_frames_per_mode)
+    if selection is not None:
+        expected_overlays = selection["expected_counts"]["expected_overlay_count"]
+        if len(overlay_rows) != expected_overlays:
+            raise ValueError(
+                f"REGION-P0B overlay count mismatch: {len(overlay_rows)} != "
+                f"{expected_overlays}"
+            )
     overlay_path = _write_csv(
         tables_dir / "region_overlay_review.csv", overlay_rows, OVERLAY_FIELDS
     )
@@ -1192,9 +1377,15 @@ def run_landmark_rgb_region_contract(
         "core": Path(__file__).resolve(),
         "cli": project_root / "scripts" / "audit_landmark_rgb_region_contract.py",
     }
+    if selection is not None:
+        implementation_files["selection_manifest"] = selection["path"]
     output_paths = [source_path, frame_path, video_path, issue_path, overlay_path, report_path]
     payload = {
-        "audit": "REGION-P0A landmark-localized RGB candidate contract",
+        "audit": (
+            "REGION-P0B landmark-localized RGB pilot candidate contract"
+            if selection is not None
+            else "REGION-P0A landmark-localized RGB candidate contract"
+        ),
         "created_utc": datetime.now(timezone.utc).isoformat(),
         "command_line": " ".join(shlex.quote(value) for value in sys.argv),
         "git_commit": _git_value(project_root, ["rev-parse", "HEAD"]),
@@ -1240,6 +1431,20 @@ def run_landmark_rgb_region_contract(
             for path in output_paths
         },
     }
+    if selection is not None:
+        selection_payload = selection["payload"]
+        payload["pilot_selection"] = {
+            "path": str(selection["path"]),
+            "sha256": selection["sha256"],
+            "schema_version": selection_payload["schema_version"],
+            "selected_subject_ids": selection_payload["selected_subject_ids"],
+            "selected_video_ids": selection_payload["selected_video_ids"],
+            "normalized_selected_video_ids": selection["video_ids"],
+            "selection_algorithm": selection_payload.get("selection_algorithm"),
+            "source_evidence": selection_payload["source_evidence"],
+            "source_run_manifest": selection_payload["source_run_manifest"],
+            **selection["expected_counts"],
+        }
     manifest_path = output_dir / "run_manifest.json"
     manifest_path.write_text(
         json.dumps(payload, ensure_ascii=False, indent=2) + "\n", encoding="utf-8"

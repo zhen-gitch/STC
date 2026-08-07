@@ -1,0 +1,77 @@
+{
+  "schema_version": "region_p0b_pilot_selection_v1",
+  "split": "train",
+  "expected_subject_count": 10,
+  "expected_video_count": 20,
+  "expected_frame_count": 38220,
+  "expected_candidate_row_count": 343980,
+  "expected_overlay_count": 60,
+  "selected_subject_ids": [
+    "207_2",
+    "324_1",
+    "223_1",
+    "332_2",
+    "242_3",
+    "332_4",
+    "331_1",
+    "320_2",
+    "318_3",
+    "317_3"
+  ],
+  "selected_video_ids": [
+    "207_2_Freeform_video_aligned",
+    "207_2_Northwind_video_aligned",
+    "324_1_Freeform_video_aligned",
+    "324_1_Northwind_video_aligned",
+    "223_1_Freeform_video_aligned",
+    "223_1_Northwind_video_aligned",
+    "332_2_Freeform_video_aligned",
+    "332_2_Northwind_video_aligned",
+    "242_3_Freeform_video_aligned",
+    "242_3_Northwind_video_aligned",
+    "332_4_Freeform_video_aligned",
+    "332_4_Northwind_video_aligned",
+    "331_1_Freeform_video_aligned",
+    "331_1_Northwind_video_aligned",
+    "320_2_Freeform_video_aligned",
+    "320_2_Northwind_video_aligned",
+    "318_3_Freeform_video_aligned",
+    "318_3_Northwind_video_aligned",
+    "317_3_Freeform_video_aligned",
+    "317_3_Northwind_video_aligned"
+  ],
+  "dataset_split_sha256": "979dc7c5ea622a6b4575bf1d6f89393bf9563fe8f3cdc5bec80fff73787e2e24",
+  "source_evidence": {
+    "path": "logs/au_region_tracking_audit/face_usability_phase1_v2/tables/face_usability_video_summary.csv",
+    "sha256": "fcc0fccdd3212926da018027f38a1080c2ca8c313bdcded106a3470101881ae2"
+  },
+  "source_run_manifest": {
+    "path": "logs/au_region_tracking_audit/face_usability_phase1_v2/run_manifest.json",
+    "sha256": "b0753a5b69d3ad8806e11efd15308d5efeb232323c18e3c4c73da5914bc7a768"
+  },
+  "selection_algorithm": {
+    "label_blind": true,
+    "scope": "physical_train_subjects_with_paired_freeform_northwind",
+    "ranking_unit": "subject",
+    "steps": [
+      "select_3_lowest_landmark_success_ratio",
+      "select_3_highest_median_abs_yaw_deg",
+      "select_3_highest_median_landmark_jump",
+      "deduplicate_subjects",
+      "fill_to_10_by_distance_to_three_metric_median"
+    ],
+    "tie_break": "subject_id_ascending"
+  },
+  "candidate_parameters": {
+    "confidence_threshold": 0.8,
+    "canonical_sample_step": 30,
+    "stabilization_window": 5,
+    "candidate_margin_ratio": 0.05,
+    "candidate_modes": [
+      "raw_dynamic",
+      "static_canonical",
+      "stabilized_dynamic"
+    ],
+    "overlay_frames_per_mode": 20
+  }
+}
