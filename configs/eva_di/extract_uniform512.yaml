@@ -1,0 +1,60 @@
+# Extraction config (run.mode=extract).  Used by EVA-DI-EXTRACT-v1 runner.
+# Code + config authorized in CODE-v1; the extraction RUN itself is a separate boundary.
+schema_version: eva_di_config_v1
+
+run:
+  mode: extract
+  seed: 42
+  run_id: eva-di-extract
+
+paths:
+  of3_root: null
+  avec_root: null
+  split_file: null
+  label_dir: null
+  cache_root: null
+  weight_path: null
+  behavior_norm_root: null
+  log_root: null
+  output_root: null
+
+extraction:
+  backbone: eva02_small_patch14_224.mim_in22k
+  weight_sha256: d3d632352efbd0a0a8269dce114ab8a214833f85ce6f738860221f11ab0f0c2f
+  chunk: 128
+  autocast: bf16
+  input_size: 224
+  selection_policy: uniform512_v1
+  frame_budget: 512
+
+data:
+  # NOTE: extraction is label-free and always covers the FULL split universe
+  # (train|val|test); data.splits is a schema-required section only (R2-P2-11).
+  splits: [train, val]
+  max_recordings: null
+  behavior_norm: reuse
+
+model:
+  use_gap: false
+  proj_dim: 192
+  gru_hidden: 192
+  gru_layers: 1
+  behavior_mlp_dim: 64
+  behavior_dropout: 0.2
+  proj_dropout: 0.1
+
+identity:
+  derange: false
+  t1: {enable: false, weight: 0.05, lam: 0.05, warmup_epochs: 5, label_smoothing: 0.1}
+  t3: {enable: false, weight: 0.05, lam: 0.05, warmup_epochs: 5, label_smoothing: 0.1}
+
+ablation:
+  input_mode: dual
+
+training:
+  precision: bf16-mixed
+  optimizer: {name: adamw, lr: 0.0003, weight_decay: 0.01}
+  batch_recordings: 8
+  epochs_max: 60
+  early_stop: {metric: val_ccc, patience: 10}
+  grad_clip_norm: 1.0

@@ -1,0 +1,8 @@
+# DI-T1: REF + frame-level (exit P) GRL identity suppression (new mechanism, single variable).
+extends: eva_di_base.yaml
+run:
+  run_id: di-t1
+identity:
+  derange: false
+  t1:
+    enable: true

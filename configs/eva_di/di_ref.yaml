@@ -1,0 +1,9 @@
+# DI-REF: T2 only, no GRL.  Matched reference anchor (mechanism section 4).
+extends: eva_di_base.yaml
+run:
+  run_id: di-ref
+# identity defaults off in base; explicitly assert here for the matrix record.
+identity:
+  derange: false
+  t1: {enable: false, weight: 0.05, lam: 0.05, warmup_epochs: 5, label_smoothing: 0.1}
+  t3: {enable: false, weight: 0.05, lam: 0.05, warmup_epochs: 5, label_smoothing: 0.1}

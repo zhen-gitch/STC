@@ -1,0 +1,6 @@
+# Input ablation: EVA02 visual stream only (behavior stream zeroed at projector input).
+extends: eva_di_base.yaml
+run:
+  run_id: ab-eva-only
+ablation:
+  input_mode: eva_only

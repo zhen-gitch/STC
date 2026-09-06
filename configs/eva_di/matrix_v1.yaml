@@ -1,0 +1,29 @@
+# EVA-DI ablation matrix spec (schema eva_di_matrix_v1).
+# Pure DATA consumed by src/eva_di/matrix.py.  Adding this file does NOT
+# authorize training; it only declares the planned runs.  Paths are repo-
+# relative configs that already exist; stage-2 paired seeds (43/44) are
+# surfaced as "blocked: derived per-seed config required" until such configs
+# are explicitly added -- the planner never fabricates them.
+schema_version: eva_di_matrix_v1
+
+stage1:
+  seed: 42
+  arms:
+    - {name: DI-REF,  config: configs/eva_di/di_ref.yaml}
+    - {name: DI-T1,   config: configs/eva_di/di_t1.yaml}
+    - {name: DI-T3,   config: configs/eva_di/di_t3.yaml}
+    - {name: DI-FULL, config: configs/eva_di/di_full.yaml}
+    - {name: DI-DERM, config: configs/eva_di/di_derm.yaml}
+
+# Negative-control ablations run alongside stage 1 at the base seed.
+ablations:
+  - {name: AB-EVA-ONLY, config: configs/eva_di/ab_eva_only.yaml}
+  - {name: AB-OF3-ONLY, config: configs/eva_di/ab_of3_only.yaml}
+
+# Paired-seed replication for arms that survive stage 1 (mechanism section:
+# seed 43/44 only after the subtraction ladder is consistent).  arms[] is
+# filled at run time with --arms/--seeds; the corresponding <arm>_s43.yaml
+# derived configs must be added by hand before those rows can launch.
+stage2:
+  seeds: [43, 44]
+  arms: []

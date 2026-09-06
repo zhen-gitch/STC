@@ -1,0 +1,85 @@
+# eva_di BASE config -- schema eva_di_config_v1 (design section 6, full key set)
+# Identity heads default OFF (bit-identical DI-REF semantics).
+# No paths are hard-coded here; null -> EVA_DI_* env or contracts defaults.
+schema_version: eva_di_config_v1
+
+run:
+  mode: train
+  seed: 42
+  run_id: null
+
+paths:
+  of3_root: null
+  avec_root: null
+  split_file: null
+  label_dir: null
+  cache_root: null
+  weight_path: null
+  behavior_norm_root: null
+  log_root: null
+  output_root: null
+
+extraction:
+  backbone: eva02_small_patch14_224.mim_in22k
+  weight_sha256: d3d632352efbd0a0a8269dce114ab8a214833f85ce6f738860221f11ab0f0c2f
+  chunk: 128
+  autocast: bf16
+  input_size: 224
+  selection_policy: uniform512_v1
+  frame_budget: 512
+
+data:
+  splits: [train, val]
+  max_recordings: null
+  behavior_norm: reuse  # v1 pins reuse; explicit so base drift cannot flip semantics silently
+  behavior_norm: reuse  # v1 pins reuse; explicit so base drift cannot flip semantics silently
+
+model:
+  use_gap: false
+  proj_dim: 192
+  gru_hidden: 192
+  gru_layers: 1
+  behavior_mlp_dim: 64
+  behavior_dropout: 0.2
+  proj_dropout: 0.1
+
+identity:
+  derange: false
+  # Multi-task gradient-conflict observer (EVA-DI-GRADAUDIT-v1); default off
+  # = zero behaviour change.  enable requires an identity head (validator).
+  grad_audit:
+    enable: false
+    every_n_steps: 10
+    max_records: 2000
+  t1:
+    enable: false
+    weight: 0.05
+    lam: 0.05
+    warmup_epochs: 5
+    label_smoothing: 0.1
+  t3:
+    enable: false
+    weight: 0.05
+    lam: 0.05
+    warmup_epochs: 5
+    label_smoothing: 0.1
+
+ablation:
+  input_mode: dual
+
+training:
+  precision: bf16-mixed
+  optimizer:
+    name: adamw
+    lr: 0.0003
+    weight_decay: 0.01
+  batch_recordings: 8
+  epochs_max: 100
+  early_stop:
+    metric: val_ccc
+    patience: 18
+  grad_clip_norm: 1.0
+  # EVA-DI-REGNORM-v1 (user protocol change 2026-09-06): L_reg is plain MSE on
+  # the train-only z-scored BDI target (dataset TargetStats; eval denormalizes
+  # and clamps to [0,63]).  'severity' restores the legacy weighted path.
+  reg_weighting: plain

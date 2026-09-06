@@ -1,0 +1,10 @@
+# DI-FULL: REF + T1 + T3 GRL.  Primary candidate (mechanism section 4).
+extends: eva_di_base.yaml
+run:
+  run_id: di-full
+identity:
+  derange: false
+  t1:
+    enable: true
+  t3:
+    enable: true

@@ -1,0 +1,8 @@
+# DI-T3: REF + temporal-level (exit V) GRL identity suppression.
+extends: eva_di_base.yaml
+run:
+  run_id: di-t3
+identity:
+  derange: false
+  t3:
+    enable: true

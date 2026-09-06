@@ -1,0 +1,7 @@
+# Input ablation: OpenFace3 behavior stream only (visual stream zeroed).
+# RISK-001 guardrail: quantifies the behavior-only overfitting baseline in the new stack.
+extends: eva_di_base.yaml
+run:
+  run_id: ab-of3-only
+ablation:
+  input_mode: of3_only

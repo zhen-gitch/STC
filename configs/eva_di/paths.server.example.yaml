@@ -1,0 +1,17 @@
+# EVA-DI machine-private path override TEMPLATE (rib-style, cf. trans
+# configs/defaults/paths.server.example.yaml).  Copy to paths.server.yaml on
+# each machine (gitignored), fill ABSOLUTE paths, then either merge into run
+# configs' flat `paths:` sections or export the same values as EVA_DI_* env
+# vars (src/eva_di/paths.py resolution: explicit arg > EVA_DI_* env > default).
+# NEVER commit the filled file: real subject data paths stay machine-local.
+paths:
+  of3_root: /usr/local/conda/zhen/dataset/AVEC2014/openface3/20260727-avec2014-formal-features-masked-v2
+  avec_root: /usr/local/conda/zhen/dataset/AVEC2014
+  split_file: /usr/local/conda/zhen/dataset/AVEC2014/dataset_split.json
+  label_dir: /usr/local/conda/zhen/dataset/AVEC2014/depression_labels
+  weight_path: /usr/local/conda/zhen/project/stc/weights/eva02_small_patch14_224.mim_in22k/model.safetensors
+  behavior_norm_root: /usr/local/conda/zhen/dataset/AVEC2014/behavior_normalization_train_v1
+  # writable roots (created lazily by their writers; keep OUTSIDE the repo):
+  cache_root: /usr/local/conda/zhen/project/stc-runs/eva_di_v1/cache
+  log_root: /usr/local/conda/zhen/project/stc-runs/eva_di_v1/logs
+  output_root: /usr/local/conda/zhen/project/stc-runs/eva_di_v1/outputs

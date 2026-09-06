@@ -1,0 +1,7 @@
+# DI-DERM: DI-FULL with subject labels deranged within train (negative control).
+# If it behaves like DI-FULL, the effect is non-identity-specific (mechanism section 7).
+extends: di_full.yaml
+run:
+  run_id: di-derm
+identity:
+  derange: true

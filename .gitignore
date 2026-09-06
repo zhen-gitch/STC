@@ -42,3 +42,6 @@ artifacts/
 .DS_Store
 .idea/
 .vscode/settings.json
+
+# machine-private EVA-DI path overrides (rib-style, never commit)
+configs/eva_di/paths.server.yaml
